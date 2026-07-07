@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "supersocks-url-scraper"
+version = "0.1.0"
+description = "Small dependency-light URL reader/scraper that extracts page titles and readable summaries."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Supersocks" }]
+keywords = ["url", "scraper", "reader", "metadata", "summary", "html"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[project.scripts]
+supersocks-url-scraper = "supersocks_url_scraper.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/supersocks/supersocks-url-scraper"
+Issues = "https://github.com/supersocks/supersocks-url-scraper/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
