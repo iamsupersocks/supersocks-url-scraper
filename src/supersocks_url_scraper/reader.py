@@ -175,6 +175,60 @@ def extract_image_url(markup: str) -> str:
     return ""
 
 
+GENERIC_UI_TITLES = {
+    "paramètres d'affichage",
+    "paramètres d’affichage",
+    "parametres d'affichage",
+    "parametres d’affichage",
+    "display settings",
+    "settings",
+    "menu",
+    "navigation",
+    "affichage",
+    "table de concordance",
+    "votre avis nous intéresse !",
+    "votre avis nous interesse !",
+    "droit national",
+    "publications officielles",
+}
+
+
+def is_generic_title(title: str | None) -> bool:
+    normalized = " ".join((title or "").strip().lower().split())
+    return not normalized or normalized in GENERIC_UI_TITLES or len(normalized) < 4
+
+
+def better_title_from_markup(markup: str, current: str | None = None) -> str | None:
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        title = extract_title(markup)
+        if title and not is_generic_title(title):
+            return title
+        return current if current and not is_generic_title(current) else None
+    try:
+        soup = BeautifulSoup(markup, "lxml")
+    except Exception:
+        title = extract_title(markup)
+        if title and not is_generic_title(title):
+            return title
+        return current if current and not is_generic_title(current) else None
+    for selector in ({"property": "og:title"}, {"name": "twitter:title"}, {"name": "title"}):
+        tag = soup.find("meta", attrs=selector)
+        value = tag.get("content", "").strip() if tag else ""
+        if value and not is_generic_title(value):
+            return value
+    if current and not is_generic_title(current):
+        return current
+    for heading_name in ("h1", "h2"):
+        for heading in soup.find_all(heading_name):
+            value = heading.get_text(" ", strip=True)
+            if value and len(value) >= 6 and not is_generic_title(value):
+                return value
+    title = extract_title(markup)
+    return None if is_generic_title(title) else title
+
+
 def detect_content_type(resource: FetchedResource) -> ContentType:
     ctype = (resource.content_type or "").split(";", 1)[0].strip().lower()
     if ctype.startswith("image/"):
@@ -331,9 +385,14 @@ def extract_article(markup: str, url: str) -> ArticleContent:
         return ArticleContent(title=None, text="", method="empty")
     for candidate in (_try_trafilatura(markup, url), _try_readability(markup)):
         if candidate and candidate.text:
-            title = candidate.title or extract_title(markup) or None
+            title = better_title_from_markup(markup, candidate.title) or candidate.title or extract_title(markup) or None
             return ArticleContent(title=title, text=candidate.text, method=candidate.method)
-    return _bs4_or_regex_fallback(markup)
+    fallback = _bs4_or_regex_fallback(markup)
+    return ArticleContent(
+        title=better_title_from_markup(markup, fallback.title) or fallback.title,
+        text=fallback.text,
+        method=fallback.method,
+    )
 
 
 def extract_pdf(data: bytes) -> PdfContent:
@@ -417,6 +476,18 @@ def _trim(text: str, max_chars: int) -> str:
 def article_boilerplate_reason(title: str | None, text: str) -> str | None:
     normalized_title = (title or "").strip().lower()
     normalized_text = " ".join((text or "").lower().split())
+    if "javascript is not available" in normalized_title or "javascript is not available" in normalized_text:
+        return "javascript-required page"
+    social_stub_markers = [
+        "log in sign up",
+        "don’t miss what’s happening",
+        "don't miss what's happening",
+        "people on x are the first to know",
+        "x.com needs javascript",
+        "please wait for verification",
+    ]
+    if any(marker in normalized_text for marker in social_stub_markers) and len(normalized_text) < 1200:
+        return "social/login/javascript stub"
     if normalized_title in {"page not found", "not found", "404"} or "page not found" in normalized_title:
         return "page-not-found title"
     cookie_markers = ["data collected and processed", "device characteristics", "device identifiers", "privacy choices", "cookie duration", "authentication-derived identifiers"]
@@ -555,6 +626,10 @@ def read_url(
     fetch_method = _fetch_method(resource)
     if content_type == "article":
         article = extract_article(resource.text, resource.final_url)
+        if is_generic_title(article.title) or "legifrance.gouv.fr" in normalize_domain(resource.final_url):
+            first_line = next((line.strip(" -") for line in article.text.splitlines() if line.strip(" -")), "")
+            if first_line.lower().startswith("article "):
+                article = ArticleContent(title=_trim(first_line, 180), text=article.text, method=article.method)
         reason = article_boilerplate_reason(article.title, article.text)
         if reason:
             warnings.append(f"article extraction looks like boilerplate/non-article content: {reason}")
