@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "supersocks-url-scraper"
-version = "0.1.0"
+version = "0.2.0"
 description = "Small dependency-light URL reader/scraper that extracts page titles and readable summaries."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -23,6 +23,9 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
+article = ["beautifulsoup4>=4.12", "lxml>=5.2", "trafilatura>=1.12", "readability-lxml>=0.8.1"]
+pdf = ["PyMuPDF>=1.24"]
+full = ["beautifulsoup4>=4.12", "lxml>=5.2", "trafilatura>=1.12", "readability-lxml>=0.8.1", "PyMuPDF>=1.24"]
 test = ["pytest>=8.0"]
 
 [project.scripts]

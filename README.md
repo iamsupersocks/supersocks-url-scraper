@@ -6,14 +6,22 @@ It is designed for agent pipelines, RSS/news tooling, and local automation where
 
 ## Features
 
-- No required third-party runtime dependencies.
+- No required third-party runtime dependencies for the basic reader.
+- Optional extras for high-quality article extraction and PDF parsing.
 - CLI one-shot mode.
-- Optional HTTP service with `/health` and `/summarize`.
+- Optional HTTP service with `/health`, `/summarize`, `/read`, and `/markdown`.
+- Detects articles, PDFs, images, and unknown binary content.
 - Extracts from:
   - OpenGraph/Twitter/HTML metadata
   - JSON-LD article objects
-  - readable `<p>` paragraphs
-- Returns warnings for partial extraction.
+  - trafilatura/readability/BeautifulSoup when optional article extras are installed
+  - readable `<p>` paragraphs or regex fallback without extras
+- PDF text extraction via optional PyMuPDF.
+- Deterministic placeholder descriptions for images when no vision model is configured.
+- SEO-style HTTP fallback variants: Googlebot, Bingbot, Google/Facebook/t.co referers.
+- Optional per-domain JSON strategy cache storing only routing metadata.
+- Markdown output.
+- Returns warnings for partial extraction, boilerplate, paywalls, and placeholders.
 - Does **not** execute JavaScript.
 - Safe to run locally or in cron/server contexts.
 
@@ -35,12 +43,19 @@ When that happens, check the `status` and `warnings` fields.
 pip install supersocks-url-scraper
 ```
 
+For better article extraction and PDF support:
+
+```bash
+pip install 'supersocks-url-scraper[full]'
+```
+
 Or from a local checkout:
 
 ```bash
 python -m venv .venv
 . .venv/bin/activate
 pip install -e .
+# or: pip install -e '.[full,test]'
 ```
 
 ## CLI usage
@@ -59,6 +74,18 @@ Include cleaned page content:
 
 ```bash
 supersocks-url-scraper --include-content https://example.com/article
+```
+
+Markdown output:
+
+```bash
+supersocks-url-scraper --markdown --include-content https://example.com/article
+```
+
+Use an optional metadata-only per-domain strategy cache:
+
+```bash
+supersocks-url-scraper --strategy-cache ./fetch-strategies.json https://example.com/article
 ```
 
 ## HTTP service
@@ -83,18 +110,27 @@ curl -s http://127.0.0.1:8768/summarize \
   -d '{"url":"https://example.com/article","length":900}' | jq
 ```
 
+`/read` is an alias that returns the same JSON contract. `/markdown` returns `text/markdown`:
+
+```bash
+curl -s http://127.0.0.1:8768/markdown \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com/article","length":900,"include_content":true}'
+```
+
 Response shape:
 
 ```json
 {
   "status": "ok",
   "url": "https://example.com/article",
+  "content_type": "article",
   "title": "Article title",
   "summary": "Readable summary text...",
-  "published": "2026-01-01T12:00:00Z",
-  "content_type": "text/html; charset=utf-8",
+  "length": 900,
+  "fetch_method": "http",
   "warnings": [],
-  "reader": "supersocks-url-scraper/0.1"
+  "image_url": "https://example.com/og.jpg"
 }
 ```
 
@@ -114,6 +150,8 @@ print(result["summary"])
 docker build -t supersocks-url-scraper .
 docker run --rm -p 8768:8768 supersocks-url-scraper
 ```
+
+The Docker image installs the `full` extra for article and PDF extraction.
 
 ## Privacy / public-safety note
 
