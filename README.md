@@ -124,7 +124,7 @@ This repository is intentionally standalone and does not include:
 - private logs
 - private user paths
 - LLMgram-specific config
-- Celeste-specific config
+- upstream/internal-project-specific config
 
 ## License
 

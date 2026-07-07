@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 
 DEFAULT_TIMEOUT = 12
 MAX_BYTES = 1_500_000
-DEFAULT_USER_AGENT = "supersocks-url-scraper/0.1 (+https://github.com/supersocks/supersocks-url-scraper)"
+DEFAULT_USER_AGENT = "supersocks-url-scraper/0.1 (+https://github.com/iamsupersocks/supersocks-url-scraper)"
 
 
 @dataclass(frozen=True)

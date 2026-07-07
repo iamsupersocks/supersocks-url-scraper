@@ -29,8 +29,8 @@ test = ["pytest>=8.0"]
 supersocks-url-scraper = "supersocks_url_scraper.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/supersocks/supersocks-url-scraper"
-Issues = "https://github.com/supersocks/supersocks-url-scraper/issues"
+Homepage = "https://github.com/iamsupersocks/supersocks-url-scraper"
+Issues = "https://github.com/iamsupersocks/supersocks-url-scraper/issues"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
