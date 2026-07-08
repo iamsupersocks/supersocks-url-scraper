@@ -19,6 +19,7 @@ It is designed for agent pipelines, RSS/news tooling, and local automation where
 - PDF text extraction via optional PyMuPDF.
 - Deterministic placeholder descriptions for images when no vision model is configured.
 - SEO-style HTTP fallback variants: Googlebot, Bingbot, Google/Facebook/t.co referers.
+- Optional browser/Cloak fallback for hostile media when the `browser` extra is installed.
 - Optional per-domain JSON strategy cache storing only routing metadata.
 - Markdown output.
 - Returns warnings for partial extraction, boilerplate, paywalls, and placeholders.
@@ -47,6 +48,12 @@ For better article extraction and PDF support:
 
 ```bash
 pip install 'supersocks-url-scraper[full]'
+```
+
+For hostile/paywalled media fallback via CloakBrowser:
+
+```bash
+pip install 'supersocks-url-scraper[full,browser]'
 ```
 
 Or from a local checkout:
@@ -88,6 +95,26 @@ Use an optional metadata-only per-domain strategy cache:
 supersocks-url-scraper --strategy-cache ./fetch-strategies.json https://example.com/article
 ```
 
+Enable optional browser fallback for hostile media such as some Le Point / Les Échos pages:
+
+```bash
+supersocks-url-scraper \
+  --browser-fallback \
+  --browser-post-load-wait-ms 10000 \
+  https://www.lesechos.fr/industrie-services/energie-environnement/emissions-de-co2-ou-en-est-la-france-secteur-par-secteur-2038411
+```
+
+For sites that need an already-authenticated/sessioned browser profile, pass a persistent profile directory:
+
+```bash
+supersocks-url-scraper \
+  --browser-fallback \
+  --browser-profile-dir ./browser-profile \
+  https://www.lepoint.fr/environnement/les-effets-concrets-du-rechauffement-des-oceans-sur-la-peche-13-12-2025-2605287_1927.php
+```
+
+The strategy cache may also seed browser routes with `{"fetch_method":"cloak"}` or `{"fetch_method":"cloak-profile"}` for a domain. The cache stores routing metadata only — no cookies, tokens, page content, or profile data.
+
 ## HTTP service
 
 Start the service:
@@ -108,6 +135,14 @@ Summarize a URL:
 curl -s http://127.0.0.1:8768/summarize \
   -H 'content-type: application/json' \
   -d '{"url":"https://example.com/article","length":900}' | jq
+```
+
+Browser fallback can also be enabled per request:
+
+```bash
+curl -s http://127.0.0.1:8768/summarize \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://www.lepoint.fr/...","length":1200,"include_content":true,"browser_fallback":true,"browser_post_load_wait_ms":10000}' | jq
 ```
 
 `/read` is an alias that returns the same JSON contract. `/markdown` returns `text/markdown`:
@@ -163,6 +198,7 @@ This repository is intentionally standalone and does not include:
 - private user paths
 - LLMgram-specific config
 - upstream/internal-project-specific config
+- browser profiles or cookies
 
 ## License
 

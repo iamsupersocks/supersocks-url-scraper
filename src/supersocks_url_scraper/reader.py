@@ -298,6 +298,38 @@ def seo_variants() -> list[tuple[str, dict[str, str]]]:
     ]
 
 
+def fetch_with_browser(
+    url: str,
+    *,
+    timeout: int = 60,
+    max_bytes: int = MAX_BYTES,
+    profile_dir: str = "",
+    post_load_wait_ms: int = 8000,
+) -> FetchedResource:
+    from .browser_fetcher import fetch_with_cloak
+
+    page = fetch_with_cloak(
+        url,
+        timeout_seconds=float(timeout),
+        post_load_wait_ms=post_load_wait_ms,
+        profile_dir=profile_dir,
+    )
+    raw = page.html.encode("utf-8")
+    if len(raw) > max_bytes:
+        raise FetchError(f"browser response exceeds max_bytes={max_bytes}")
+    headers = {"content-type": "text/html; charset=utf-8", "x-fetch-method": page.method}
+    if page.title:
+        headers["x-browser-title"] = page.title
+    return FetchedResource(
+        url=url,
+        final_url=page.final_url,
+        status_code=page.status_code,
+        content=raw,
+        content_type="text/html; charset=utf-8",
+        headers=headers,
+    )
+
+
 def fetch_with_seo_variants(url: str, *, preferred_method: str | None = None, timeout: int = DEFAULT_TIMEOUT, max_bytes: int = MAX_BYTES) -> FetchedResource:
     variants = seo_variants()
     if preferred_method:
@@ -538,12 +570,12 @@ class StrategyCache:
         if not isinstance(value, dict):
             return None
         method = str(value.get("fetch_method") or "")
-        if method not in {"http", "seo"}:
+        if method not in {"http", "seo", "cloak", "cloak-profile"}:
             return None
         return StrategyRecord(method, str(value.get("detail") or ""), int(value.get("success_count") or 0), int(value.get("failure_count") or 0), str(value.get("last_success_at") or ""), str(value.get("last_failure_at") or ""))
 
     def record_success(self, url: str, fetch_method: str, *, detail: str = "") -> None:
-        if not self.path or fetch_method not in {"http", "seo"}:
+        if not self.path or fetch_method not in {"http", "seo", "cloak", "cloak-profile"}:
             return
         domain = normalize_domain(url)
         if not domain:
@@ -573,9 +605,36 @@ def _fetch_method(resource: FetchedResource) -> str:
     return resource.headers.get("x-fetch-method", "http") if resource.headers else "http"
 
 
-def _fetch_with_pipeline(url: str, *, timeout: int, max_bytes: int, user_agent: str, seo_fallback: bool, strategy_cache_path: str | None, warnings: list[str]) -> FetchedResource:
+def _fetch_with_pipeline(
+    url: str,
+    *,
+    timeout: int,
+    max_bytes: int,
+    user_agent: str,
+    seo_fallback: bool,
+    strategy_cache_path: str | None,
+    browser_fallback: bool,
+    browser_profile_dir: str,
+    browser_post_load_wait_ms: int,
+    warnings: list[str],
+) -> FetchedResource:
     cache = StrategyCache(strategy_cache_path)
     cached = cache.get(url)
+    if cached and cached.fetch_method in {"cloak", "cloak-profile"}:
+        profile = browser_profile_dir if cached.fetch_method == "cloak-profile" else ""
+        warnings.append(f"strategy cache preferred: {cached.fetch_method}")
+        try:
+            resource = fetch_with_browser(
+                url,
+                timeout=max(timeout, 60),
+                max_bytes=max_bytes,
+                profile_dir=profile,
+                post_load_wait_ms=browser_post_load_wait_ms,
+            )
+            cache.record_success(url, resource.headers.get("x-fetch-method", cached.fetch_method))
+            return resource
+        except Exception as exc:
+            warnings.append(f"strategy cache preferred method failed: {exc}")
     if cached and cached.fetch_method == "seo":
         warnings.append(f"strategy cache preferred: seo/{cached.detail}")
         try:
@@ -598,6 +657,21 @@ def _fetch_with_pipeline(url: str, *, timeout: int, max_bytes: int, user_agent: 
                 return resource
             except FetchError as seo_error:
                 warnings.append(str(seo_error))
+        if browser_fallback:
+            try:
+                resource = fetch_with_browser(
+                    url,
+                    timeout=max(timeout, 60),
+                    max_bytes=max_bytes,
+                    profile_dir=browser_profile_dir,
+                    post_load_wait_ms=browser_post_load_wait_ms,
+                )
+                method = resource.headers.get("x-fetch-method", "cloak")
+                warnings.append(f"browser fallback used: {method}")
+                cache.record_success(url, method)
+                return resource
+            except Exception as browser_error:
+                warnings.append(f"browser fallback failed: {browser_error}")
         raise first_error
 
 
@@ -611,6 +685,9 @@ def read_url(
     user_agent: str = DEFAULT_USER_AGENT,
     seo_fallback: bool = True,
     strategy_cache_path: str | None = None,
+    browser_fallback: bool = False,
+    browser_profile_dir: str = "",
+    browser_post_load_wait_ms: int = 8000,
 ) -> dict[str, Any]:
     warnings: list[str] = []
     max_chars = max(50, min(int(length or 900), 10_000))
@@ -618,7 +695,18 @@ def read_url(
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return {"url": url, "content_type": "unknown", "title": None, "summary": "", "length": max_chars, "fetch_method": "http", "status": "error", "warnings": ["invalid http(s) URL"]}
     try:
-        resource = _fetch_with_pipeline(url, timeout=timeout, max_bytes=max_bytes, user_agent=user_agent, seo_fallback=seo_fallback, strategy_cache_path=strategy_cache_path, warnings=warnings)
+        resource = _fetch_with_pipeline(
+            url,
+            timeout=timeout,
+            max_bytes=max_bytes,
+            user_agent=user_agent,
+            seo_fallback=seo_fallback,
+            strategy_cache_path=strategy_cache_path,
+            browser_fallback=browser_fallback,
+            browser_profile_dir=browser_profile_dir,
+            browser_post_load_wait_ms=browser_post_load_wait_ms,
+            warnings=warnings,
+        )
     except FetchError as exc:
         return {"url": url, "content_type": "unknown", "title": None, "summary": "", "length": max_chars, "fetch_method": "http", "status": "error", "warnings": warnings + [f"fetch failed: {exc}"]}
 

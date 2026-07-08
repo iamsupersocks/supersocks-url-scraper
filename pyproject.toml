@@ -26,6 +26,7 @@ dependencies = []
 article = ["beautifulsoup4>=4.12", "lxml>=5.2", "trafilatura>=1.12", "readability-lxml>=0.8.1"]
 pdf = ["PyMuPDF>=1.24"]
 full = ["beautifulsoup4>=4.12", "lxml>=5.2", "trafilatura>=1.12", "readability-lxml>=0.8.1", "PyMuPDF>=1.24"]
+browser = ["cloakbrowser>=0.4.8"]
 test = ["pytest>=8.0"]
 
 [project.scripts]

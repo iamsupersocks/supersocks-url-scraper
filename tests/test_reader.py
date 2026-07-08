@@ -7,6 +7,7 @@ from threading import Thread
 
 import pytest
 
+from supersocks_url_scraper import reader
 from supersocks_url_scraper.reader import clean_text, detect_content_type, extract_title, read_url, to_markdown, FetchedResource
 
 
@@ -115,3 +116,35 @@ def test_strategy_cache_records_http_success(fixture_base_url: str, tmp_path: Pa
     data = json.loads(cache.read_text(encoding="utf-8"))
     assert "127.0.0.1" in data
     assert data["127.0.0.1"]["fetch_method"] == "http"
+
+
+def test_browser_fallback_after_http_and_seo_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    html = """
+    <html><head><title>Browser article</title></head><body>
+    <article><p>This browser-rendered article paragraph is long enough to be extracted as a useful summary after HTTP and SEO both fail.</p></article>
+    </body></html>
+    """
+
+    def fail_fetch(*args: object, **kwargs: object) -> FetchedResource:
+        raise reader.FetchError("HTTP 403")
+
+    def fake_browser(*args: object, **kwargs: object) -> FetchedResource:
+        return FetchedResource(
+            "https://blocked.example/article",
+            "https://blocked.example/article",
+            200,
+            html.encode("utf-8"),
+            "text/html; charset=utf-8",
+            {"x-fetch-method": "cloak", "content-type": "text/html; charset=utf-8"},
+        )
+
+    monkeypatch.setattr(reader, "fetch_url", fail_fetch)
+    monkeypatch.setattr(reader, "fetch_with_seo_variants", fail_fetch)
+    monkeypatch.setattr(reader, "fetch_with_browser", fake_browser)
+
+    result = read_url("https://blocked.example/article", browser_fallback=True, include_content=True)
+    assert result["status"] == "ok"
+    assert result["fetch_method"] == "cloak"
+    assert result["title"] == "Browser article"
+    assert any("browser fallback used: cloak" in warning for warning in result["warnings"])
+    assert "browser-rendered article" in result["content"]

@@ -45,6 +45,9 @@ class Handler(BaseHTTPRequestHandler):
             include_content=bool(payload.get("include_content")),
             seo_fallback=bool(payload.get("seo_fallback", True)),
             strategy_cache_path=payload.get("strategy_cache_path") or None,
+            browser_fallback=bool(payload.get("browser_fallback", False)),
+            browser_profile_dir=str(payload.get("browser_profile_dir") or ""),
+            browser_post_load_wait_ms=int(payload.get("browser_post_load_wait_ms") or 8000),
         )
 
     def do_POST(self) -> None:  # noqa: N802
@@ -75,6 +78,9 @@ def main() -> int:
     parser.add_argument("--markdown", action="store_true", help="Print markdown instead of JSON in one-shot mode")
     parser.add_argument("--no-seo-fallback", action="store_true", help="Disable SEO-style HTTP fallback variants")
     parser.add_argument("--strategy-cache", default="", help="Optional JSON file storing successful per-domain fetch strategy metadata")
+    parser.add_argument("--browser-fallback", action="store_true", help="Enable optional CloakBrowser fallback after HTTP/SEO failures")
+    parser.add_argument("--browser-profile-dir", default="", help="Optional persistent CloakBrowser profile directory for logged-in/paywalled sites")
+    parser.add_argument("--browser-post-load-wait-ms", type=int, default=8000, help="Extra wait after DOMContentLoaded for browser fallback")
     parser.add_argument("--serve", action="store_true", help="Run HTTP server with /health, /summarize, /read, /markdown")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8768)
@@ -94,6 +100,9 @@ def main() -> int:
         include_content=args.include_content,
         seo_fallback=not args.no_seo_fallback,
         strategy_cache_path=args.strategy_cache or None,
+        browser_fallback=args.browser_fallback,
+        browser_profile_dir=args.browser_profile_dir,
+        browser_post_load_wait_ms=args.browser_post_load_wait_ms,
     )
     if args.markdown:
         print(to_markdown(result), end="")
