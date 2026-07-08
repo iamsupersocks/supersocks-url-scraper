@@ -148,3 +148,52 @@ def test_browser_fallback_after_http_and_seo_failures(monkeypatch: pytest.Monkey
     assert result["title"] == "Browser article"
     assert any("browser fallback used: cloak" in warning for warning in result["warnings"])
     assert "browser-rendered article" in result["content"]
+
+
+def test_paywall_teaser_retries_browser_then_archive(monkeypatch: pytest.MonkeyPatch) -> None:
+    teaser = """
+    <html><head><title>Paywalled article</title></head><body>
+    <p>Ce service est réservé aux abonnés. Connectez-vous pour lire la suite. S’identifier.</p>
+    </body></html>
+    """
+    archive_html = """
+    <html><head><title>Full archived article</title></head><body>
+    <article><p>This archived full article has enough substantial text to prove the archive fallback replaced a subscriber-only teaser.</p>
+    <p>It contains useful paragraphs that can be summarized instead of returning an empty paywall warning.</p></article>
+    </body></html>
+    """
+
+    def fake_fetch(*args: object, **kwargs: object) -> FetchedResource:
+        return FetchedResource(
+            "https://news.example/paywall",
+            "https://news.example/paywall",
+            200,
+            teaser.encode("utf-8"),
+            "text/html; charset=utf-8",
+            {"x-fetch-method": "http", "content-type": "text/html; charset=utf-8"},
+        )
+
+    def fake_browser(*args: object, **kwargs: object) -> None:
+        raise reader.FetchError("browser blocked")
+
+    def fake_archive(*args: object, **kwargs: object) -> FetchedResource:
+        return FetchedResource(
+            "https://news.example/paywall",
+            "https://news.example/paywall",
+            200,
+            archive_html.encode("utf-8"),
+            "text/html; charset=utf-8",
+            {"x-fetch-method": "archive", "x-archive-method": "wayback", "content-type": "text/html; charset=utf-8"},
+        )
+
+    monkeypatch.setattr(reader, "fetch_url", fake_fetch)
+    monkeypatch.setattr(reader, "fetch_with_browser", fake_browser)
+    monkeypatch.setattr(reader, "fetch_from_archives", fake_archive)
+
+    result = read_url("https://news.example/paywall", browser_fallback=True, include_content=True)
+    assert result["status"] == "ok"
+    assert result["fetch_method"] == "archive"
+    assert result["title"] == "Full archived article"
+    assert "archived full article" in result["content"]
+    assert any("article looked unusable" in warning for warning in result["warnings"])
+    assert any("archive fallback used" in warning for warning in result["warnings"])

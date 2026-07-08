@@ -48,6 +48,7 @@ class Handler(BaseHTTPRequestHandler):
             browser_fallback=bool(payload.get("browser_fallback", False)),
             browser_profile_dir=str(payload.get("browser_profile_dir") or ""),
             browser_post_load_wait_ms=int(payload.get("browser_post_load_wait_ms") or 8000),
+            archive_fallback=bool(payload.get("archive_fallback", True)),
         )
 
     def do_POST(self) -> None:  # noqa: N802
@@ -81,6 +82,7 @@ def main() -> int:
     parser.add_argument("--browser-fallback", action="store_true", help="Enable optional CloakBrowser fallback after HTTP/SEO failures")
     parser.add_argument("--browser-profile-dir", default="", help="Optional persistent CloakBrowser profile directory for logged-in/paywalled sites")
     parser.add_argument("--browser-post-load-wait-ms", type=int, default=8000, help="Extra wait after DOMContentLoaded for browser fallback")
+    parser.add_argument("--no-archive-fallback", action="store_true", help="Disable public archive/cache fallback after HTTP/SEO/browser failures or paywall teasers")
     parser.add_argument("--serve", action="store_true", help="Run HTTP server with /health, /summarize, /read, /markdown")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8768)
@@ -103,6 +105,7 @@ def main() -> int:
         browser_fallback=args.browser_fallback,
         browser_profile_dir=args.browser_profile_dir,
         browser_post_load_wait_ms=args.browser_post_load_wait_ms,
+        archive_fallback=not args.no_archive_fallback,
     )
     if args.markdown:
         print(to_markdown(result), end="")

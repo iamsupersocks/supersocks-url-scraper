@@ -20,15 +20,15 @@ It is designed for agent pipelines, RSS/news tooling, and local automation where
 - Deterministic placeholder descriptions for images when no vision model is configured.
 - SEO-style HTTP fallback variants: Googlebot, Bingbot, Google/Facebook/t.co referers.
 - Optional browser/Cloak fallback for hostile media when the `browser` extra is installed.
+- Celeste-style fallback pipeline: HTTP → SEO variants → CloakBrowser → public archive/cache snapshots, including retry when HTTP returns only a teaser/paywall/cookie wall.
 - Optional per-domain JSON strategy cache storing only routing metadata.
 - Markdown output.
 - Returns warnings for partial extraction, boilerplate, paywalls, and placeholders.
-- Does **not** execute JavaScript.
 - Safe to run locally or in cron/server contexts.
 
 ## Limitations
 
-This scraper intentionally does not run a browser. It may return partial or boilerplate content for:
+The basic scraper intentionally starts without a browser. With `browser_fallback` disabled, it may return partial or boilerplate content for:
 
 - JavaScript-heavy pages
 - login walls
@@ -104,6 +104,12 @@ supersocks-url-scraper \
   https://www.lesechos.fr/industrie-services/energie-environnement/emissions-de-co2-ou-en-est-la-france-secteur-par-secteur-2038411
 ```
 
+By default the CLI also tries public archive/cache snapshots as a last resort, including when a publisher returns HTTP 200 but extraction detects only a subscriber teaser/cookie wall. Disable that with:
+
+```bash
+supersocks-url-scraper --no-archive-fallback https://example.com/article
+```
+
 For sites that need an already-authenticated/sessioned browser profile, pass a persistent profile directory:
 
 ```bash
@@ -142,7 +148,7 @@ Browser fallback can also be enabled per request:
 ```bash
 curl -s http://127.0.0.1:8768/summarize \
   -H 'content-type: application/json' \
-  -d '{"url":"https://www.lepoint.fr/...","length":1200,"include_content":true,"browser_fallback":true,"browser_post_load_wait_ms":10000}' | jq
+  -d '{"url":"https://www.lepoint.fr/...","length":1200,"include_content":true,"browser_fallback":true,"archive_fallback":true,"browser_post_load_wait_ms":10000}' | jq
 ```
 
 `/read` is an alias that returns the same JSON contract. `/markdown` returns `text/markdown`:

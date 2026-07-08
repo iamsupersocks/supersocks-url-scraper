@@ -11,7 +11,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse, urlsplit
+from urllib.parse import quote, urlparse, urlsplit
 from urllib.request import Request, urlopen
 
 DEFAULT_TIMEOUT = 20
@@ -356,6 +356,64 @@ def fetch_with_seo_variants(url: str, *, preferred_method: str | None = None, ti
     raise FetchError("seo fallback failed: " + "; ".join(errors))
 
 
+
+
+def _looks_like_bad_archive_snapshot(markup: str) -> bool:
+    normalized = " ".join((markup or "").lower().split())
+    if not normalized:
+        return True
+    bad_markers = [
+        "welcome to nginx",
+        "the nginx web server is successfully installed and working",
+        "datadome captcha",
+        "captcha-delivery.com",
+        "please enable js and disable any ad blocker",
+    ]
+    return any(marker in normalized for marker in bad_markers)
+
+
+def archive_candidates(url: str) -> list[tuple[str, str]]:
+    """Return public cache/archive lookup URLs for an already-saved snapshot.
+
+    This mirrors Celeste's last-resort architecture: do not submit/save pages;
+    only read snapshots/cache entries that already exist.
+    """
+    encoded = quote(url, safe=":/")
+    google_cache_encoded = "cache:" + quote(url, safe="")
+    return [
+        ("google-cache", f"https://webcache.googleusercontent.com/search?q={google_cache_encoded}"),
+        ("archive.today", f"https://archive.today/latest/{encoded}"),
+        ("archive.is", f"https://archive.is/latest/{encoded}"),
+        ("wayback", f"https://web.archive.org/web/2/{encoded}"),
+    ]
+
+
+def fetch_from_archives(url: str, *, timeout: int = DEFAULT_TIMEOUT, max_bytes: int = MAX_BYTES) -> FetchedResource:
+    errors: list[str] = []
+    for method, candidate_url in archive_candidates(url):
+        try:
+            resource = fetch_url(candidate_url, timeout=timeout, max_bytes=max_bytes, fetch_method="archive")
+        except FetchError as exc:
+            errors.append(f"{method}: {exc}")
+            continue
+        if _looks_like_bad_archive_snapshot(resource.text):
+            errors.append(f"{method}: unusable archive snapshot")
+            continue
+        headers = dict(resource.headers)
+        headers["x-fetch-method"] = "archive"
+        headers["x-archive-method"] = method
+        headers["x-archive-url"] = resource.final_url
+        return FetchedResource(
+            url=url,
+            final_url=url,
+            status_code=resource.status_code,
+            content=resource.content,
+            content_type=resource.content_type,
+            headers=headers,
+        )
+    raise FetchError("archive fallback failed: " + ("; ".join(errors) if errors else "no archive candidates tried"))
+
+
 def _try_trafilatura(markup: str, url: str) -> ArticleContent | None:
     try:
         import trafilatura
@@ -570,12 +628,12 @@ class StrategyCache:
         if not isinstance(value, dict):
             return None
         method = str(value.get("fetch_method") or "")
-        if method not in {"http", "seo", "cloak", "cloak-profile"}:
+        if method not in {"http", "seo", "cloak", "cloak-profile", "archive", "fallback"}:
             return None
         return StrategyRecord(method, str(value.get("detail") or ""), int(value.get("success_count") or 0), int(value.get("failure_count") or 0), str(value.get("last_success_at") or ""), str(value.get("last_failure_at") or ""))
 
     def record_success(self, url: str, fetch_method: str, *, detail: str = "") -> None:
-        if not self.path or fetch_method not in {"http", "seo", "cloak", "cloak-profile"}:
+        if not self.path or fetch_method not in {"http", "seo", "cloak", "cloak-profile", "archive", "fallback"}:
             return
         domain = normalize_domain(url)
         if not domain:
@@ -605,6 +663,55 @@ def _fetch_method(resource: FetchedResource) -> str:
     return resource.headers.get("x-fetch-method", "http") if resource.headers else "http"
 
 
+def _try_browser_resource(
+    url: str,
+    *,
+    timeout: int,
+    max_bytes: int,
+    browser_fallback: bool,
+    browser_profile_dir: str,
+    browser_post_load_wait_ms: int,
+    warnings: list[str],
+) -> FetchedResource | None:
+    if not browser_fallback:
+        return None
+    try:
+        resource = fetch_with_browser(
+            url,
+            timeout=max(timeout, 60),
+            max_bytes=max_bytes,
+            profile_dir=browser_profile_dir,
+            post_load_wait_ms=browser_post_load_wait_ms,
+        )
+        method = resource.headers.get("x-fetch-method", "cloak")
+        warnings.append(f"browser fallback used: {method} (initial_status={resource.status_code})")
+        return resource
+    except Exception as browser_error:
+        warnings.append(f"browser fallback failed: {browser_error}")
+        return None
+
+
+def _try_archive_resource(
+    url: str,
+    *,
+    timeout: int,
+    max_bytes: int,
+    archive_fallback: bool,
+    warnings: list[str],
+) -> FetchedResource | None:
+    if not archive_fallback:
+        return None
+    try:
+        resource = fetch_from_archives(url, timeout=timeout, max_bytes=max_bytes)
+        method = resource.headers.get("x-archive-method", "archive")
+        archive_url = resource.headers.get("x-archive-url", "")
+        warnings.append(f"archive fallback used: {method} ({archive_url})")
+        return resource
+    except FetchError as archive_error:
+        warnings.append(str(archive_error))
+        return None
+
+
 def _fetch_with_pipeline(
     url: str,
     *,
@@ -616,6 +723,7 @@ def _fetch_with_pipeline(
     browser_fallback: bool,
     browser_profile_dir: str,
     browser_post_load_wait_ms: int,
+    archive_fallback: bool,
     warnings: list[str],
 ) -> FetchedResource:
     cache = StrategyCache(strategy_cache_path)
@@ -623,18 +731,11 @@ def _fetch_with_pipeline(
     if cached and cached.fetch_method in {"cloak", "cloak-profile"}:
         profile = browser_profile_dir if cached.fetch_method == "cloak-profile" else ""
         warnings.append(f"strategy cache preferred: {cached.fetch_method}")
-        try:
-            resource = fetch_with_browser(
-                url,
-                timeout=max(timeout, 60),
-                max_bytes=max_bytes,
-                profile_dir=profile,
-                post_load_wait_ms=browser_post_load_wait_ms,
-            )
+        resource = _try_browser_resource(url, timeout=timeout, max_bytes=max_bytes, browser_fallback=True, browser_profile_dir=profile, browser_post_load_wait_ms=browser_post_load_wait_ms, warnings=warnings)
+        if resource is not None:
             cache.record_success(url, resource.headers.get("x-fetch-method", cached.fetch_method))
             return resource
-        except Exception as exc:
-            warnings.append(f"strategy cache preferred method failed: {exc}")
+        warnings.append("strategy cache preferred method failed; falling back to full pipeline")
     if cached and cached.fetch_method == "seo":
         warnings.append(f"strategy cache preferred: seo/{cached.detail}")
         try:
@@ -643,6 +744,14 @@ def _fetch_with_pipeline(
             return resource
         except FetchError as exc:
             warnings.append(f"strategy cache preferred method failed: {exc}")
+    if cached and cached.fetch_method == "archive":
+        warnings.append(f"strategy cache preferred: archive/{cached.detail}")
+        resource = _try_archive_resource(url, timeout=timeout, max_bytes=max_bytes, archive_fallback=True, warnings=warnings)
+        if resource is not None:
+            cache.record_success(url, "archive", detail=resource.headers.get("x-archive-method", ""))
+            return resource
+        warnings.append("strategy cache preferred method failed; falling back to full pipeline")
+
     try:
         resource = fetch_url(url, timeout=timeout, max_bytes=max_bytes, user_agent=user_agent)
         cache.record_success(url, "http")
@@ -657,21 +766,14 @@ def _fetch_with_pipeline(
                 return resource
             except FetchError as seo_error:
                 warnings.append(str(seo_error))
-        if browser_fallback:
-            try:
-                resource = fetch_with_browser(
-                    url,
-                    timeout=max(timeout, 60),
-                    max_bytes=max_bytes,
-                    profile_dir=browser_profile_dir,
-                    post_load_wait_ms=browser_post_load_wait_ms,
-                )
-                method = resource.headers.get("x-fetch-method", "cloak")
-                warnings.append(f"browser fallback used: {method}")
-                cache.record_success(url, method)
-                return resource
-            except Exception as browser_error:
-                warnings.append(f"browser fallback failed: {browser_error}")
+        resource = _try_browser_resource(url, timeout=timeout, max_bytes=max_bytes, browser_fallback=browser_fallback, browser_profile_dir=browser_profile_dir, browser_post_load_wait_ms=browser_post_load_wait_ms, warnings=warnings)
+        if resource is not None:
+            cache.record_success(url, resource.headers.get("x-fetch-method", "cloak"))
+            return resource
+        resource = _try_archive_resource(url, timeout=timeout, max_bytes=max_bytes, archive_fallback=archive_fallback, warnings=warnings)
+        if resource is not None:
+            cache.record_success(url, "archive", detail=resource.headers.get("x-archive-method", ""))
+            return resource
         raise first_error
 
 
@@ -688,6 +790,7 @@ def read_url(
     browser_fallback: bool = False,
     browser_profile_dir: str = "",
     browser_post_load_wait_ms: int = 8000,
+    archive_fallback: bool = True,
 ) -> dict[str, Any]:
     warnings: list[str] = []
     max_chars = max(50, min(int(length or 900), 10_000))
@@ -705,6 +808,7 @@ def read_url(
             browser_fallback=browser_fallback,
             browser_profile_dir=browser_profile_dir,
             browser_post_load_wait_ms=browser_post_load_wait_ms,
+            archive_fallback=archive_fallback,
             warnings=warnings,
         )
     except FetchError as exc:
@@ -719,6 +823,49 @@ def read_url(
             if first_line.lower().startswith("article "):
                 article = ArticleContent(title=_trim(first_line, 180), text=article.text, method=article.method)
         reason = article_boilerplate_reason(article.title, article.text)
+
+        # Celeste-style second-stage fallback: many publishers return HTTP 200
+        # with only a subscriber teaser/cookie wall. Treat that as a failed
+        # extraction and reroute through browser, then archive/cache.
+        if reason and fetch_method not in {"cloak", "cloak-profile", "browser", "archive"}:
+            warnings.append(f"{fetch_method} article looked unusable ({reason}); trying browser/archive fallback")
+            browser_resource = _try_browser_resource(url, timeout=timeout, max_bytes=max_bytes, browser_fallback=browser_fallback, browser_profile_dir=browser_profile_dir, browser_post_load_wait_ms=browser_post_load_wait_ms, warnings=warnings)
+            if browser_resource is not None:
+                browser_article = extract_article(browser_resource.text, browser_resource.final_url)
+                browser_reason = article_boilerplate_reason(browser_article.title, browser_article.text)
+                if not browser_reason:
+                    resource = browser_resource
+                    article = browser_article
+                    reason = None
+                    fetch_method = _fetch_method(resource)
+                else:
+                    warnings.append(f"browser content looked unusable ({browser_reason}); trying archive fallback")
+            if reason:
+                archive_resource = _try_archive_resource(url, timeout=timeout, max_bytes=max_bytes, archive_fallback=archive_fallback, warnings=warnings)
+                if archive_resource is not None:
+                    archive_article = extract_article(archive_resource.text, archive_resource.final_url)
+                    archive_reason = article_boilerplate_reason(archive_article.title, archive_article.text)
+                    if not archive_reason:
+                        resource = archive_resource
+                        article = archive_article
+                        reason = None
+                        fetch_method = _fetch_method(resource)
+                    else:
+                        warnings.append(f"archive content looked unusable ({archive_reason})")
+        elif reason and fetch_method in {"cloak", "cloak-profile", "browser"}:
+            warnings.append(f"browser content looked unusable ({reason}); trying archive fallback")
+            archive_resource = _try_archive_resource(url, timeout=timeout, max_bytes=max_bytes, archive_fallback=archive_fallback, warnings=warnings)
+            if archive_resource is not None:
+                archive_article = extract_article(archive_resource.text, archive_resource.final_url)
+                archive_reason = article_boilerplate_reason(archive_article.title, archive_article.text)
+                if not archive_reason:
+                    resource = archive_resource
+                    article = archive_article
+                    reason = None
+                    fetch_method = _fetch_method(resource)
+                else:
+                    warnings.append(f"archive content looked unusable ({archive_reason})")
+
         if reason:
             warnings.append(f"article extraction looks like boilerplate/non-article content: {reason}")
             return {"url": resource.final_url, "content_type": "article", "title": article.title, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "partial", "warnings": warnings, "content": article.text if include_content else None}
