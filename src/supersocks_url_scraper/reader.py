@@ -663,6 +663,14 @@ def _fetch_method(resource: FetchedResource) -> str:
     return resource.headers.get("x-fetch-method", "http") if resource.headers else "http"
 
 
+def _record_final_strategy(strategy_cache_path: str | None, original_url: str, resource: FetchedResource) -> None:
+    """Persist the final successful route after all quality/fallback decisions."""
+    if not strategy_cache_path:
+        return
+    detail = resource.headers.get("x-seo-method") or resource.headers.get("x-archive-method") or ""
+    StrategyCache(strategy_cache_path).record_success(original_url, _fetch_method(resource), detail=detail)
+
+
 def _try_browser_resource(
     url: str,
     *,
@@ -871,6 +879,7 @@ def read_url(
             return {"url": resource.final_url, "content_type": "article", "title": article.title, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "partial", "warnings": warnings, "content": article.text if include_content else None}
         summary = extractive_summary(article.text, max_chars)
         warnings.append(f"local extractive summary (method={article.method})")
+        _record_final_strategy(strategy_cache_path, url, resource)
         payload = {"url": resource.final_url, "content_type": "article", "title": article.title or extract_title(resource.text) or None, "summary": summary, "length": max_chars, "fetch_method": fetch_method, "status": "ok" if summary else "partial", "warnings": warnings, "image_url": extract_image_url(resource.text) or None}
         if include_content:
             payload["content"] = article.text
@@ -884,6 +893,7 @@ def read_url(
         if not pdf.text.strip():
             return {"url": resource.final_url, "content_type": "pdf", "title": pdf.title, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "partial", "warnings": warnings + ["PDF parsed but no extractable text"]}
         summary = extractive_summary(pdf.text, max_chars)
+        _record_final_strategy(strategy_cache_path, url, resource)
         payload = {"url": resource.final_url, "content_type": "pdf", "title": pdf.title, "summary": summary, "length": max_chars, "fetch_method": fetch_method, "status": "ok" if summary else "partial", "warnings": warnings + [f"local extractive summary (pages={pdf.page_count})"]}
         if include_content:
             payload["content"] = pdf.text
@@ -891,6 +901,7 @@ def read_url(
 
     if content_type == "image":
         title, summary = describe_image_placeholder(resource.final_url, resource.content_type, len(resource.content), max_chars)
+        _record_final_strategy(strategy_cache_path, url, resource)
         return {"url": resource.final_url, "content_type": "image", "title": title, "summary": summary, "length": max_chars, "fetch_method": fetch_method, "status": "ok", "warnings": warnings + ["placeholder image description (no vision provider configured)"]}
 
     return {"url": resource.final_url, "content_type": "unknown", "title": None, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "error", "warnings": warnings + [f"unsupported content type: {resource.content_type!r}"]}

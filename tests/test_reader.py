@@ -150,7 +150,7 @@ def test_browser_fallback_after_http_and_seo_failures(monkeypatch: pytest.Monkey
     assert "browser-rendered article" in result["content"]
 
 
-def test_paywall_teaser_retries_browser_then_archive(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_paywall_teaser_retries_browser_then_archive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     teaser = """
     <html><head><title>Paywalled article</title></head><body>
     <p>Ce service est réservé aux abonnés. Connectez-vous pour lire la suite. S’identifier.</p>
@@ -190,10 +190,12 @@ def test_paywall_teaser_retries_browser_then_archive(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(reader, "fetch_with_browser", fake_browser)
     monkeypatch.setattr(reader, "fetch_from_archives", fake_archive)
 
-    result = read_url("https://news.example/paywall", browser_fallback=True, include_content=True)
+    result = read_url("https://news.example/paywall", browser_fallback=True, include_content=True, strategy_cache_path=str(tmp_path / "strategies.json"))
     assert result["status"] == "ok"
     assert result["fetch_method"] == "archive"
     assert result["title"] == "Full archived article"
     assert "archived full article" in result["content"]
     assert any("article looked unusable" in warning for warning in result["warnings"])
     assert any("archive fallback used" in warning for warning in result["warnings"])
+    cached = json.loads((tmp_path / "strategies.json").read_text(encoding="utf-8"))
+    assert cached["news.example"]["fetch_method"] == "archive"

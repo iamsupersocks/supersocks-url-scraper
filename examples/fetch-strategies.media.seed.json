@@ -1,4 +1,9 @@
 {
+  "20minutes.fr": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
   "agirpourlatransition.ademe.fr": {
     "failure_count": 0,
     "fetch_method": "http",
@@ -9,7 +14,28 @@
     "fetch_method": "http",
     "success_count": 1
   },
+  "bloomberg.com": {
+    "failure_count": 0,
+    "fetch_method": "cloak",
+    "success_count": 1
+  },
+  "challenges.fr": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
   "franceinfo.fr": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "ft.com": {
+    "failure_count": 0,
+    "fetch_method": "seo",
+    "success_count": 1,
+    "detail": "referer-google"
+  },
+  "huffingtonpost.fr": {
     "failure_count": 0,
     "fetch_method": "http",
     "success_count": 1
@@ -24,10 +50,15 @@
     "fetch_method": "http",
     "success_count": 2
   },
+  "lemonde.fr": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
   "lepoint.fr": {
     "failure_count": 0,
-    "fetch_method": "cloak-profile",
-    "success_count": 10
+    "fetch_method": "cloak",
+    "success_count": 1
   },
   "lesbases.anct.gouv.fr": {
     "failure_count": 0,
@@ -39,7 +70,32 @@
     "fetch_method": "cloak",
     "success_count": 1
   },
+  "liberation.fr": {
+    "failure_count": 0,
+    "fetch_method": "cloak",
+    "success_count": 1
+  },
+  "mediapart.fr": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "nouvelobs.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "nytimes.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
   "ourworldindata.org": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "politico.eu": {
     "failure_count": 0,
     "fetch_method": "http",
     "success_count": 1
@@ -47,6 +103,26 @@
   "rte-france.com": {
     "failure_count": 0,
     "fetch_method": "http",
+    "success_count": 1
+  },
+  "techcrunch.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "theguardian.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "theverge.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "wsj.com": {
+    "failure_count": 0,
+    "fetch_method": "cloak",
     "success_count": 1
   }
 }

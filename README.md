@@ -125,7 +125,7 @@ supersocks-url-scraper \
 
 The strategy cache may also seed browser routes with `{"fetch_method":"cloak"}` or `{"fetch_method":"cloak-profile"}` for a domain. The cache stores routing metadata only — no cookies, tokens, page content, or profile data.
 
-A generic media strategy seed is included for tested domains:
+A generic media strategy seed is included for tested domains. It currently contains verified routes for 20+ common media domains, so repeat runs can jump directly to `http`, `seo`, or `cloak` where appropriate:
 
 ```bash
 python3 scripts/seed_strategy_cache.py \
