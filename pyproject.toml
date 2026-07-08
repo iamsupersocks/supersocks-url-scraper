@@ -9,7 +9,7 @@ description = "Small dependency-light URL reader/scraper that extracts page titl
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "Supersocks" }]
+authors = [{ name = "Contributors" }]
 keywords = ["url", "scraper", "reader", "metadata", "summary", "html"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -31,10 +31,6 @@ test = ["pytest>=8.0"]
 
 [project.scripts]
 supersocks-url-scraper = "supersocks_url_scraper.cli:main"
-
-[project.urls]
-Homepage = "https://github.com/iamsupersocks/supersocks-url-scraper"
-Issues = "https://github.com/iamsupersocks/supersocks-url-scraper/issues"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

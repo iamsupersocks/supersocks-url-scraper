@@ -2,7 +2,7 @@
 
 The core package deliberately stays dependency-light. This module is only used
 when the ``browser`` extra is installed and a caller explicitly enables browser
-fallback. It mirrors the Celeste URL Reader pattern: try normal HTTP first, then
+fallback. It follows a layered URL-reader pattern: try normal HTTP first, then
 render with CloakBrowser for domains where HTTP/SEO see 403, DataDome, or JS
 stubs.
 """

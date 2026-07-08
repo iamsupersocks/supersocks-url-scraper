@@ -16,7 +16,7 @@ from urllib.request import Request, urlopen
 
 DEFAULT_TIMEOUT = 20
 MAX_BYTES = 25 * 1024 * 1024
-DEFAULT_USER_AGENT = "supersocks-url-scraper/0.2 (+https://github.com/iamsupersocks/supersocks-url-scraper)"
+DEFAULT_USER_AGENT = "supersocks-url-scraper/0.2"
 
 GOOGLEBOT_UA = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
 BINGBOT_UA = "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)"
@@ -375,7 +375,7 @@ def _looks_like_bad_archive_snapshot(markup: str) -> bool:
 def archive_candidates(url: str) -> list[tuple[str, str]]:
     """Return public cache/archive lookup URLs for an already-saved snapshot.
 
-    This mirrors Celeste's last-resort architecture: do not submit/save pages;
+    Last-resort archive/cache lookup: do not submit/save pages;
     only read snapshots/cache entries that already exist.
     """
     encoded = quote(url, safe=":/")
@@ -824,7 +824,7 @@ def read_url(
                 article = ArticleContent(title=_trim(first_line, 180), text=article.text, method=article.method)
         reason = article_boilerplate_reason(article.title, article.text)
 
-        # Celeste-style second-stage fallback: many publishers return HTTP 200
+        # Second-stage fallback: many publishers return HTTP 200
         # with only a subscriber teaser/cookie wall. Treat that as a failed
         # extraction and reroute through browser, then archive/cache.
         if reason and fetch_method not in {"cloak", "cloak-profile", "browser", "archive"}:

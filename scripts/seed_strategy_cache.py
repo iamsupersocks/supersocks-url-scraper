@@ -6,7 +6,7 @@ fetched content, credentials, browser profiles, or article text.
 
 Example:
     python3 scripts/seed_strategy_cache.py \
-      --seed examples/fetch-strategies.celeste.seed.json \
+      --seed examples/fetch-strategies.media.seed.json \
       --cache data/fetch-strategies.json
 """
 from __future__ import annotations
@@ -92,7 +92,7 @@ def merge_seed(seed_path: Path, cache_path: Path, *, overwrite: bool = False) ->
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seed", default="examples/fetch-strategies.celeste.seed.json")
+    parser.add_argument("--seed", default="examples/fetch-strategies.media.seed.json")
     parser.add_argument("--cache", default="data/fetch-strategies.json")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()

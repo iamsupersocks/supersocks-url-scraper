@@ -1,4 +1,4 @@
-"""Supersocks URL Scraper public package."""
+"""URL scraper public package."""
 
 from .reader import read_url, to_markdown
 

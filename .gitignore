@@ -1,16 +1,24 @@
+# Python
 __pycache__/
 *.py[cod]
-*.egg-info/
 .pytest_cache/
-.ruff_cache/
 .mypy_cache/
-.coverage
-htmlcov/
-dist/
-build/
+.ruff_cache/
+
+# Virtual environments
 .venv/
+venv/
 .env
 .env.*
-!.env.example
-.DS_Store
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Runtime/local data
+data/
+browser-profile/
+browser-profiles/
+fetch-strategies.json
 *.log

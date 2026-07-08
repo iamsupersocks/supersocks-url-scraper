@@ -1,4 +1,4 @@
-# Supersocks URL Scraper
+# URL Scraper
 
 A small, dependency-light URL reader/scraper for extracting a page title, metadata, readable summary, publication date, content type, and extraction warnings.
 
@@ -20,7 +20,7 @@ It is designed for agent pipelines, RSS/news tooling, and local automation where
 - Deterministic placeholder descriptions for images when no vision model is configured.
 - SEO-style HTTP fallback variants: Googlebot, Bingbot, Google/Facebook/t.co referers.
 - Optional browser/Cloak fallback for hostile media when the `browser` extra is installed.
-- Celeste-style fallback pipeline: HTTP → SEO variants → CloakBrowser → public archive/cache snapshots, including retry when HTTP returns only a teaser/paywall/cookie wall.
+- Layered fallback pipeline: HTTP → SEO variants → CloakBrowser → public archive/cache snapshots, including retry when HTTP returns only a teaser/paywall/cookie wall.
 - Optional per-domain JSON strategy cache storing only routing metadata.
 - Markdown output.
 - Returns warnings for partial extraction, boilerplate, paywalls, and placeholders.
@@ -121,11 +121,11 @@ supersocks-url-scraper \
 
 The strategy cache may also seed browser routes with `{"fetch_method":"cloak"}` or `{"fetch_method":"cloak-profile"}` for a domain. The cache stores routing metadata only — no cookies, tokens, page content, or profile data.
 
-A Celeste-derived seed is included for the tested media corpus:
+A generic media strategy seed is included for tested domains:
 
 ```bash
 python3 scripts/seed_strategy_cache.py \
-  --seed examples/fetch-strategies.celeste.seed.json \
+  --seed examples/fetch-strategies.media.seed.json \
   --cache data/fetch-strategies.json
 
 supersocks-url-scraper \
@@ -212,16 +212,30 @@ The default Docker image installs `full,browser`, Chromium runtime libraries, an
 docker build --build-arg INSTALL_EXTRAS=full --build-arg PREWARM_BROWSER=0 -t supersocks-url-scraper:lite .
 ```
 
-## Privacy / public-safety note
+## Architecture coverage
 
-This repository is intentionally standalone and does not include:
+This public repo includes the URL-reading core from the fuller internal app:
 
-- private Telegram code
+- HTTP fetching with timeout and size guards.
+- Article/PDF/image detection.
+- Article extraction with metadata, JSON-LD, trafilatura, readability, BeautifulSoup, and regex fallback.
+- Local extractive summaries plus optional full cleaned content.
+- SEO-style requests: Googlebot, Bingbot, and search/social referer variants.
+- Optional CloakBrowser rendering, including persistent browser profiles.
+- Public archive/cache fallbacks: Google cache URL pattern, archive.today, archive.is, and Wayback.
+- Quality gates that reject cookie walls, subscriber teasers, CAPTCHA/domain-only stubs, JS-only pages, and short error pages before summarizing.
+- Per-domain strategy cache plus a generic media seed.
+- Docker image with browser runtime.
+
+Intentionally excluded from this standalone public repo: social-network-native routes, private automation, chat integrations, hosted-service authentication, LLM-provider wiring, and vision-provider wiring. Those are application integrations, not required for the URL/paywall-reading core.
+
+## Educational use, responsibility, and privacy
+
+This project is provided for educational and research purposes. It demonstrates common URL reading, readability extraction, browser rendering, SEO-style requests, and public archive/cache lookup techniques. These techniques are often used to access or bypass soft paywalls, bot walls, and content exposed to browsers, crawlers, caches, or public archives. No tool can guarantee access to every paywall, especially account-only or server-side hard paywalls. You are responsible for complying with applicable laws, website terms, copyright rules, rate limits, and account/subscription agreements. Use at your own risk.
+
+This repository is standalone and does not include:
+
 - tokens or credentials
-- private logs
-- private user paths
-- LLMgram-specific config
-- upstream/internal-project-specific config
 - browser profiles or cookies
 
 ## License
