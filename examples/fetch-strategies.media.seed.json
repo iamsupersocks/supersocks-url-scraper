@@ -9,6 +9,27 @@
     "fetch_method": "http",
     "success_count": 1
   },
+  "apnews.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "arstechnica.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "axios.com": {
+    "failure_count": 0,
+    "fetch_method": "seo",
+    "success_count": 1,
+    "detail": "referer-google"
+  },
+  "bbc.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
   "bfmtv.com": {
     "failure_count": 0,
     "fetch_method": "http",
@@ -19,7 +40,38 @@
     "fetch_method": "cloak",
     "success_count": 1
   },
+  "businessinsider.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
   "challenges.fr": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "cnbc.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "cnn.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "economist.com": {
+    "failure_count": 0,
+    "fetch_method": "seo",
+    "success_count": 1,
+    "detail": "referer-google"
+  },
+  "forbes.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "foreignpolicy.com": {
     "failure_count": 0,
     "fetch_method": "http",
     "success_count": 1
@@ -80,10 +132,21 @@
     "fetch_method": "http",
     "success_count": 1
   },
+  "nature.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
   "nouvelobs.com": {
     "failure_count": 0,
     "fetch_method": "http",
     "success_count": 1
+  },
+  "npr.org": {
+    "failure_count": 0,
+    "fetch_method": "seo",
+    "success_count": 1,
+    "detail": "referer-google"
   },
   "nytimes.com": {
     "failure_count": 0,
@@ -100,7 +163,28 @@
     "fetch_method": "http",
     "success_count": 1
   },
+  "reuters.com": {
+    "failure_count": 0,
+    "fetch_method": "cloak",
+    "success_count": 1
+  },
   "rte-france.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "science.org": {
+    "failure_count": 0,
+    "fetch_method": "seo",
+    "success_count": 1,
+    "detail": "referer-google"
+  },
+  "semafor.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "statnews.com": {
     "failure_count": 0,
     "fetch_method": "http",
     "success_count": 1
@@ -110,12 +194,33 @@
     "fetch_method": "http",
     "success_count": 1
   },
+  "technologyreview.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "theatlantic.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
   "theguardian.com": {
     "failure_count": 0,
     "fetch_method": "http",
     "success_count": 1
   },
+  "theinformation.com": {
+    "failure_count": 0,
+    "fetch_method": "seo",
+    "success_count": 1,
+    "detail": "googlebot"
+  },
   "theverge.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "wired.com": {
     "failure_count": 0,
     "fetch_method": "http",
     "success_count": 1
