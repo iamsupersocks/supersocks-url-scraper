@@ -2,7 +2,7 @@
 
 A small, dependency-light URL reader/scraper for extracting a page title, metadata, readable summary, publication date, content type, and extraction warnings.
 
-It is designed for agent pipelines, RSS/news tooling, and local automation where you want a simple JSON contract without a browser stack.
+It is designed for agent pipelines, RSS/news tooling, and local automation where you want a simple JSON contract. The basic HTTP reader is dependency-light, but **CloakBrowser is the important part for hostile media, bot walls, and paywall-heavy sites**.
 
 ## Features
 
@@ -28,7 +28,7 @@ It is designed for agent pipelines, RSS/news tooling, and local automation where
 
 ## Limitations
 
-The basic scraper intentionally starts without a browser. With `browser_fallback` disabled, it may return partial or boilerplate content for:
+The basic scraper intentionally starts without a browser. With `browser_fallback` disabled or without the `browser` extra installed, it may return partial or boilerplate content for:
 
 - JavaScript-heavy pages
 - login walls
@@ -55,6 +55,8 @@ For hostile/paywalled media fallback via CloakBrowser:
 ```bash
 pip install 'supersocks-url-scraper[full,browser]'
 ```
+
+> **Important:** for the best paywall / anti-bot results, install the `browser` extra or use the default Docker image. Without CloakBrowser, the tool still works for normal sites but cannot perform the browser-rendered fallback that handles many 403s, bot walls, and paywall-heavy publishers.
 
 Or from a local checkout:
 
@@ -95,7 +97,7 @@ Use an optional metadata-only per-domain strategy cache:
 supersocks-url-scraper --strategy-cache ./fetch-strategies.json https://example.com/article
 ```
 
-Enable optional browser fallback for hostile media such as some Le Point / Les Échos pages:
+Enable optional browser fallback for hostile media such as some Le Point / Les Échos pages. This is the recommended mode for paywall-heavy use:
 
 ```bash
 supersocks-url-scraper \
@@ -103,6 +105,8 @@ supersocks-url-scraper \
   --browser-post-load-wait-ms 10000 \
   https://www.lesechos.fr/industrie-services/energie-environnement/emissions-de-co2-ou-en-est-la-france-secteur-par-secteur-2038411
 ```
+
+In recent local tests, the full media panel reached 31/31 successful reads only when CloakBrowser was available. Without the `browser` extra, normal HTTP/SEO/archive routes still work, but browser-only cases such as some Les Échos, Le Point, WSJ, Bloomberg, Libération, and Washington Post URLs can fail or become much slower.
 
 By default the CLI also tries public archive/cache snapshots as a last resort, including when a publisher returns HTTP 200 but extraction detects only a subscriber teaser/cookie wall. Disable that with:
 
@@ -221,7 +225,7 @@ This public repo includes the URL-reading core from the fuller internal app:
 - Article extraction with metadata, JSON-LD, trafilatura, readability, BeautifulSoup, and regex fallback.
 - Local extractive summaries plus optional full cleaned content.
 - SEO-style requests: Googlebot, Bingbot, and search/social referer variants.
-- Optional CloakBrowser rendering, including persistent browser profiles.
+- Optional CloakBrowser rendering, including persistent browser profiles. This is critical for the strongest paywall/anti-bot coverage.
 - Public archive/cache fallbacks: Google cache URL pattern, archive.today, archive.is, and Wayback.
 - Quality gates that reject cookie walls, subscriber teasers, CAPTCHA/domain-only stubs, JS-only pages, and short error pages before summarizing.
 - Per-domain strategy cache plus a generic media seed.
