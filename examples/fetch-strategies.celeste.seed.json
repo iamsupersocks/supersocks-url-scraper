@@ -1,0 +1,52 @@
+{
+  "agirpourlatransition.ademe.fr": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "bfmtv.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "franceinfo.fr": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "lefigaro.fr": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "lel.media": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 2
+  },
+  "lepoint.fr": {
+    "failure_count": 0,
+    "fetch_method": "cloak-profile",
+    "success_count": 10
+  },
+  "lesbases.anct.gouv.fr": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "lesechos.fr": {
+    "failure_count": 0,
+    "fetch_method": "cloak",
+    "success_count": 1
+  },
+  "ourworldindata.org": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  },
+  "rte-france.com": {
+    "failure_count": 0,
+    "fetch_method": "http",
+    "success_count": 1
+  }
+}

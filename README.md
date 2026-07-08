@@ -121,6 +121,20 @@ supersocks-url-scraper \
 
 The strategy cache may also seed browser routes with `{"fetch_method":"cloak"}` or `{"fetch_method":"cloak-profile"}` for a domain. The cache stores routing metadata only — no cookies, tokens, page content, or profile data.
 
+A Celeste-derived seed is included for the tested media corpus:
+
+```bash
+python3 scripts/seed_strategy_cache.py \
+  --seed examples/fetch-strategies.celeste.seed.json \
+  --cache data/fetch-strategies.json
+
+supersocks-url-scraper \
+  --strategy-cache data/fetch-strategies.json \
+  --browser-fallback \
+  --browser-profile-dir ./browser-profile \
+  https://www.lepoint.fr/...
+```
+
 ## HTTP service
 
 Start the service:
@@ -192,7 +206,11 @@ docker build -t supersocks-url-scraper .
 docker run --rm -p 8768:8768 supersocks-url-scraper
 ```
 
-The Docker image installs the `full` extra for article and PDF extraction.
+The default Docker image installs `full,browser`, Chromium runtime libraries, and prewarms the CloakBrowser binary so browser fallback works inside the container. For a smaller no-browser image:
+
+```bash
+docker build --build-arg INSTALL_EXTRAS=full --build-arg PREWARM_BROWSER=0 -t supersocks-url-scraper:lite .
+```
 
 ## Privacy / public-safety note
 
