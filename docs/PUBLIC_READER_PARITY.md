@@ -50,6 +50,8 @@ Implemented here:
 - Docker image with browser runtime and prewarmed Cloak binary
 - public regression corpus in `tests/fixtures/public_regression_corpus.json`, with schema/safety tests and no saved page content
 - optional generic HTTP summary provider interface, disabled by default, with no bundled keys or vendor SDK dependency
+- source-discovery registry and `scripts/discover_source.py` loop, ported from the internal method but storing only sanitized domain metadata
+- browser-profile probe script for operator-owned Cloak profile warm-up/diagnostics, with outputs outside git by default
 
 Still worth adding where it can remain public and generic:
 

@@ -122,6 +122,32 @@ python3 scripts/seed_strategy_cache.py \
   --cache data/fetch-strategies.json
 ```
 
+There are two metadata-only discovery flows:
+
+- `scripts/discover_strategy.py` probes URLs directly with the local Python reader and updates only `data/fetch-strategies.json`.
+- `scripts/discover_source.py` calls a running `/summarize` service, records a per-domain source registry in `data/source-discovery.json`, and updates the strategy cache only when the read quality is acceptable.
+
+Use `discover_source.py` for the Celeste-style loop:
+
+```text
+new URL -> /summarize -> quality classification -> source-discovery registry -> optional strategy-cache update
+```
+
+```bash
+python3 scripts/discover_source.py \
+  --base-url http://127.0.0.1:8768 \
+  --url 'https://example.com/article'
+```
+
+With bearer auth:
+
+```bash
+SUPERSOCKS_URL_READER_TOKEN="$API_BEARER_TOKEN" \
+python3 scripts/discover_source.py \
+  --base-url http://127.0.0.1:8768 \
+  --url 'https://example.com/article'
+```
+
 Discover routes from representative URLs without storing page content:
 
 ```bash
@@ -131,6 +157,8 @@ python3 scripts/discover_strategy.py \
   --browser-profile-dir ./browser-profiles/default \
   https://www.lesechos.fr/...
 ```
+
+The source registry stores only domain, timestamps, status, quality, content type, fetch method, short title, summary length, and warnings.
 
 The cache stores route metadata only, for example:
 
@@ -145,7 +173,30 @@ The cache stores route metadata only, for example:
 
 Do not store cookies, page content, provider responses, tokens, or raw HTML in the strategy cache.
 
-## 6. Optional external summary provider
+## 6. Warm or inspect a browser profile
+
+For sites that need a persistent browser session, warm a profile outside git:
+
+```bash
+python3 scripts/browser_profile_probe.py \
+  --url 'https://example.com/article' \
+  --profile-dir ./browser-profiles/default \
+  --headless
+```
+
+For manual consent/login/challenge solving on an existing display or VNC session:
+
+```bash
+DISPLAY=:91 python3 scripts/browser_profile_probe.py \
+  --url 'https://example.com/article' \
+  --profile-dir ./browser-profiles/default \
+  --no-headless \
+  --wait-seconds 180
+```
+
+The script prints status, final URL, markers such as CAPTCHA/paywall/cookie consent, and article extraction length. It writes screenshot/HTML diagnostics to `/tmp` by default. Never commit the profile, screenshot, HTML dump, cookies, or sessions.
+
+## 7. Optional external summary provider
 
 The public package does not ship vendor-specific LLM wiring. If you operate your own summarizer, configure the generic HTTP adapter:
 
@@ -170,7 +221,7 @@ The adapter posts:
 
 It accepts JSON `{ "summary": "..." }`, `{ "text": "..." }`, `{ "result": "..." }`, or plain text. If the provider fails, the reader falls back to local extractive summary and adds a warning.
 
-## 7. What not to publish
+## 8. What not to publish
 
 Never commit:
 

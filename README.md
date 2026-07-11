@@ -291,6 +291,8 @@ This public repo includes a standalone URL-reading core suitable for agent/news 
 - Quality gates that reject cookie walls, subscriber teasers, CAPTCHA/domain-only stubs, JS-only pages, and short error pages before summarizing.
 - Per-domain strategy cache plus a generic media seed.
 - Public regression corpus covering normal HTML, hostile media, PDFs, images, social-native stubs, JS-heavy surfaces, browser/profile routes, and archive fallback.
+- Source-discovery registry and route-discovery scripts that persist only domain/routing metadata.
+- Browser-profile probe for warming or inspecting operator-owned Cloak profiles without committing sessions.
 - Docker image with browser runtime.
 
 Intentionally excluded from this standalone public repo: social-network-native routes, private automation, chat integrations, hosted-service authentication, provider credentials/vendor-specific LLM SDK wiring, and vision-provider wiring. Those are application integrations, not required for the URL/paywall-reading core.
