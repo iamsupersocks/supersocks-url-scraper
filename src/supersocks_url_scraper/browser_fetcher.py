@@ -12,12 +12,27 @@ import asyncio
 import contextlib
 import io
 import os
+import threading
 from dataclasses import dataclass
 from typing import Any
 
 
 class BrowserFetchError(RuntimeError):
     """Raised when optional browser rendering cannot retrieve usable HTML."""
+
+
+_SEMAPHORE_LOCK = threading.Lock()
+_SEMAPHORES: dict[int, threading.BoundedSemaphore] = {}
+
+
+def _browser_semaphore(max_concurrency: int) -> threading.BoundedSemaphore:
+    limit = max(1, int(max_concurrency or 1))
+    with _SEMAPHORE_LOCK:
+        semaphore = _SEMAPHORES.get(limit)
+        if semaphore is None:
+            semaphore = threading.BoundedSemaphore(limit)
+            _SEMAPHORES[limit] = semaphore
+        return semaphore
 
 
 @dataclass(frozen=True)
@@ -86,19 +101,27 @@ def fetch_with_cloak(
     timeout_seconds: float = 60.0,
     post_load_wait_ms: int = 8000,
     profile_dir: str = "",
+    max_concurrency: int = 1,
 ) -> BrowserRenderedPage:
+    semaphore = _browser_semaphore(max_concurrency)
+    acquired = semaphore.acquire(timeout=max(1.0, float(timeout_seconds)))
+    if not acquired:
+        raise BrowserFetchError(f"browser concurrency limit reached ({max_concurrency})")
     try:
-        return asyncio.run(
-            fetch_with_cloak_async(
-                url,
-                timeout_seconds=timeout_seconds,
-                post_load_wait_ms=post_load_wait_ms,
-                profile_dir=profile_dir,
+        try:
+            return asyncio.run(
+                fetch_with_cloak_async(
+                    url,
+                    timeout_seconds=timeout_seconds,
+                    post_load_wait_ms=post_load_wait_ms,
+                    profile_dir=profile_dir,
+                )
             )
-        )
-    except BrowserFetchError:
-        raise
-    except RuntimeError as exc:
-        # If a future embedding calls this while an event loop is already
-        # running, fail clearly rather than deadlocking.
-        raise BrowserFetchError(str(exc)) from exc
+        except BrowserFetchError:
+            raise
+        except RuntimeError as exc:
+            # If a future embedding calls this while an event loop is already
+            # running, fail clearly rather than deadlocking.
+            raise BrowserFetchError(str(exc)) from exc
+    finally:
+        semaphore.release()

@@ -139,6 +139,18 @@ supersocks-url-scraper \
   https://www.lepoint.fr/...
 ```
 
+To discover/update routes from your own representative URLs without storing any page content:
+
+```bash
+python3 scripts/discover_strategy.py \
+  --cache data/fetch-strategies.json \
+  --browser-fallback 1 \
+  --browser-profile-dir ./browser-profile \
+  https://www.lesechos.fr/...
+```
+
+The discovery helper writes only metadata like `{"fetch_method":"cloak-profile","success_count":1}` keyed by normalized domain.
+
 ## HTTP service
 
 Start the service:
@@ -147,11 +159,58 @@ Start the service:
 supersocks-url-scraper --serve --host 127.0.0.1 --port 8768
 ```
 
+For production-grade posture, configure safe defaults through environment variables and let callers use the same `/summarize` contract:
+
+```bash
+API_BEARER_TOKEN='***' \
+BROWSER_FALLBACK=cloak \
+BROWSER_PROFILE_DIR=/browser-profiles/default \
+BROWSER_POST_LOAD_WAIT_MS=10000 \
+BROWSER_MAX_CONCURRENCY=1 \
+ARCHIVE_FALLBACK=latest \
+FETCH_STRATEGY_CACHE_PATH=/data/fetch-strategies.json \
+supersocks-url-scraper --serve --host 127.0.0.1 --port 8768
+```
+
+Supported service environment variables:
+
+- `API_BEARER_TOKEN`: optional bearer token for `POST /summarize`, `/read`, and `/markdown`.
+- `DEFAULT_SUMMARY_LENGTH`: default `length` when the request omits it.
+- `BROWSER_FALLBACK`: set to `cloak`/`1`/`true` to enable browser fallback by default.
+- `BROWSER_PROFILE_DIR`: persistent Cloak/Chromium profile directory, useful for sites requiring a warmed/sessioned browser profile.
+- `BROWSER_POST_LOAD_WAIT_MS`: extra wait after DOMContentLoaded for consent/antibot scripts.
+- `BROWSER_MAX_CONCURRENCY`: maximum concurrent CloakBrowser renders in this process. Keep this low; browser rendering is CPU/RAM-heavy.
+- `ARCHIVE_FALLBACK`: set to `latest`/`1`/`true` to allow public archive/cache fallback by default.
+- `SEO_FALLBACK`: enable/disable SEO-style HTTP variants by default.
+- `FETCH_STRATEGY_CACHE_PATH`: metadata-only domain strategy cache.
+- `SUMMARY_PROVIDER`: optional summary provider, default `local`. Currently supports `local`/`extractive`/`none` and `http`.
+- `SUMMARY_PROVIDER_URL`: endpoint for `SUMMARY_PROVIDER=http`; unset by default.
+- `SUMMARY_PROVIDER_TOKEN`: optional bearer token for the caller's own provider; unset by default.
+- `SUMMARY_PROVIDER_TIMEOUT`: timeout in seconds for the optional provider.
+
+Per-request JSON fields still override the environment defaults.
+
+External summary providers are intentionally opt-in. The package ships no API keys and no vendor SDK dependency; the generic HTTP adapter posts `{url,title,content_type,length,content}` to your configured endpoint and accepts JSON `{summary: "..."}` or a plain-text response. If the provider fails, the reader falls back to the local extractive summarizer and includes a warning.
+
+
 Health check:
 
 ```bash
 curl http://127.0.0.1:8768/health
 ```
+
+The health payload includes service config metadata: whether auth is required, whether the browser extra is installed, browser fallback defaults, profile/cache path status, archive/SEO defaults, and the configured browser concurrency limit. `GET /openapi.json` exposes a dependency-free OpenAPI 3.1 schema for the public HTTP contract.
+
+Docker Compose production-style local deployment:
+
+```bash
+cp .env.example .env
+# edit .env and set API_BEARER_TOKEN to a random local value
+docker compose up -d --build
+curl http://127.0.0.1:8768/health
+```
+
+The included `docker-compose.yml` binds the service to localhost, mounts `./data` and `./browser-profiles`, enables browser/archive fallback by default, and runs a `/health` healthcheck. For the full public deployment recipe, see [`docs/PUBLIC_DEPLOYMENT.md`](docs/PUBLIC_DEPLOYMENT.md).
 
 Summarize a URL:
 
@@ -218,20 +277,23 @@ docker build --build-arg INSTALL_EXTRAS=full --build-arg PREWARM_BROWSER=0 -t su
 
 ## Architecture coverage
 
-This public repo includes the URL-reading core from the fuller internal app:
+This public repo includes a standalone URL-reading core suitable for agent/news pipelines. See `docs/PUBLIC_READER_PARITY.md` for the public compatibility boundary and roadmap.
+
 
 - HTTP fetching with timeout and size guards.
 - Article/PDF/image detection.
 - Article extraction with metadata, JSON-LD, trafilatura, readability, BeautifulSoup, and regex fallback.
 - Local extractive summaries plus optional full cleaned content.
+- Optional generic HTTP summary-provider adapter for external summaries; disabled by default and no private keys shipped.
 - SEO-style requests: Googlebot, Bingbot, and search/social referer variants.
 - Optional CloakBrowser rendering, including persistent browser profiles. This is critical for the strongest paywall/anti-bot coverage.
 - Public archive/cache fallbacks: Google cache URL pattern, archive.today, archive.is, and Wayback.
 - Quality gates that reject cookie walls, subscriber teasers, CAPTCHA/domain-only stubs, JS-only pages, and short error pages before summarizing.
 - Per-domain strategy cache plus a generic media seed.
+- Public regression corpus covering normal HTML, hostile media, PDFs, images, social-native stubs, JS-heavy surfaces, browser/profile routes, and archive fallback.
 - Docker image with browser runtime.
 
-Intentionally excluded from this standalone public repo: social-network-native routes, private automation, chat integrations, hosted-service authentication, LLM-provider wiring, and vision-provider wiring. Those are application integrations, not required for the URL/paywall-reading core.
+Intentionally excluded from this standalone public repo: social-network-native routes, private automation, chat integrations, hosted-service authentication, provider credentials/vendor-specific LLM SDK wiring, and vision-provider wiring. Those are application integrations, not required for the URL/paywall-reading core.
 
 ## Educational use, responsibility, and privacy
 

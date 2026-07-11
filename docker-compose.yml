@@ -1,0 +1,35 @@
+services:
+  supersocks-url-scraper:
+    build:
+      context: .
+      args:
+        INSTALL_EXTRAS: full,browser
+        PREWARM_BROWSER: "1"
+    image: supersocks-url-scraper:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8768:8768"
+    environment:
+      API_BEARER_TOKEN: ${API_BEARER_TOKEN:-}
+      DEFAULT_SUMMARY_LENGTH: ${DEFAULT_SUMMARY_LENGTH:-900}
+      BROWSER_FALLBACK: ${BROWSER_FALLBACK:-1}
+      BROWSER_PROFILE_DIR: /browser-profiles/default
+      BROWSER_POST_LOAD_WAIT_MS: ${BROWSER_POST_LOAD_WAIT_MS:-10000}
+      BROWSER_MAX_CONCURRENCY: ${BROWSER_MAX_CONCURRENCY:-1}
+      ARCHIVE_FALLBACK: ${ARCHIVE_FALLBACK:-1}
+      SEO_FALLBACK: ${SEO_FALLBACK:-1}
+      FETCH_STRATEGY_CACHE_PATH: /data/fetch-strategies.json
+      SUMMARY_PROVIDER: ${SUMMARY_PROVIDER:-local}
+      SUMMARY_PROVIDER_URL: ${SUMMARY_PROVIDER_URL:-}
+      SUMMARY_PROVIDER_TOKEN: ${SUMMARY_PROVIDER_TOKEN:-}
+      SUMMARY_PROVIDER_TIMEOUT: ${SUMMARY_PROVIDER_TIMEOUT:-30}
+      CLOAKBROWSER_SUPPRESS_FONT_WARNING: "1"
+    volumes:
+      - ./data:/data
+      - ./browser-profiles:/browser-profiles
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,urllib.request; d=json.load(urllib.request.urlopen('http://127.0.0.1:8768/health', timeout=5)); raise SystemExit(0 if d.get('status') == 'ok' else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

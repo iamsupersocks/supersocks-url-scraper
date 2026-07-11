@@ -305,6 +305,7 @@ def fetch_with_browser(
     max_bytes: int = MAX_BYTES,
     profile_dir: str = "",
     post_load_wait_ms: int = 8000,
+    max_concurrency: int = 1,
 ) -> FetchedResource:
     from .browser_fetcher import fetch_with_cloak
 
@@ -313,6 +314,7 @@ def fetch_with_browser(
         timeout_seconds=float(timeout),
         post_load_wait_ms=post_load_wait_ms,
         profile_dir=profile_dir,
+        max_concurrency=max_concurrency,
     )
     raw = page.html.encode("utf-8")
     if len(raw) > max_bytes:
@@ -563,6 +565,42 @@ def _trim(text: str, max_chars: int) -> str:
     return ((cut[:space] if space >= int(max_chars * 0.5) else cut[: max_chars - 1]) + "…").strip()
 
 
+def summarize_content(
+    text: str,
+    max_chars: int,
+    *,
+    warnings: list[str],
+    url: str = "",
+    title: str | None = None,
+    content_type: str = "article",
+    summary_provider: str | None = None,
+    summary_provider_url: str | None = None,
+    summary_provider_token: str | None = None,
+    summary_provider_timeout: int = 30,
+) -> str:
+    if summary_provider and summary_provider.strip().lower() not in {"", "local", "extractive", "none"}:
+        try:
+            from .summary_provider import summarize_with_provider
+
+            summary = summarize_with_provider(
+                provider=summary_provider,
+                text=text,
+                length=max_chars,
+                url=url,
+                title=title,
+                content_type=content_type,
+                endpoint=summary_provider_url,
+                token=summary_provider_token,
+                timeout=summary_provider_timeout,
+            )
+            if summary:
+                warnings.append(f"external summary provider used: {summary_provider.strip().lower()}")
+                return _trim(summary, max_chars)
+        except Exception as exc:
+            warnings.append(f"external summary provider failed; using local extractive summary: {exc}")
+    return extractive_summary(text, max_chars)
+
+
 def article_boilerplate_reason(title: str | None, text: str) -> str | None:
     normalized_title = (title or "").strip().lower()
     normalized_text = " ".join((text or "").lower().split())
@@ -679,6 +717,7 @@ def _try_browser_resource(
     browser_fallback: bool,
     browser_profile_dir: str,
     browser_post_load_wait_ms: int,
+    browser_max_concurrency: int,
     warnings: list[str],
 ) -> FetchedResource | None:
     if not browser_fallback:
@@ -690,6 +729,7 @@ def _try_browser_resource(
             max_bytes=max_bytes,
             profile_dir=browser_profile_dir,
             post_load_wait_ms=browser_post_load_wait_ms,
+            max_concurrency=browser_max_concurrency,
         )
         method = resource.headers.get("x-fetch-method", "cloak")
         warnings.append(f"browser fallback used: {method} (initial_status={resource.status_code})")
@@ -731,6 +771,7 @@ def _fetch_with_pipeline(
     browser_fallback: bool,
     browser_profile_dir: str,
     browser_post_load_wait_ms: int,
+    browser_max_concurrency: int,
     archive_fallback: bool,
     warnings: list[str],
 ) -> FetchedResource:
@@ -739,7 +780,16 @@ def _fetch_with_pipeline(
     if cached and cached.fetch_method in {"cloak", "cloak-profile"}:
         profile = browser_profile_dir if cached.fetch_method == "cloak-profile" else ""
         warnings.append(f"strategy cache preferred: {cached.fetch_method}")
-        resource = _try_browser_resource(url, timeout=timeout, max_bytes=max_bytes, browser_fallback=True, browser_profile_dir=profile, browser_post_load_wait_ms=browser_post_load_wait_ms, warnings=warnings)
+        resource = _try_browser_resource(
+            url,
+            timeout=timeout,
+            max_bytes=max_bytes,
+            browser_fallback=True,
+            browser_profile_dir=profile,
+            browser_post_load_wait_ms=browser_post_load_wait_ms,
+            browser_max_concurrency=browser_max_concurrency,
+            warnings=warnings,
+        )
         if resource is not None:
             cache.record_success(url, resource.headers.get("x-fetch-method", cached.fetch_method))
             return resource
@@ -774,7 +824,16 @@ def _fetch_with_pipeline(
                 return resource
             except FetchError as seo_error:
                 warnings.append(str(seo_error))
-        resource = _try_browser_resource(url, timeout=timeout, max_bytes=max_bytes, browser_fallback=browser_fallback, browser_profile_dir=browser_profile_dir, browser_post_load_wait_ms=browser_post_load_wait_ms, warnings=warnings)
+        resource = _try_browser_resource(
+            url,
+            timeout=timeout,
+            max_bytes=max_bytes,
+            browser_fallback=browser_fallback,
+            browser_profile_dir=browser_profile_dir,
+            browser_post_load_wait_ms=browser_post_load_wait_ms,
+            browser_max_concurrency=browser_max_concurrency,
+            warnings=warnings,
+        )
         if resource is not None:
             cache.record_success(url, resource.headers.get("x-fetch-method", "cloak"))
             return resource
@@ -798,7 +857,12 @@ def read_url(
     browser_fallback: bool = False,
     browser_profile_dir: str = "",
     browser_post_load_wait_ms: int = 8000,
+    browser_max_concurrency: int = 1,
     archive_fallback: bool = True,
+    summary_provider: str | None = None,
+    summary_provider_url: str | None = None,
+    summary_provider_token: str | None = None,
+    summary_provider_timeout: int = 30,
 ) -> dict[str, Any]:
     warnings: list[str] = []
     max_chars = max(50, min(int(length or 900), 10_000))
@@ -816,6 +880,7 @@ def read_url(
             browser_fallback=browser_fallback,
             browser_profile_dir=browser_profile_dir,
             browser_post_load_wait_ms=browser_post_load_wait_ms,
+            browser_max_concurrency=max(1, int(browser_max_concurrency or 1)),
             archive_fallback=archive_fallback,
             warnings=warnings,
         )
@@ -837,7 +902,16 @@ def read_url(
         # extraction and reroute through browser, then archive/cache.
         if reason and fetch_method not in {"cloak", "cloak-profile", "browser", "archive"}:
             warnings.append(f"{fetch_method} article looked unusable ({reason}); trying browser/archive fallback")
-            browser_resource = _try_browser_resource(url, timeout=timeout, max_bytes=max_bytes, browser_fallback=browser_fallback, browser_profile_dir=browser_profile_dir, browser_post_load_wait_ms=browser_post_load_wait_ms, warnings=warnings)
+            browser_resource = _try_browser_resource(
+                url,
+                timeout=timeout,
+                max_bytes=max_bytes,
+                browser_fallback=browser_fallback,
+                browser_profile_dir=browser_profile_dir,
+                browser_post_load_wait_ms=browser_post_load_wait_ms,
+                browser_max_concurrency=max(1, int(browser_max_concurrency or 1)),
+                warnings=warnings,
+            )
             if browser_resource is not None:
                 browser_article = extract_article(browser_resource.text, browser_resource.final_url)
                 browser_reason = article_boilerplate_reason(browser_article.title, browser_article.text)
@@ -877,8 +951,22 @@ def read_url(
         if reason:
             warnings.append(f"article extraction looks like boilerplate/non-article content: {reason}")
             return {"url": resource.final_url, "content_type": "article", "title": article.title, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "partial", "warnings": warnings, "content": article.text if include_content else None}
-        summary = extractive_summary(article.text, max_chars)
-        warnings.append(f"local extractive summary (method={article.method})")
+        summary = summarize_content(
+            article.text,
+            max_chars,
+            warnings=warnings,
+            url=resource.final_url,
+            title=article.title,
+            content_type="article",
+            summary_provider=summary_provider,
+            summary_provider_url=summary_provider_url,
+            summary_provider_token=summary_provider_token,
+            summary_provider_timeout=summary_provider_timeout,
+        )
+        if not any(w.startswith("external summary provider used:") or w.startswith("external summary provider failed;") for w in warnings):
+            warnings.append(f"local extractive summary (method={article.method})")
+        elif any(w.startswith("external summary provider failed;") for w in warnings):
+            warnings.append(f"local extractive summary (method={article.method})")
         _record_final_strategy(strategy_cache_path, url, resource)
         payload = {"url": resource.final_url, "content_type": "article", "title": article.title or extract_title(resource.text) or None, "summary": summary, "length": max_chars, "fetch_method": fetch_method, "status": "ok" if summary else "partial", "warnings": warnings, "image_url": extract_image_url(resource.text) or None}
         if include_content:
@@ -892,9 +980,24 @@ def read_url(
             return {"url": resource.final_url, "content_type": "pdf", "title": None, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "error", "warnings": warnings + [str(exc)]}
         if not pdf.text.strip():
             return {"url": resource.final_url, "content_type": "pdf", "title": pdf.title, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "partial", "warnings": warnings + ["PDF parsed but no extractable text"]}
-        summary = extractive_summary(pdf.text, max_chars)
+        summary = summarize_content(
+            pdf.text,
+            max_chars,
+            warnings=warnings,
+            url=resource.final_url,
+            title=pdf.title,
+            content_type="pdf",
+            summary_provider=summary_provider,
+            summary_provider_url=summary_provider_url,
+            summary_provider_token=summary_provider_token,
+            summary_provider_timeout=summary_provider_timeout,
+        )
+        if not any(w.startswith("external summary provider used:") or w.startswith("external summary provider failed;") for w in warnings):
+            warnings.append(f"local extractive summary (pages={pdf.page_count})")
+        elif any(w.startswith("external summary provider failed;") for w in warnings):
+            warnings.append(f"local extractive summary (pages={pdf.page_count})")
         _record_final_strategy(strategy_cache_path, url, resource)
-        payload = {"url": resource.final_url, "content_type": "pdf", "title": pdf.title, "summary": summary, "length": max_chars, "fetch_method": fetch_method, "status": "ok" if summary else "partial", "warnings": warnings + [f"local extractive summary (pages={pdf.page_count})"]}
+        payload = {"url": resource.final_url, "content_type": "pdf", "title": pdf.title, "summary": summary, "length": max_chars, "fetch_method": fetch_method, "status": "ok" if summary else "partial", "warnings": warnings}
         if include_content:
             payload["content"] = pdf.text
         return payload

@@ -1,0 +1,182 @@
+[
+  {
+    "id": "normal-html-example",
+    "url": "https://example.com/",
+    "domain": "example.com",
+    "content_type": "article",
+    "expected_routes": ["http"],
+    "priority": "P0",
+    "notes": "Stable public HTML smoke target."
+  },
+  {
+    "id": "medium-style-ai-article",
+    "url": "https://pub.towardsai.net/ai-systems-need-coordination-planes-not-just-control-planes-fd10aeb93372",
+    "domain": "pub.towardsai.net",
+    "content_type": "article",
+    "expected_routes": ["http", "seo", "archive"],
+    "priority": "P0",
+    "notes": "Medium-family article extraction and boilerplate filtering."
+  },
+  {
+    "id": "lesechos-hostile-media",
+    "url": "https://www.lesechos.fr/industrie-services/energie-environnement/emissions-de-co2-ou-en-est-la-france-secteur-par-secteur-2038411",
+    "domain": "lesechos.fr",
+    "content_type": "article",
+    "expected_routes": ["cloak", "cloak-profile", "archive"],
+    "priority": "P0",
+    "notes": "Hostile/paywall-heavy French business media."
+  },
+  {
+    "id": "lepoint-hostile-media",
+    "url": "https://www.lepoint.fr/environnement/les-effets-concrets-du-rechauffement-des-oceans-sur-la-peche-13-12-2025-2605287_1927.php",
+    "domain": "lepoint.fr",
+    "content_type": "article",
+    "expected_routes": ["cloak-profile", "archive"],
+    "priority": "P0",
+    "notes": "Profile-backed browser route when simple HTTP returns teaser/403."
+  },
+  {
+    "id": "franceinfo-public-service",
+    "url": "https://www.franceinfo.fr/environnement/energie/jour-du-depassement-pourquoi-la-france-epuise-ses-ressources-naturelles-avant-l-allemagne-le-royaume-uni-ou-l-espagne_7959020.html",
+    "domain": "franceinfo.fr",
+    "content_type": "article",
+    "expected_routes": ["http", "seo"],
+    "priority": "P1",
+    "notes": "Public-service media article."
+  },
+  {
+    "id": "lefigaro-mainstream",
+    "url": "https://www.lefigaro.fr/conso/viande-fruits-cereales-quelle-est-la-part-de-produits-agricoles-importes-dans-nos-assiettes-20240131",
+    "domain": "lefigaro.fr",
+    "content_type": "article",
+    "expected_routes": ["http", "seo", "archive"],
+    "priority": "P1",
+    "notes": "Mainstream media with possible consent/paywall variants."
+  },
+  {
+    "id": "bfmtv-liveblog",
+    "url": "https://www.bfmtv.com/economie/economie-social/direct-vers-un-nouveau-record-d-investissements-etrangers-annonces-dans-l-hexagone-suivez-la-neuvieme-edition-du-sommet-choose-france-au-chateau-de-versailles_LN-202606010062.html",
+    "domain": "bfmtv.com",
+    "content_type": "article",
+    "expected_routes": ["http", "seo"],
+    "priority": "P1",
+    "notes": "Live/news page; watch for direct/liveblog boilerplate."
+  },
+  {
+    "id": "ademe-institutional",
+    "url": "https://agirpourlatransition.ademe.fr/particuliers/evaluer-son-impact/calculer-empreinte-carbone/calculez-empreinte-carbone-usages-numeriques",
+    "domain": "agirpourlatransition.ademe.fr",
+    "content_type": "article",
+    "expected_routes": ["http"],
+    "priority": "P1",
+    "notes": "Institutional data/explainer page."
+  },
+  {
+    "id": "rte-institutional-energy",
+    "url": "https://www.rte-france.com/eco2mix",
+    "domain": "rte-france.com",
+    "content_type": "article",
+    "expected_routes": ["http", "seo", "cloak"],
+    "priority": "P2",
+    "notes": "JS/data-heavy institutional energy page."
+  },
+  {
+    "id": "arxiv-pdf",
+    "url": "https://arxiv.org/pdf/1706.03762",
+    "domain": "arxiv.org",
+    "content_type": "pdf",
+    "expected_routes": ["http"],
+    "priority": "P0",
+    "notes": "Stable public PDF parsing target."
+  },
+  {
+    "id": "ietf-rfc-pdf",
+    "url": "https://www.rfc-editor.org/rfc/rfc9110.pdf",
+    "domain": "rfc-editor.org",
+    "content_type": "pdf",
+    "expected_routes": ["http"],
+    "priority": "P1",
+    "notes": "Public PDF with technical prose."
+  },
+  {
+    "id": "github-readme-html",
+    "url": "https://github.com/NousResearch/Hermes-Agent",
+    "domain": "github.com",
+    "content_type": "article",
+    "expected_routes": ["http", "seo"],
+    "priority": "P1",
+    "notes": "Developer page with repo metadata/readme extraction noise."
+  },
+  {
+    "id": "wikipedia-long-article",
+    "url": "https://en.wikipedia.org/wiki/Transformer_(deep_learning_architecture)",
+    "domain": "wikipedia.org",
+    "content_type": "article",
+    "expected_routes": ["http"],
+    "priority": "P1",
+    "notes": "Long structured encyclopedic article."
+  },
+  {
+    "id": "cloudflare-blog",
+    "url": "https://blog.cloudflare.com/",
+    "domain": "blog.cloudflare.com",
+    "content_type": "article",
+    "expected_routes": ["http", "seo"],
+    "priority": "P2",
+    "notes": "Modern blog/listing page; should avoid treating nav as article."
+  },
+  {
+    "id": "openai-blog",
+    "url": "https://openai.com/news/",
+    "domain": "openai.com",
+    "content_type": "article",
+    "expected_routes": ["http", "cloak"],
+    "priority": "P2",
+    "notes": "JS-heavy marketing/news page."
+  },
+  {
+    "id": "x-native-article",
+    "url": "https://x.com/i/article/2066597564749635584",
+    "domain": "x.com",
+    "content_type": "article",
+    "expected_routes": ["cloak", "fallback"],
+    "priority": "P2",
+    "notes": "Social-native pages should not be expected to work through simple HTTP."
+  },
+  {
+    "id": "image-png",
+    "url": "https://www.w3.org/Icons/w3c_home.png",
+    "domain": "w3.org",
+    "content_type": "image",
+    "expected_routes": ["http"],
+    "priority": "P1",
+    "notes": "Image placeholder contract."
+  },
+  {
+    "id": "legifrance-structured",
+    "url": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419320",
+    "domain": "legifrance.gouv.fr",
+    "content_type": "article",
+    "expected_routes": ["http", "seo"],
+    "priority": "P2",
+    "notes": "Structured public legal page with generic titles."
+  },
+  {
+    "id": "bbc-news",
+    "url": "https://www.bbc.com/news",
+    "domain": "bbc.com",
+    "content_type": "article",
+    "expected_routes": ["http", "seo"],
+    "priority": "P2",
+    "notes": "International news landing page; boilerplate/listing handling."
+  },
+  {
+    "id": "nytimes-paywall-like",
+    "url": "https://www.nytimes.com/section/technology",
+    "domain": "nytimes.com",
+    "content_type": "article",
+    "expected_routes": ["seo", "cloak", "archive"],
+    "priority": "P2",
+    "notes": "Consent/paywall-like media surface, route quality only."
+  }
+]
