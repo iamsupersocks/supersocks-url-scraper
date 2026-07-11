@@ -8,7 +8,7 @@ services:
     image: supersocks-url-scraper:latest
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8768:8768"
+      - "127.0.0.1:${SCRAPER_BIND_PORT:-8768}:8768"
     environment:
       API_BEARER_TOKEN: ${API_BEARER_TOKEN:-}
       DEFAULT_SUMMARY_LENGTH: ${DEFAULT_SUMMARY_LENGTH:-900}
