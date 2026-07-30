@@ -30,6 +30,7 @@ def test_public_regression_corpus_schema_and_safety() -> None:
         assert parsed.scheme == "https"
         assert parsed.netloc
         assert item["domain"] in parsed.netloc
+        assert item["domain"] == "example.com" or item["domain"].endswith(".example")
         assert item["content_type"] in ALLOWED_TYPES
         assert set(item["expected_routes"]).issubset(ALLOWED_ROUTES)
         assert item["priority"] in {"P0", "P1", "P2"}

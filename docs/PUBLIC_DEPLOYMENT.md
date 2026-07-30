@@ -102,7 +102,7 @@ curl -s http://127.0.0.1:8768/summarize \
   -H 'content-type: application/json' \
   -H 'authorization: Bearer YOUR_PUBLIC_SERVICE_TOKEN' \
   -d '{
-    "url":"https://www.lepoint.fr/...",
+    "url":"https://consent-paywall-publisher.example/articles/profile-backed-story",
     "length":1200,
     "browser_fallback":true,
     "archive_fallback":true,
@@ -113,7 +113,7 @@ curl -s http://127.0.0.1:8768/summarize \
 
 ## 5. Seed or discover strategy routes
 
-Seed known public media routing metadata:
+The shipped public seed is a structural template keyed only by reserved `.example` domains. It demonstrates route categories and is not a list of tested publishers:
 
 ```bash
 mkdir -p data
@@ -122,12 +122,35 @@ python3 scripts/seed_strategy_cache.py \
   --cache data/fetch-strategies.json
 ```
 
+For real operations, keep your representative list private and local:
+
+```bash
+mkdir -p data
+$EDITOR data/representative-urls.txt  # one URL per line
+python3 scripts/discover_strategy.py \
+  --urls-file data/representative-urls.txt \
+  --cache data/fetch-strategies.json \
+  --browser-fallback 1 \
+  --browser-profile-dir ./browser-profiles/default
+```
+
+Review the printed metadata-only results and `data/fetch-strategies.json`. If you maintain a private seed, merge it locally with:
+
+```bash
+python3 scripts/seed_strategy_cache.py \
+  --seed data/private-fetch-strategies.seed.json \
+  --cache data/fetch-strategies.json \
+  --overwrite
+```
+
+`data/` is gitignored. Never commit real URLs, domains, cookies, fetched content, raw HTML, screenshots, browser profiles, tokens, or private seeds.
+
 There are two metadata-only discovery flows:
 
 - `scripts/discover_strategy.py` probes URLs directly with the local Python reader and updates only `data/fetch-strategies.json`.
 - `scripts/discover_source.py` calls a running `/summarize` service, records a per-domain source registry in `data/source-discovery.json`, and updates the strategy cache only when the read quality is acceptable.
 
-Use `discover_source.py` for the Celeste-style loop:
+Use `discover_source.py` for a service-backed discovery loop:
 
 ```text
 new URL -> /summarize -> quality classification -> source-discovery registry -> optional strategy-cache update
@@ -152,10 +175,10 @@ Discover routes from representative URLs without storing page content:
 
 ```bash
 python3 scripts/discover_strategy.py \
+  --urls-file data/representative-urls.txt \
   --cache data/fetch-strategies.json \
   --browser-fallback 1 \
-  --browser-profile-dir ./browser-profiles/default \
-  https://www.lesechos.fr/...
+  --browser-profile-dir ./browser-profiles/default
 ```
 
 The source registry stores only domain, timestamps, status, quality, content type, fetch method, short title, summary length, and warnings.
@@ -164,7 +187,7 @@ The cache stores route metadata only, for example:
 
 ```json
 {
-  "lesechos.fr": {
+  "consent-paywall-publisher.example": {
     "fetch_method": "cloak-profile",
     "success_count": 1
   }

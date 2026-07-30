@@ -49,7 +49,7 @@ def test_service_uses_production_style_env_defaults(monkeypatch, service):
     base, calls = service
     monkeypatch.setenv("BROWSER_FALLBACK", "cloak")
     monkeypatch.setenv("ARCHIVE_FALLBACK", "latest")
-    monkeypatch.setenv("BROWSER_PROFILE_DIR", "/profiles/lepoint")
+    monkeypatch.setenv("BROWSER_PROFILE_DIR", "/profiles/publisher")
     monkeypatch.setenv("BROWSER_POST_LOAD_WAIT_MS", "15000")
     monkeypatch.setenv("BROWSER_MAX_CONCURRENCY", "2")
     monkeypatch.setenv("FETCH_STRATEGY_CACHE_PATH", "/data/fetch-strategies.json")
@@ -61,7 +61,7 @@ def test_service_uses_production_style_env_defaults(monkeypatch, service):
     assert body["status"] == "ok"
     assert calls[-1]["browser_fallback"] is True
     assert calls[-1]["archive_fallback"] is True
-    assert calls[-1]["browser_profile_dir"] == "/profiles/lepoint"
+    assert calls[-1]["browser_profile_dir"] == "/profiles/publisher"
     assert calls[-1]["browser_post_load_wait_ms"] == 15000
     assert calls[-1]["browser_max_concurrency"] == 2
     assert calls[-1]["strategy_cache_path"] == "/data/fetch-strategies.json"

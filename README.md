@@ -97,16 +97,16 @@ Use an optional metadata-only per-domain strategy cache:
 supersocks-url-scraper --strategy-cache ./fetch-strategies.json https://example.com/article
 ```
 
-Enable optional browser fallback for hostile media such as some Le Point / Les Échos pages. This is the recommended mode for paywall-heavy use:
+Enable optional browser fallback for hostile media, JavaScript-heavy pages, consent walls, bot checks, and soft paywalls. This is the recommended mode for paywall-heavy use:
 
 ```bash
 supersocks-url-scraper \
   --browser-fallback \
   --browser-post-load-wait-ms 10000 \
-  https://www.lesechos.fr/industrie-services/energie-environnement/emissions-de-co2-ou-en-est-la-france-secteur-par-secteur-2038411
+  https://js-heavy-publisher.example/articles/rendered-story
 ```
 
-In recent local tests, the full media panel reached 31/31 successful reads only when CloakBrowser was available. Without the `browser` extra, normal HTTP/SEO/archive routes still work, but browser-only cases such as some Les Échos, Le Point, WSJ, Bloomberg, Libération, and Washington Post URLs can fail or become much slower.
+Without the `browser` extra, normal HTTP/SEO/archive routes still work, but browser-only publisher categories can fail, return only boilerplate/teasers, or become much slower.
 
 By default the CLI also tries public archive/cache snapshots as a last resort, including when a publisher returns HTTP 200 but extraction detects only a subscriber teaser/cookie wall. Disable that with:
 
@@ -120,12 +120,12 @@ For sites that need an already-authenticated/sessioned browser profile, pass a p
 supersocks-url-scraper \
   --browser-fallback \
   --browser-profile-dir ./browser-profile \
-  https://www.lepoint.fr/environnement/les-effets-concrets-du-rechauffement-des-oceans-sur-la-peche-13-12-2025-2605287_1927.php
+  https://consent-paywall-publisher.example/articles/profile-backed-story
 ```
 
 The strategy cache may also seed browser routes with `{"fetch_method":"cloak"}` or `{"fetch_method":"cloak-profile"}` for a domain. The cache stores routing metadata only — no cookies, tokens, page content, or profile data.
 
-A generic media strategy seed is included for tested domains. It currently contains verified routes for 20+ common media domains, so repeat runs can jump directly to `http`, `seo`, or `cloak` where appropriate:
+The shipped media strategy seed is a compact structural template, not a list of tested publishers. It uses only reserved `.example` domains to show useful route categories (`http`, `seo`, `cloak`, `cloak-profile`, `archive`, PDF, and image handling):
 
 ```bash
 python3 scripts/seed_strategy_cache.py \
@@ -136,20 +136,36 @@ supersocks-url-scraper \
   --strategy-cache data/fetch-strategies.json \
   --browser-fallback \
   --browser-profile-dir ./browser-profile \
-  https://www.lepoint.fr/...
+  https://ordinary-publisher.example/articles/ordinary-html
 ```
 
-To discover/update routes from your own representative URLs without storing any page content:
+### Feeding your own representative URL list
+
+Operators should keep real representative URLs local and private:
+
+1. Create `data/representative-urls.txt`, one URL per line.
+2. Run metadata-only route discovery:
 
 ```bash
+mkdir -p data
 python3 scripts/discover_strategy.py \
+  --urls-file data/representative-urls.txt \
   --cache data/fetch-strategies.json \
   --browser-fallback 1 \
-  --browser-profile-dir ./browser-profile \
-  https://www.lesechos.fr/...
+  --browser-profile-dir ./browser-profile
 ```
 
-The discovery helper writes only metadata like `{"fetch_method":"cloak-profile","success_count":1}` keyed by normalized domain.
+3. Review the metadata-only results and `data/fetch-strategies.json`.
+4. Optionally merge an operator-owned private seed:
+
+```bash
+python3 scripts/seed_strategy_cache.py \
+  --seed data/private-fetch-strategies.seed.json \
+  --cache data/fetch-strategies.json \
+  --overwrite
+```
+
+`data/` is gitignored. Never commit real URLs, domains, cookies, fetched content, raw HTML, browser profiles, screenshots, tokens, or local private seeds. The discovery helper writes only metadata like `{"fetch_method":"cloak-profile","success_count":1}` keyed by normalized domain.
 
 ## HTTP service
 
@@ -225,7 +241,7 @@ Browser fallback can also be enabled per request:
 ```bash
 curl -s http://127.0.0.1:8768/summarize \
   -H 'content-type: application/json' \
-  -d '{"url":"https://www.lepoint.fr/...","length":1200,"include_content":true,"browser_fallback":true,"archive_fallback":true,"browser_post_load_wait_ms":10000}' | jq
+  -d '{"url":"https://consent-paywall-publisher.example/articles/profile-backed-story","length":1200,"include_content":true,"browser_fallback":true,"archive_fallback":true,"browser_post_load_wait_ms":10000}' | jq
 ```
 
 `/read` is an alias that returns the same JSON contract. `/markdown` returns `text/markdown`:

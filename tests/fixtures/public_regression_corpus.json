@@ -1,182 +1,259 @@
 [
   {
-    "id": "normal-html-example",
-    "url": "https://example.com/",
-    "domain": "example.com",
+    "id": "ordinary-html-article",
+    "url": "https://ordinary-publisher.example/articles/ordinary-html",
+    "domain": "ordinary-publisher.example",
     "content_type": "article",
-    "expected_routes": ["http"],
+    "expected_routes": [
+      "http"
+    ],
     "priority": "P0",
-    "notes": "Stable public HTML smoke target."
+    "notes": "Ordinary publisher article readable through basic HTTP."
   },
   {
-    "id": "medium-style-ai-article",
-    "url": "https://pub.towardsai.net/ai-systems-need-coordination-planes-not-just-control-planes-fd10aeb93372",
-    "domain": "pub.towardsai.net",
+    "id": "seo-readable-article",
+    "url": "https://seo-readable-publisher.example/news/seo-readable-story",
+    "domain": "seo-readable-publisher.example",
     "content_type": "article",
-    "expected_routes": ["http", "seo", "archive"],
+    "expected_routes": [
+      "http",
+      "seo"
+    ],
     "priority": "P0",
-    "notes": "Medium-family article extraction and boilerplate filtering."
+    "notes": "Publisher page where SEO-style variants may expose metadata-readable article text."
   },
   {
-    "id": "lesechos-hostile-media",
-    "url": "https://www.lesechos.fr/industrie-services/energie-environnement/emissions-de-co2-ou-en-est-la-france-secteur-par-secteur-2038411",
-    "domain": "lesechos.fr",
+    "id": "js-heavy-article",
+    "url": "https://js-heavy-publisher.example/features/rendered-story",
+    "domain": "js-heavy-publisher.example",
     "content_type": "article",
-    "expected_routes": ["cloak", "cloak-profile", "archive"],
+    "expected_routes": [
+      "cloak"
+    ],
     "priority": "P0",
-    "notes": "Hostile/paywall-heavy French business media."
+    "notes": "JavaScript-heavy publisher page that represents browser rendering coverage."
   },
   {
-    "id": "lepoint-hostile-media",
-    "url": "https://www.lepoint.fr/environnement/les-effets-concrets-du-rechauffement-des-oceans-sur-la-peche-13-12-2025-2605287_1927.php",
-    "domain": "lepoint.fr",
+    "id": "consent-wall-article",
+    "url": "https://consent-wall-publisher.example/articles/consent-gated-story",
+    "domain": "consent-wall-publisher.example",
     "content_type": "article",
-    "expected_routes": ["cloak-profile", "archive"],
+    "expected_routes": [
+      "cloak",
+      "cloak-profile"
+    ],
     "priority": "P0",
-    "notes": "Profile-backed browser route when simple HTTP returns teaser/403."
+    "notes": "Publisher page with consent-wall behavior requiring browser/profile routing."
   },
   {
-    "id": "franceinfo-public-service",
-    "url": "https://www.franceinfo.fr/environnement/energie/jour-du-depassement-pourquoi-la-france-epuise-ses-ressources-naturelles-avant-l-allemagne-le-royaume-uni-ou-l-espagne_7959020.html",
-    "domain": "franceinfo.fr",
+    "id": "soft-paywall-article",
+    "url": "https://soft-paywall-publisher.example/premium/teaser-story",
+    "domain": "soft-paywall-publisher.example",
     "content_type": "article",
-    "expected_routes": ["http", "seo"],
+    "expected_routes": [
+      "cloak-profile",
+      "archive"
+    ],
+    "priority": "P0",
+    "notes": "Soft-paywall publisher surface where HTTP can return only a teaser."
+  },
+  {
+    "id": "archive-fallback-article",
+    "url": "https://archive-fallback.example/saved/articles/archive-needed",
+    "domain": "archive-fallback.example",
+    "content_type": "article",
+    "expected_routes": [
+      "archive"
+    ],
+    "priority": "P0",
+    "notes": "Article category for public archive fallback when live routes are blocked or incomplete."
+  },
+  {
+    "id": "bot-check-article",
+    "url": "https://bot-check-publisher.example/investigations/bot-check-story",
+    "domain": "bot-check-publisher.example",
+    "content_type": "article",
+    "expected_routes": [
+      "seo",
+      "cloak",
+      "archive"
+    ],
     "priority": "P1",
-    "notes": "Public-service media article."
+    "notes": "Publisher page category with bot-check behavior and route diversity."
   },
   {
-    "id": "lefigaro-mainstream",
-    "url": "https://www.lefigaro.fr/conso/viande-fruits-cereales-quelle-est-la-part-de-produits-agricoles-importes-dans-nos-assiettes-20240131",
-    "domain": "lefigaro.fr",
+    "id": "liveblog-listing",
+    "url": "https://liveblog-publisher.example/live/rolling-updates",
+    "domain": "liveblog-publisher.example",
     "content_type": "article",
-    "expected_routes": ["http", "seo", "archive"],
+    "expected_routes": [
+      "http",
+      "seo"
+    ],
     "priority": "P1",
-    "notes": "Mainstream media with possible consent/paywall variants."
+    "notes": "Live/news listing page; useful for boilerplate and repeated-item handling."
   },
   {
-    "id": "bfmtv-liveblog",
-    "url": "https://www.bfmtv.com/economie/economie-social/direct-vers-un-nouveau-record-d-investissements-etrangers-annonces-dans-l-hexagone-suivez-la-neuvieme-edition-du-sommet-choose-france-au-chateau-de-versailles_LN-202606010062.html",
-    "domain": "bfmtv.com",
+    "id": "institutional-explainer",
+    "url": "https://institutional-source.example/resources/public-explainer",
+    "domain": "institutional-source.example",
     "content_type": "article",
-    "expected_routes": ["http", "seo"],
+    "expected_routes": [
+      "http"
+    ],
     "priority": "P1",
-    "notes": "Live/news page; watch for direct/liveblog boilerplate."
+    "notes": "Institutional explainer page readable by normal HTTP."
   },
   {
-    "id": "ademe-institutional",
-    "url": "https://agirpourlatransition.ademe.fr/particuliers/evaluer-son-impact/calculer-empreinte-carbone/calculez-empreinte-carbone-usages-numeriques",
-    "domain": "agirpourlatransition.ademe.fr",
+    "id": "data-heavy-public-page",
+    "url": "https://data-heavy-source.example/dashboards/public-data",
+    "domain": "data-heavy-source.example",
     "content_type": "article",
-    "expected_routes": ["http"],
-    "priority": "P1",
-    "notes": "Institutional data/explainer page."
-  },
-  {
-    "id": "rte-institutional-energy",
-    "url": "https://www.rte-france.com/eco2mix",
-    "domain": "rte-france.com",
-    "content_type": "article",
-    "expected_routes": ["http", "seo", "cloak"],
+    "expected_routes": [
+      "http",
+      "seo",
+      "cloak"
+    ],
     "priority": "P2",
-    "notes": "JS/data-heavy institutional energy page."
+    "notes": "Data-heavy public page that may require fallback after sparse HTML."
   },
   {
-    "id": "arxiv-pdf",
-    "url": "https://arxiv.org/pdf/1706.03762",
-    "domain": "arxiv.org",
+    "id": "long-reference-article",
+    "url": "https://reference-source.example/wiki/long-reference",
+    "domain": "reference-source.example",
+    "content_type": "article",
+    "expected_routes": [
+      "http"
+    ],
+    "priority": "P1",
+    "notes": "Long structured reference article for summary-length and section handling."
+  },
+  {
+    "id": "developer-doc-page",
+    "url": "https://developer-source.example/projects/sample-readme",
+    "domain": "developer-source.example",
+    "content_type": "article",
+    "expected_routes": [
+      "http",
+      "seo"
+    ],
+    "priority": "P1",
+    "notes": "Developer documentation page with navigation and README-like noise."
+  },
+  {
+    "id": "modern-blog-index",
+    "url": "https://blog-source.example/blog/",
+    "domain": "blog-source.example",
+    "content_type": "article",
+    "expected_routes": [
+      "http",
+      "seo"
+    ],
+    "priority": "P2",
+    "notes": "Modern blog/listing page; should avoid summarizing navigation only."
+  },
+  {
+    "id": "marketing-news-page",
+    "url": "https://marketing-source.example/news/",
+    "domain": "marketing-source.example",
+    "content_type": "article",
+    "expected_routes": [
+      "http",
+      "cloak"
+    ],
+    "priority": "P2",
+    "notes": "JavaScript-heavy marketing/news page category."
+  },
+  {
+    "id": "social-native-stub",
+    "url": "https://social-native.example/i/article/0000000000000000000",
+    "domain": "social-native.example",
+    "content_type": "article",
+    "expected_routes": [
+      "cloak",
+      "fallback"
+    ],
+    "priority": "P2",
+    "notes": "Social-native page category not expected to work through simple HTTP alone."
+  },
+  {
+    "id": "legal-structured-page",
+    "url": "https://legal-source.example/codes/article/example",
+    "domain": "legal-source.example",
+    "content_type": "article",
+    "expected_routes": [
+      "http",
+      "seo"
+    ],
+    "priority": "P2",
+    "notes": "Structured public legal page category with generic titles."
+  },
+  {
+    "id": "newsletter-style-article",
+    "url": "https://newsletter-source.example/archive/weekly-dispatch",
+    "domain": "newsletter-source.example",
+    "content_type": "article",
+    "expected_routes": [
+      "http",
+      "seo"
+    ],
+    "priority": "P2",
+    "notes": "Newsletter-style publisher page with repeated headers and footers."
+  },
+  {
+    "id": "regional-publisher-article",
+    "url": "https://regional-publisher.example/local/story-with-consent",
+    "domain": "regional-publisher.example",
+    "content_type": "article",
+    "expected_routes": [
+      "http",
+      "cloak"
+    ],
+    "priority": "P2",
+    "notes": "Regional publisher article category with possible consent-wall variants."
+  },
+  {
+    "id": "technical-pdf",
+    "url": "https://pdf-source.example/documents/technical-reference.pdf",
+    "domain": "pdf-source.example",
     "content_type": "pdf",
-    "expected_routes": ["http"],
+    "expected_routes": [
+      "http"
+    ],
     "priority": "P0",
-    "notes": "Stable public PDF parsing target."
+    "notes": "Public PDF parsing target represented by a reserved domain."
   },
   {
-    "id": "ietf-rfc-pdf",
-    "url": "https://www.rfc-editor.org/rfc/rfc9110.pdf",
-    "domain": "rfc-editor.org",
+    "id": "policy-pdf",
+    "url": "https://policy-pdf-source.example/reports/policy-document.pdf",
+    "domain": "policy-pdf-source.example",
     "content_type": "pdf",
-    "expected_routes": ["http"],
+    "expected_routes": [
+      "http"
+    ],
     "priority": "P1",
-    "notes": "Public PDF with technical prose."
-  },
-  {
-    "id": "github-readme-html",
-    "url": "https://github.com/NousResearch/Hermes-Agent",
-    "domain": "github.com",
-    "content_type": "article",
-    "expected_routes": ["http", "seo"],
-    "priority": "P1",
-    "notes": "Developer page with repo metadata/readme extraction noise."
-  },
-  {
-    "id": "wikipedia-long-article",
-    "url": "https://en.wikipedia.org/wiki/Transformer_(deep_learning_architecture)",
-    "domain": "wikipedia.org",
-    "content_type": "article",
-    "expected_routes": ["http"],
-    "priority": "P1",
-    "notes": "Long structured encyclopedic article."
-  },
-  {
-    "id": "cloudflare-blog",
-    "url": "https://blog.cloudflare.com/",
-    "domain": "blog.cloudflare.com",
-    "content_type": "article",
-    "expected_routes": ["http", "seo"],
-    "priority": "P2",
-    "notes": "Modern blog/listing page; should avoid treating nav as article."
-  },
-  {
-    "id": "openai-blog",
-    "url": "https://openai.com/news/",
-    "domain": "openai.com",
-    "content_type": "article",
-    "expected_routes": ["http", "cloak"],
-    "priority": "P2",
-    "notes": "JS-heavy marketing/news page."
-  },
-  {
-    "id": "x-native-article",
-    "url": "https://x.com/i/article/2066597564749635584",
-    "domain": "x.com",
-    "content_type": "article",
-    "expected_routes": ["cloak", "fallback"],
-    "priority": "P2",
-    "notes": "Social-native pages should not be expected to work through simple HTTP."
+    "notes": "Policy/report PDF parsing target with technical prose."
   },
   {
     "id": "image-png",
-    "url": "https://www.w3.org/Icons/w3c_home.png",
-    "domain": "w3.org",
+    "url": "https://image-source.example/assets/sample-image.png",
+    "domain": "image-source.example",
     "content_type": "image",
-    "expected_routes": ["http"],
+    "expected_routes": [
+      "http"
+    ],
     "priority": "P1",
-    "notes": "Image placeholder contract."
+    "notes": "Image placeholder contract represented by a reserved domain."
   },
   {
-    "id": "legifrance-structured",
-    "url": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419320",
-    "domain": "legifrance.gouv.fr",
-    "content_type": "article",
-    "expected_routes": ["http", "seo"],
+    "id": "image-jpeg",
+    "url": "https://photo-source.example/media/sample-photo.jpg",
+    "domain": "photo-source.example",
+    "content_type": "image",
+    "expected_routes": [
+      "http"
+    ],
     "priority": "P2",
-    "notes": "Structured public legal page with generic titles."
-  },
-  {
-    "id": "bbc-news",
-    "url": "https://www.bbc.com/news",
-    "domain": "bbc.com",
-    "content_type": "article",
-    "expected_routes": ["http", "seo"],
-    "priority": "P2",
-    "notes": "International news landing page; boilerplate/listing handling."
-  },
-  {
-    "id": "nytimes-paywall-like",
-    "url": "https://www.nytimes.com/section/technology",
-    "domain": "nytimes.com",
-    "content_type": "article",
-    "expected_routes": ["seo", "cloak", "archive"],
-    "priority": "P2",
-    "notes": "Consent/paywall-like media surface, route quality only."
+    "notes": "Photo/image source category for deterministic placeholder behavior."
   }
 ]

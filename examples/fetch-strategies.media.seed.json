@@ -1,233 +1,44 @@
 {
-  "20minutes.fr": {
+  "archive-fallback.example": {
+    "detail": "public-archive-fallback",
+    "failure_count": 0,
+    "fetch_method": "archive",
+    "success_count": 1
+  },
+  "consent-paywall-publisher.example": {
+    "detail": "operator-owned-profile",
+    "failure_count": 0,
+    "fetch_method": "cloak-profile",
+    "success_count": 1
+  },
+  "image-source.example": {
+    "detail": "image",
     "failure_count": 0,
     "fetch_method": "http",
     "success_count": 1
   },
-  "agirpourlatransition.ademe.fr": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "apnews.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "arstechnica.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "axios.com": {
-    "failure_count": 0,
-    "fetch_method": "seo",
-    "success_count": 1,
-    "detail": "referer-google"
-  },
-  "bbc.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "bfmtv.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "bloomberg.com": {
+  "js-heavy-publisher.example": {
+    "detail": "browser-rendered-page",
     "failure_count": 0,
     "fetch_method": "cloak",
     "success_count": 1
   },
-  "businessinsider.com": {
+  "ordinary-publisher.example": {
+    "detail": "ordinary-publisher-http",
     "failure_count": 0,
     "fetch_method": "http",
     "success_count": 1
   },
-  "challenges.fr": {
+  "pdf-source.example": {
+    "detail": "pdf",
     "failure_count": 0,
     "fetch_method": "http",
     "success_count": 1
   },
-  "cnbc.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "cnn.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "economist.com": {
+  "seo-readable-publisher.example": {
+    "detail": "referer-google",
     "failure_count": 0,
     "fetch_method": "seo",
-    "success_count": 1,
-    "detail": "referer-google"
-  },
-  "forbes.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "foreignpolicy.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "franceinfo.fr": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "ft.com": {
-    "failure_count": 0,
-    "fetch_method": "seo",
-    "success_count": 1,
-    "detail": "referer-google"
-  },
-  "huffingtonpost.fr": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "lefigaro.fr": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "lel.media": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 2
-  },
-  "lemonde.fr": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "lepoint.fr": {
-    "failure_count": 0,
-    "fetch_method": "cloak",
-    "success_count": 1
-  },
-  "lesbases.anct.gouv.fr": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "lesechos.fr": {
-    "failure_count": 0,
-    "fetch_method": "cloak",
-    "success_count": 1
-  },
-  "liberation.fr": {
-    "failure_count": 0,
-    "fetch_method": "cloak",
-    "success_count": 1
-  },
-  "mediapart.fr": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "nature.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "nouvelobs.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "npr.org": {
-    "failure_count": 0,
-    "fetch_method": "seo",
-    "success_count": 1,
-    "detail": "referer-google"
-  },
-  "nytimes.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "ourworldindata.org": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "politico.eu": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "reuters.com": {
-    "failure_count": 0,
-    "fetch_method": "cloak",
-    "success_count": 1
-  },
-  "rte-france.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "science.org": {
-    "failure_count": 0,
-    "fetch_method": "seo",
-    "success_count": 1,
-    "detail": "referer-google"
-  },
-  "semafor.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "statnews.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "techcrunch.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "technologyreview.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "theatlantic.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "theguardian.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "theinformation.com": {
-    "failure_count": 0,
-    "fetch_method": "seo",
-    "success_count": 1,
-    "detail": "googlebot"
-  },
-  "theverge.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "wired.com": {
-    "failure_count": 0,
-    "fetch_method": "http",
-    "success_count": 1
-  },
-  "wsj.com": {
-    "failure_count": 0,
-    "fetch_method": "cloak",
     "success_count": 1
   }
 }

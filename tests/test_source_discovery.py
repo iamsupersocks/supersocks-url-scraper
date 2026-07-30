@@ -18,15 +18,15 @@ def test_source_discovery_stores_only_sanitized_metadata(tmp_path: Path):
         "warnings": ["browser fallback used: cloak-profile (initial_status=200)"],
     }
 
-    record = update_source_discovery(path, "https://www.lepoint.fr/example", response)
+    record = update_source_discovery(path, "https://www.publisher.example/example", response)
     raw = path.read_text(encoding="utf-8")
     data = json.loads(raw)
 
-    assert record["domain"] == "lepoint.fr"
+    assert record["domain"] == "publisher.example"
     assert record["quality"] == "ok"
-    assert data["lepoint.fr"]["summary_chars"] == len(response["summary"])
+    assert data["publisher.example"]["summary_chars"] == len(response["summary"])
     assert "FULL CONTENT" not in raw
-    assert "content" not in data["lepoint.fr"]
+    assert "content" not in data["publisher.example"]
 
 
 def test_source_discovery_classifies_bad_warnings_for_review():

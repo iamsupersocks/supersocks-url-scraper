@@ -23,7 +23,7 @@ def test_discover_source_records_registry_and_strategy(monkeypatch, tmp_path: Pa
     cache = tmp_path / "fetch-strategies.json"
 
     result = discover_source.discover_url(
-        "https://www.example.com/article",
+        "https://example.com/article",
         base_url="http://127.0.0.1:8768",
         discovery_path=discovery,
         strategy_cache_path=cache,
@@ -51,7 +51,7 @@ def test_discover_source_does_not_cache_needs_review(monkeypatch, tmp_path: Path
     cache = tmp_path / "fetch-strategies.json"
 
     result = discover_source.discover_url(
-        "https://www.example.com/article",
+        "https://example.com/article",
         base_url="http://127.0.0.1:8768",
         discovery_path=discovery,
         strategy_cache_path=cache,

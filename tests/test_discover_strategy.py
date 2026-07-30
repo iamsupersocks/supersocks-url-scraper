@@ -24,7 +24,7 @@ def test_discover_strategy_writes_only_metadata(monkeypatch, tmp_path):
     monkeypatch.setattr(discover_strategy, "read_url", fake_read_url)
     cache = tmp_path / "fetch-strategies.json"
     args = Namespace(
-        urls=["https://www.lepoint.fr/example"],
+        urls=["https://www.publisher.example/example"],
         urls_file="",
         cache=str(cache),
         overwrite=False,
@@ -44,7 +44,7 @@ def test_discover_strategy_writes_only_metadata(monkeypatch, tmp_path):
 
     assert result["updated"] == 1
     assert data == {
-        "lepoint.fr": {
+        "publisher.example": {
             "fetch_method": "cloak-profile",
             "success_count": 1,
             "failure_count": 0,
