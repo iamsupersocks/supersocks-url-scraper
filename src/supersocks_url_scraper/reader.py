@@ -322,6 +322,8 @@ def fetch_with_browser(
     headers = {"content-type": "text/html; charset=utf-8", "x-fetch-method": page.method}
     if page.title:
         headers["x-browser-title"] = page.title
+    if page.consent_action:
+        headers["x-browser-consent-action"] = page.consent_action
     return FetchedResource(
         url=url,
         final_url=page.final_url,
@@ -618,7 +620,29 @@ def article_boilerplate_reason(title: str | None, text: str) -> str | None:
         return "social/login/javascript stub"
     if normalized_title in {"page not found", "not found", "404"} or "page not found" in normalized_title:
         return "page-not-found title"
-    cookie_markers = ["data collected and processed", "device characteristics", "device identifiers", "privacy choices", "cookie duration", "authentication-derived identifiers"]
+    strong_cookie_markers = [
+        "contenu de la fenêtre de consentement",
+        "contenu de la fenetre de consentement",
+        "continuer sans accepter",
+        "continue without accepting",
+        "privacy preference center",
+    ]
+    if any(marker in normalized_text for marker in strong_cookie_markers):
+        return "cookie/consent wall markers"
+    cookie_markers = [
+        "data collected and processed",
+        "device characteristics",
+        "device identifiers",
+        "privacy choices",
+        "cookie duration",
+        "authentication-derived identifiers",
+        "finalité par finalité",
+        "finalite par finalite",
+        "gestion des cookies",
+        "personnaliser",
+        "vous consentez à l'utilisation de cookies",
+        "vous consentez a l'utilisation de cookies",
+    ]
     if sum(1 for marker in cookie_markers if marker in normalized_text) >= 3:
         return "cookie/consent wall markers"
     if len(normalized_text) < 180 and any(marker in normalized_text for marker in ["page not found", "could not find the page", "404"]):
@@ -733,6 +757,9 @@ def _try_browser_resource(
         )
         method = resource.headers.get("x-fetch-method", "cloak")
         warnings.append(f"browser fallback used: {method} (initial_status={resource.status_code})")
+        consent_action = resource.headers.get("x-browser-consent-action")
+        if consent_action:
+            warnings.append(f"browser consent wall dismissed: {consent_action}")
         return resource
     except Exception as browser_error:
         warnings.append(f"browser fallback failed: {browser_error}")

@@ -8,7 +8,15 @@ from threading import Thread
 import pytest
 
 from supersocks_url_scraper import reader
-from supersocks_url_scraper.reader import clean_text, detect_content_type, extract_title, read_url, to_markdown, FetchedResource
+from supersocks_url_scraper.reader import (
+    FetchedResource,
+    article_boilerplate_reason,
+    clean_text,
+    detect_content_type,
+    extract_title,
+    read_url,
+    to_markdown,
+)
 
 
 HTML = """
@@ -44,6 +52,18 @@ def test_detect_content_type_uses_magic_bytes() -> None:
     image = FetchedResource("u", "u", 200, PNG_BYTES, "application/octet-stream", {})
     assert detect_content_type(pdf) == "pdf"
     assert detect_content_type(image) == "image"
+
+
+def test_leboncoin_consent_only_text_is_boilerplate() -> None:
+    text = """
+    Choisir une localisation
+    Portable
+    113 861 annonces
+    Contenu de la fenêtre de consentement
+    Pour leboncoin, votre expérience sur notre site est une priorité.
+    Vous pouvez refuser en cliquant sur Continuer sans accepter.
+    """
+    assert article_boilerplate_reason("Portable", text) == "cookie/consent wall markers"
 
 
 class FixtureHandler(BaseHTTPRequestHandler):
@@ -148,6 +168,45 @@ def test_browser_fallback_after_http_and_seo_failures(monkeypatch: pytest.Monkey
     assert result["title"] == "Browser article"
     assert any("browser fallback used: cloak" in warning for warning in result["warnings"])
     assert "browser-rendered article" in result["content"]
+
+
+def test_unresolved_browser_consent_wall_is_not_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    consent_html = """
+    <html><head><title>Portable</title></head><body>
+    <p>Contenu de la fenêtre de consentement. Pour leboncoin, votre expérience
+    sur notre site est une priorité.</p>
+    <p>Vous pouvez personnaliser vos choix ou Continuer sans accepter.</p>
+    </body></html>
+    """
+
+    def fail_fetch(*args: object, **kwargs: object) -> FetchedResource:
+        raise reader.FetchError("HTTP 403")
+
+    def fake_browser(*args: object, **kwargs: object) -> FetchedResource:
+        return FetchedResource(
+            "https://blocked.example/listings",
+            "https://blocked.example/listings",
+            200,
+            consent_html.encode("utf-8"),
+            "text/html; charset=utf-8",
+            {"x-fetch-method": "cloak", "content-type": "text/html; charset=utf-8"},
+        )
+
+    monkeypatch.setattr(reader, "fetch_url", fail_fetch)
+    monkeypatch.setattr(reader, "fetch_with_seo_variants", fail_fetch)
+    monkeypatch.setattr(reader, "fetch_with_browser", fake_browser)
+
+    result = read_url(
+        "https://blocked.example/listings",
+        browser_fallback=True,
+        archive_fallback=False,
+        include_content=True,
+    )
+
+    assert result["status"] == "partial"
+    assert result["summary"] == ""
+    assert result["fetch_method"] == "cloak"
+    assert any("cookie/consent wall markers" in warning for warning in result["warnings"])
 
 
 def test_paywall_teaser_retries_browser_then_archive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

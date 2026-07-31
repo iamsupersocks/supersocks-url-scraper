@@ -20,6 +20,7 @@ It is designed for agent pipelines, RSS/news tooling, and local automation where
 - Deterministic placeholder descriptions for images when no vision model is configured.
 - SEO-style HTTP fallback variants: Googlebot, Bingbot, Google/Facebook/t.co referers.
 - Optional browser/Cloak fallback for hostile media when the `browser` extra is installed.
+- Recognized consent dialogs are dismissed through an explicit reject/continue-without-accepting control before browser extraction.
 - Layered fallback pipeline: HTTP → SEO variants → CloakBrowser → public archive/cache snapshots, including retry when HTTP returns only a teaser/paywall/cookie wall.
 - Optional per-domain JSON strategy cache storing only routing metadata.
 - Markdown output.
