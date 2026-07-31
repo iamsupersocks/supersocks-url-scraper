@@ -1,8 +1,30 @@
-# URL Scraper
+# Supersocks URL Scraper
 
-A small, dependency-light URL reader/scraper for extracting a page title, metadata, readable summary, publication date, content type, and extraction warnings.
+[![Python >=3.10](https://img.shields.io/badge/python-%3E%3D3.10-blue)](pyproject.toml)
+[![Version 0.2.0](https://img.shields.io/badge/version-0.2.0-informational)](pyproject.toml)
+[![License MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Repository](https://img.shields.io/badge/repository-GitHub-black)](https://github.com/iamsupersocks/supersocks-url-scraper)
 
-It is designed for agent pipelines, RSS/news tooling, and local automation where you want a simple JSON contract. The basic HTTP reader is dependency-light, but **CloakBrowser is the important part for hostile media, bot walls, and paywall-heavy sites**.
+> **Turn a URL into usable context.**
+
+Give the package an HTTP(S) URL and get back a small JSON or Markdown contract with the title, content type, readable summary, selected fetch route, and warnings when the read is partial.
+
+🌐 [Repository](https://github.com/iamsupersocks/supersocks-url-scraper) · 🧩 JSON + Markdown · 🔒 Local-first by default · 📄 MIT
+
+It starts dependency-light for normal pages, then can opt into article/PDF extraction, CloakBrowser rendering, public archive/cache lookups, a metadata-only routing strategy cache, and a tiny HTTP service. It is not a hosted bypass service and ships no credentials, browser profiles, vendor-specific LLM SDK, or universal paywall guarantee.
+
+## Quick start
+
+```bash
+pip install 'supersocks-url-scraper[full]'
+
+supersocks-url-scraper --include-content --length 1200 https://example.com/article
+
+supersocks-url-scraper --serve --host 127.0.0.1 --port 8768
+curl -s http://127.0.0.1:8768/summarize \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com/article","length":900}'
+```
 
 ## Features
 
@@ -25,6 +47,67 @@ It is designed for agent pipelines, RSS/news tooling, and local automation where
 - Markdown output.
 - Returns warnings for partial extraction, boilerplate, paywalls, and placeholders.
 - Safe to run locally or in cron/server contexts.
+
+## Architecture diagrams
+
+### URL read pipeline
+
+```mermaid
+flowchart TD
+    A[HTTP or HTTPS URL input] --> B{Request surface}
+    B -->|CLI read_url| C[Reader options]
+    B -->|HTTP POST /summarize or /read| C
+    C --> D[Metadata-only strategy cache lookup]
+    D --> E[HTTP fetch with timeout and 25 MB guard]
+    E --> F{Usable extraction?}
+    F -->|HTTP error or unusable page| G[SEO-style HTTP variants]
+    G --> H{Usable extraction?}
+    H -->|Still blocked and browser_fallback enabled| I[CloakBrowser render]
+    I --> J{Usable extraction?}
+    J -->|Still teaser, bot wall or error and archive_fallback enabled| K[Public archive/cache snapshot]
+    F -->|Yes| L[Detect content type]
+    H -->|Yes| L
+    J -->|Yes| L
+    K --> L
+    L --> M{Article, PDF, image or unknown}
+    M -->|Article| N[OpenGraph, Twitter, JSON-LD, trafilatura, readability, BeautifulSoup or regex]
+    M -->|PDF| O[Optional PyMuPDF text extraction]
+    M -->|Image| P[Deterministic placeholder description]
+    M -->|Unknown or unsupported| Q[status: error with warning]
+    N --> R[Local extractive summary or optional caller-provided HTTP summary endpoint]
+    O --> R
+    P --> S[JSON result: status, url, content_type, title, summary, length, fetch_method, warnings, optional content/image_url]
+    Q --> S
+    R --> S
+    S --> T{Quality outcome}
+    T -->|Readable| U[status: ok]
+    T -->|Partial/boilerplate/paywall/no text| V[status: partial or error plus warnings]
+```
+
+### HTTP service contract
+
+```mermaid
+flowchart LR
+    Client[Client or agent] --> Health[GET /health]
+    Client --> OpenAPI[GET /openapi.json]
+    Client --> Summarize[POST /summarize]
+    Client --> Read[POST /read]
+    Client --> Markdown[POST /markdown]
+
+    Health --> HealthJSON[JSON runtime config: auth_required, browser, fallbacks, strategy_cache, summary_provider]
+    OpenAPI --> Schema[Dependency-free OpenAPI 3.1 JSON schema]
+
+    Summarize --> Auth{API_BEARER_TOKEN set?}
+    Read --> Auth
+    Markdown --> Auth
+    Auth -->|Missing or wrong bearer token| Unauthorized[401 JSON: status error, warnings unauthorized]
+    Auth -->|Authorized or token not configured| Payload[JSON request: url, length, include_content, fallback toggles, strategy cache path, optional summary provider]
+    Payload --> Pipeline[read_url pipeline]
+    Pipeline --> JSONResult[application/json for /summarize and /read]
+    Pipeline --> MarkdownResult[text/markdown for /markdown]
+    JSONResult --> Status[HTTP 200 for status ok/partial, 502 for status error]
+    MarkdownResult --> Status
+```
 
 ## Limitations
 
