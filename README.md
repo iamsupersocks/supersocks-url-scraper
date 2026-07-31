@@ -107,6 +107,13 @@ supersocks-url-scraper \
   https://js-heavy-publisher.example/articles/rendered-story
 ```
 
+Agent guidance: start with the normal route. If the result is `error` or
+`partial` and its warnings mention a 403, JavaScript, or a consent wall, retry
+with `browser_fallback=true`. The browser route only dismisses recognized
+consent dialogs through an explicit reject or continue-without-accepting
+control. If the result remains `partial`, route the URL elsewhere instead of
+asking the agent to click arbitrary page controls.
+
 Without the `browser` extra, normal HTTP/SEO/archive routes still work, but browser-only publisher categories can fail, return only boilerplate/teasers, or become much slower.
 
 By default the CLI also tries public archive/cache snapshots as a last resort, including when a publisher returns HTTP 200 but extraction detects only a subscriber teaser/cookie wall. Disable that with:

@@ -54,13 +54,13 @@ def test_detect_content_type_uses_magic_bytes() -> None:
     assert detect_content_type(image) == "image"
 
 
-def test_leboncoin_consent_only_text_is_boilerplate() -> None:
+def test_french_consent_only_text_is_boilerplate() -> None:
     text = """
     Choisir une localisation
     Portable
     113 861 annonces
     Contenu de la fenêtre de consentement
-    Pour leboncoin, votre expérience sur notre site est une priorité.
+    Pour ce site, votre expérience est une priorité.
     Vous pouvez refuser en cliquant sur Continuer sans accepter.
     """
     assert article_boilerplate_reason("Portable", text) == "cookie/consent wall markers"
@@ -173,8 +173,8 @@ def test_browser_fallback_after_http_and_seo_failures(monkeypatch: pytest.Monkey
 def test_unresolved_browser_consent_wall_is_not_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     consent_html = """
     <html><head><title>Portable</title></head><body>
-    <p>Contenu de la fenêtre de consentement. Pour leboncoin, votre expérience
-    sur notre site est une priorité.</p>
+    <p>Contenu de la fenêtre de consentement. Pour ce site, votre expérience
+    est une priorité.</p>
     <p>Vous pouvez personnaliser vos choix ou Continuer sans accepter.</p>
     </body></html>
     """

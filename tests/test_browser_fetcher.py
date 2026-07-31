@@ -55,10 +55,10 @@ class FakePage:
         return None
 
 
-def test_looks_like_leboncoin_consent_wall() -> None:
+def test_looks_like_french_consent_wall() -> None:
     text = (
-        "Contenu de la fenêtre de consentement. Pour leboncoin, votre expérience "
-        "sur notre site est une priorité. Continuer sans accepter."
+        "Contenu de la fenêtre de consentement. Pour ce site, votre expérience "
+        "est une priorité. Continuer sans accepter."
     )
     assert _looks_like_consent_wall(text)
 
