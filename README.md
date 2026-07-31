@@ -54,45 +54,73 @@ curl -s http://127.0.0.1:8768/summarize \
 
 ```mermaid
 flowchart TD
-    A[HTTP or HTTPS URL input] --> B{Request surface}
-    B -->|CLI read_url| C[Reader options]
-    B -->|HTTP POST /summarize or /read| C
-    C --> D[Metadata-only strategy cache lookup]
-    D --> E[HTTP fetch with timeout and 25 MB guard]
-    E --> F{Usable extraction?}
-    F -->|HTTP error or unusable page| G[SEO-style HTTP variants]
-    G --> H{Usable extraction?}
-    H -->|Still blocked and browser_fallback enabled| I[CloakBrowser render]
-    I --> J{Usable extraction?}
-    J -->|Still teaser, bot wall or error and archive_fallback enabled| K[Public archive/cache snapshot]
-    F -->|Yes| L[Detect content type]
-    H -->|Yes| L
-    J -->|Yes| L
-    K --> L
-    L --> M{Article, PDF, image or unknown}
-    M -->|Article| N[OpenGraph, Twitter, JSON-LD, trafilatura, readability, BeautifulSoup or regex]
-    M -->|PDF| O[Optional PyMuPDF text extraction]
-    M -->|Image| P[Deterministic placeholder description]
-    M -->|Unknown or unsupported| Q[status: error with warning]
-    N --> R[Local extractive summary or optional caller-provided HTTP summary endpoint]
-    O --> R
-    P --> S[JSON result: status, url, content_type, title, summary, length, fetch_method, warnings, optional content/image_url]
-    Q --> S
-    R --> S
-    S --> T{Quality outcome}
-    T -->|Readable| U[status: ok]
-    T -->|Partial/boilerplate/paywall/no text| V[status: partial or error plus warnings]
+    A[HTTP or HTTPS URL input] --> B{"Valid HTTP(S) URL?"}
+    B -->|No| Z[error: invalid URL]
+    B -->|Yes| C[Reader options]
+    C --> D{"Strategy cache route?"}
+    D -->|cloak or cloak-profile| D1[CloakBrowser preferred]
+    D -->|seo| D2[SEO route preferred]
+    D -->|archive| D3[Archive route preferred]
+    D -->|http, fallback, none, or failed| E[Full pipeline]
+    D1 -->|Fetched| L[Detect content type]
+    D1 -->|Failed| E
+    D2 -->|Fetched| L
+    D2 -->|Failed| E
+    D3 -->|Fetched| L
+    D3 -->|Failed| E
+    E --> F[HTTP fetch: timeout and 25 MB guard]
+    F -->|Fetched| L
+    F -->|Transport failure| G{"SEO fallback on?"}
+    G -->|Yes| H[SEO HTTP variants]
+    G -->|No or failed| I{"Browser fallback on?"}
+    H -->|Fetched| L
+    H -->|Failed| I
+    I -->|Yes| J[CloakBrowser render]
+    I -->|No or failed| K{"Archive fallback on?"}
+    J -->|Fetched| L
+    J -->|Failed| K
+    K -->|Yes| K1[Public archive/cache]
+    K -->|No or failed| Z1[error: fetch failed]
+    K1 -->|Fetched| L
+    K1 -->|Failed| Z1
+    L --> M{"Resource type"}
+    M -->|Article| N[Extract article text]
+    M -->|PDF| O[PyMuPDF text extraction]
+    M -->|Image| P[Placeholder image summary]
+    M -->|Unknown| Z2[error: unsupported type]
+    N --> Q{"Article quality + fetch method"}
+    Q -->|Readable| S[Local or HTTP summary]
+    Q -->|Unusable after HTTP, SEO, or fallback| R[Browser retry if enabled]
+    Q -->|Unusable after CloakBrowser| T[Archive retry if enabled]
+    Q -->|Unusable after archive| V[partial: warnings]
+    R -->|Readable| S
+    R -->|Disabled, failed, or still unusable| T
+    T -->|Readable| S
+    T -->|Disabled, failed, or still unusable| V
+    O -->|Text extracted| S
+    O -->|No text| V
+    O -->|Parse or dependency error| Z3[error: PDF extraction]
+    P --> U[status: ok]
+    S -->|Summary| U
+    S -->|Empty summary| V
+    Z --> W[status: error + warnings]
+    Z1 --> W
+    Z2 --> W
+    Z3 --> W
+    V --> Y[status: partial + warnings]
 ```
 
 ### HTTP service contract
 
 ```mermaid
 flowchart LR
-    Client[Client or agent] --> Health[GET /health]
-    Client --> OpenAPI[GET /openapi.json]
-    Client --> Summarize[POST /summarize]
-    Client --> Read[POST /read]
-    Client --> Markdown[POST /markdown]
+    Client[Client or agent] --> Route{"HTTP route"}
+    Route --> Health[GET /health]
+    Route --> OpenAPI[GET /openapi.json]
+    Route --> Summarize[POST /summarize]
+    Route --> Read[POST /read]
+    Route --> Markdown[POST /markdown]
+    Route --> Unknown[Unknown route]
 
     Health --> HealthJSON[JSON runtime config: auth_required, browser, fallbacks, strategy_cache, summary_provider]
     OpenAPI --> Schema[Dependency-free OpenAPI 3.1 JSON schema]
@@ -100,13 +128,17 @@ flowchart LR
     Summarize --> Auth{API_BEARER_TOKEN set?}
     Read --> Auth
     Markdown --> Auth
-    Auth -->|Missing or wrong bearer token| Unauthorized[401 JSON: status error, warnings unauthorized]
+    Auth -->|Missing or wrong bearer| Unauthorized[401 JSON error]
     Auth -->|Authorized or token not configured| Payload[JSON request: url, length, include_content, fallback toggles, strategy cache path, optional summary provider]
-    Payload --> Pipeline[read_url pipeline]
-    Pipeline --> JSONResult[application/json for /summarize and /read]
-    Pipeline --> MarkdownResult[text/markdown for /markdown]
-    JSONResult --> Status[HTTP 200 for status ok/partial, 502 for status error]
-    MarkdownResult --> Status
+    Payload -->|Invalid JSON or request exception| BadRequest[400 JSON error]
+    Payload -->|Valid| Pipeline[read_url pipeline]
+    Pipeline --> Outcome{read_url status}
+    Outcome -->|ok or partial| OK[HTTP 200]
+    Outcome -->|error| BadGateway[HTTP 502]
+    OK --> JSONResult[JSON for /summarize and /read]
+    OK --> MarkdownResult[Markdown for /markdown]
+    BadGateway --> JSONError[JSON or Markdown error body]
+    Unknown --> NotFound[404 JSON error]
 ```
 
 ## Limitations
