@@ -1,0 +1,154 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100" role="img" aria-labelledby="models-title models-desc">
+  <style>
+    .panel-title,.model-bar{font-family:Inter,Arial,sans-serif;font-weight:600}
+    .panel-20 .panel-title,.panel-20 .model-bar{fill:#6c8cff}
+    .panel-30 .panel-title,.panel-30 .model-bar{fill:#9b7cff}
+    .panel-40 .panel-title,.panel-40 .model-bar{fill:#ffb86c}
+    .panel-50 .panel-title,.panel-50 .model-bar{fill:#ff7bbd}
+    .model-label,.row-value{fill:#f5f3ff;font-family:Inter,Arial,sans-serif;font-size:17px}
+    .panel-title{font-size:22px}
+    .axis-label{fill:#aaa7bb;font-family:Inter,Arial,sans-serif;font-size:16px}
+    .panel-rule{stroke:#302d42;stroke-width:1}
+    .zero-bar{stroke:#aaa7bb;stroke-width:4;stroke-dasharray:6 5}
+  </style>
+  <title id="models-title">Prix médians par modèle RTX</title>
+  <desc id="models-desc">Comparaison des prix médians par modèle RTX, avec le nombre d'annonces détectées. Les modèles sont regroupés par générations 20xx, 30xx, 40xx et 50xx. RTX 3090 apparaît avec zéro annonce détectée.</desc>
+  <rect width="1600" height="1100" fill="#101018"/>
+  <text x="55" y="72" fill="#f5f3ff" font-family="Inter,Arial,sans-serif" font-size="36" font-weight="600">RTX · prix médians par modèle</text>
+  <text x="55" y="110" fill="#aaa7bb" font-family="Inter,Arial,sans-serif" font-size="20">203 annonces classées par modèle exact · 14 autres ou ambigus · collecte partielle</text>
+  <g font-family="Inter,Arial,sans-serif" font-size="18">
+    <circle cx="1110" cy="70" r="8" fill="#6c8cff"/><text x="1128" y="76" fill="#d5d1e5">20xx</text>
+    <circle cx="1200" cy="70" r="8" fill="#9b7cff"/><text x="1218" y="76" fill="#d5d1e5">30xx</text>
+    <circle cx="1290" cy="70" r="8" fill="#ffb86c"/><text x="1308" y="76" fill="#d5d1e5">40xx</text>
+    <circle cx="1380" cy="70" r="8" fill="#ff7bbd"/><text x="1398" y="76" fill="#d5d1e5">50xx</text>
+  </g>
+  <text x="55" y="142" fill="#aaa7bb" font-family="Inter,Arial,sans-serif" font-size="17">Chaque ligne = modèle · la barre = médiane · n = nombre d'annonces</text>
+  <g class="panel panel-20">
+<line class="panel-rule" x1="55" y1="184" x2="755" y2="184"/>
+<text class="panel-title " x="55" y="170">RTX 20xx</text>
+<text class="axis-label" x="245" y="206">Prix médian (€)</text>
+<text class="axis-label" x="665" y="206" text-anchor="end">3 500 €</text>
+<text class="model-label" x="55" y="249">RTX 2000</text>
+<rect class="model-bar " x="245" y="227" width="150.0" height="18" rx="5"/>
+<text class="row-value" x="405" y="249">1 250 € · n=1</text>
+<text class="model-label" x="55" y="280">RTX 2050</text>
+<rect class="model-bar " x="245" y="258" width="66.0" height="18" rx="5"/>
+<text class="row-value" x="321" y="280">550 € · n=1</text>
+<text class="model-label" x="55" y="311">RTX 2060</text>
+<rect class="model-bar " x="245" y="289" width="30.0" height="18" rx="5"/>
+<text class="row-value" x="285" y="311">250 € · n=15</text>
+<text class="model-label" x="55" y="342">RTX 2060 SUPER</text>
+<rect class="model-bar " x="245" y="320" width="22.7" height="18" rx="5"/>
+<text class="row-value" x="277.68" y="342">189 € · n=3</text>
+<text class="model-label" x="55" y="373">RTX 2070</text>
+<rect class="model-bar " x="245" y="351" width="60.0" height="18" rx="5"/>
+<text class="row-value" x="315" y="373">500 € · n=5</text>
+<text class="model-label" x="55" y="404">RTX 2070 SUPER</text>
+<rect class="model-bar " x="245" y="382" width="25.8" height="18" rx="5"/>
+<text class="row-value" x="280.8" y="404">215 € · n=4</text>
+<text class="model-label" x="55" y="435">RTX 2080</text>
+<rect class="model-bar " x="245" y="413" width="39.0" height="18" rx="5"/>
+<text class="row-value" x="294" y="435">325 € · n=2</text>
+<text class="model-label" x="55" y="466">RTX 2080 SUPER</text>
+<rect class="model-bar " x="245" y="444" width="63.0" height="18" rx="5"/>
+<text class="row-value" x="318" y="466">525 € · n=2</text>
+<text class="model-label" x="55" y="497">RTX 2080 Ti</text>
+<rect class="model-bar " x="245" y="475" width="124.8" height="18" rx="5"/>
+<text class="row-value" x="379.8" y="497">1 040 € · n=3</text>
+</g>
+<g class="panel panel-30">
+<line class="panel-rule" x1="815" y1="184" x2="1515" y2="184"/>
+<text class="panel-title " x="815" y="170">RTX 30xx</text>
+<text class="axis-label" x="1005" y="206">Prix médian (€)</text>
+<text class="axis-label" x="1425" y="206" text-anchor="end">3 500 €</text>
+<text class="model-label" x="815" y="249">RTX 3050</text>
+<rect class="model-bar " x="1005" y="227" width="45.6" height="18" rx="5"/>
+<text class="row-value" x="1060.6" y="249">380 € · n=13</text>
+<text class="model-label" x="815" y="280">RTX 3060</text>
+<rect class="model-bar " x="1005" y="258" width="60.0" height="18" rx="5"/>
+<text class="row-value" x="1075" y="280">500 € · n=28</text>
+<text class="model-label" x="815" y="311">RTX 3060 Ti</text>
+<rect class="model-bar " x="1005" y="289" width="69.0" height="18" rx="5"/>
+<text class="row-value" x="1084" y="311">575 € · n=16</text>
+<text class="model-label" x="815" y="342">RTX 3070</text>
+<rect class="model-bar " x="1005" y="320" width="78.0" height="18" rx="5"/>
+<text class="row-value" x="1093" y="342">650 € · n=13</text>
+<text class="model-label" x="815" y="373">RTX 3070 Ti</text>
+<rect class="model-bar " x="1005" y="351" width="42.0" height="18" rx="5"/>
+<text class="row-value" x="1057" y="373">350 € · n=3</text>
+<text class="model-label" x="815" y="404">RTX 3080</text>
+<rect class="model-bar " x="1005" y="382" width="63.0" height="18" rx="5"/>
+<text class="row-value" x="1078" y="404">525 € · n=8</text>
+<text class="model-label" x="815" y="435">RTX 3080 Ti</text>
+<rect class="model-bar " x="1005" y="413" width="91.8" height="18" rx="5"/>
+<text class="row-value" x="1106.8" y="435">765 € · n=2</text>
+<text class="model-label" x="815" y="466">RTX 3090</text>
+<line class="zero-bar" x1="1005" y1="454" x2="1023" y2="454"/>
+<text class="row-value" x="1033" y="466">0 annonce</text>
+</g>
+<g class="panel panel-40">
+<line class="panel-rule" x1="55" y1="624" x2="755" y2="624"/>
+<text class="panel-title " x="55" y="610">RTX 40xx</text>
+<text class="axis-label" x="245" y="646">Prix médian (€)</text>
+<text class="axis-label" x="665" y="646" text-anchor="end">3 500 €</text>
+<text class="model-label" x="55" y="689">RTX 4000</text>
+<rect class="model-bar " x="245" y="667" width="84.0" height="18" rx="5"/>
+<text class="row-value" x="339" y="689">700 € · n=1</text>
+<text class="model-label" x="55" y="720">RTX 4050</text>
+<rect class="model-bar " x="245" y="698" width="84.0" height="18" rx="5"/>
+<text class="row-value" x="339" y="720">700 € · n=3</text>
+<text class="model-label" x="55" y="751">RTX 4060</text>
+<rect class="model-bar " x="245" y="729" width="84.0" height="18" rx="5"/>
+<text class="row-value" x="339" y="751">700 € · n=18</text>
+<text class="model-label" x="55" y="782">RTX 4060 Ti</text>
+<rect class="model-bar " x="245" y="760" width="96.0" height="18" rx="5"/>
+<text class="row-value" x="351" y="782">800 € · n=5</text>
+<text class="model-label" x="55" y="813">RTX 4070</text>
+<rect class="model-bar " x="245" y="791" width="114.0" height="18" rx="5"/>
+<text class="row-value" x="369" y="813">950 € · n=11</text>
+<text class="model-label" x="55" y="844">RTX 4070 SUPER</text>
+<rect class="model-bar " x="245" y="822" width="144.0" height="18" rx="5"/>
+<text class="row-value" x="399" y="844">1 200 € · n=2</text>
+<text class="model-label" x="55" y="875">RTX 4070 Ti</text>
+<rect class="model-bar " x="245" y="853" width="84.0" height="18" rx="5"/>
+<text class="row-value" x="339" y="875">700 € · n=3</text>
+<text class="model-label" x="55" y="906">RTX 4070 Ti SUPER</text>
+<rect class="model-bar " x="245" y="884" width="79.2" height="18" rx="5"/>
+<text class="row-value" x="334.2" y="906">660 € · n=1</text>
+<text class="model-label" x="55" y="937">RTX 4080</text>
+<rect class="model-bar " x="245" y="915" width="288.0" height="18" rx="5"/>
+<text class="row-value" x="543" y="937">2 400 € · n=1</text>
+<text class="model-label" x="55" y="968">RTX 4090</text>
+<rect class="model-bar " x="245" y="946" width="383.4" height="18" rx="5"/>
+<text class="row-value" x="638.4" y="968">3 195 € · n=2</text>
+</g>
+<g class="panel panel-50">
+<line class="panel-rule" x1="815" y1="624" x2="1515" y2="624"/>
+<text class="panel-title " x="815" y="610">RTX 50xx</text>
+<text class="axis-label" x="1005" y="646">Prix médian (€)</text>
+<text class="axis-label" x="1425" y="646" text-anchor="end">3 500 €</text>
+<text class="model-label" x="815" y="689">RTX 5050</text>
+<rect class="model-bar " x="1005" y="667" width="60.0" height="18" rx="5"/>
+<text class="row-value" x="1075" y="689">500 € · n=3</text>
+<text class="model-label" x="815" y="720">RTX 5060</text>
+<rect class="model-bar " x="1005" y="698" width="102.0" height="18" rx="5"/>
+<text class="row-value" x="1117" y="720">850 € · n=13</text>
+<text class="model-label" x="815" y="751">RTX 5060 Ti</text>
+<rect class="model-bar " x="1005" y="729" width="66.6" height="18" rx="5"/>
+<text class="row-value" x="1081.6" y="751">555 € · n=4</text>
+<text class="model-label" x="815" y="782">RTX 5070</text>
+<rect class="model-bar " x="1005" y="760" width="144.0" height="18" rx="5"/>
+<text class="row-value" x="1159" y="782">1 200 € · n=7</text>
+<text class="model-label" x="815" y="813">RTX 5070 Ti</text>
+<rect class="model-bar " x="1005" y="791" width="252.0" height="18" rx="5"/>
+<text class="row-value" x="1267" y="813">2 100 € · n=3</text>
+<text class="model-label" x="815" y="844">RTX 5080</text>
+<rect class="model-bar " x="1005" y="822" width="252.0" height="18" rx="5"/>
+<text class="row-value" x="1267" y="844">2 100 € · n=6</text>
+<text class="model-label" x="815" y="875">RTX 5090</text>
+<rect class="model-bar " x="1005" y="853" width="420.0" height="18" rx="5"/>
+<text class="row-value" x="1435" y="875">3 500 € · n=1</text>
+</g>
+  <line x1="55" y1="1020" x2="1545" y2="1020" stroke="#302d42"/>
+  <text x="55" y="1054" fill="#aaa7bb" font-family="Inter,Arial,sans-serif" font-size="18">217 annonces uniques · 9 pages exploitables · challenge à la page 10 · RTX 3090 : aucune occurrence détectée</text>
+</svg>

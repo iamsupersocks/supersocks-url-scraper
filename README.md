@@ -276,6 +276,11 @@ fetch primitives, filters RTX listings, converts EUR values, deduplicates by
 listing id, and reports `ok`/`partial`/`error` with page-level warnings. It does
 not store live HTML or provide a bypass flow.
 
+An aggregate model-level snapshot is available in
+[`docs/RTX_PRICE_ANALYSIS_REPORT.md`](docs/RTX_PRICE_ANALYSIS_REPORT.md). It
+contains only counts and medians; live listing data and target details remain
+outside the repository.
+
 ## HTTP service
 
 Start the service:
