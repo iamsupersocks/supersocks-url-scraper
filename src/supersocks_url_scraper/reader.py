@@ -322,6 +322,8 @@ def fetch_with_browser(
     headers = {"content-type": "text/html; charset=utf-8", "x-fetch-method": page.method}
     if page.title:
         headers["x-browser-title"] = page.title
+    if page.consent_action:
+        headers["x-browser-consent-action"] = page.consent_action
     return FetchedResource(
         url=url,
         final_url=page.final_url,
@@ -733,6 +735,9 @@ def _try_browser_resource(
         )
         method = resource.headers.get("x-fetch-method", "cloak")
         warnings.append(f"browser fallback used: {method} (initial_status={resource.status_code})")
+        consent_action = resource.headers.get("x-browser-consent-action")
+        if consent_action:
+            warnings.append(f"browser consent wall dismissed: {consent_action}")
         return resource
     except Exception as browser_error:
         warnings.append(f"browser fallback failed: {browser_error}")

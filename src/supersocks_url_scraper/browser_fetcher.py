@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import io
 import os
+import re
 import threading
 from dataclasses import dataclass
 from typing import Any
@@ -42,6 +43,82 @@ class BrowserRenderedPage:
     html: str
     title: str | None = None
     method: str = "cloak"
+    consent_action: str | None = None
+
+
+CONSENT_WINDOW_SELECTORS = (
+    "[role='dialog']",
+    "[aria-modal='true']",
+    "#cookieConsent",
+    "#cookie-consent",
+    ".cookie-consent",
+    "[id*='cookie' i]",
+    "[class*='cookie' i]",
+    "[id*='consent' i]",
+    "[class*='consent' i]",
+    "[id*='privacy' i]",
+    "[class*='privacy' i]",
+    "[data-testid*='consent' i]",
+    "[data-testid*='privacy' i]",
+)
+CONSENT_WINDOW_MARKERS = re.compile(r"\b(cookie|cookies|consent|privacy|confidentialit[eé]|traceur|traceurs)\b", re.I)
+SAFE_CONSENT_LABEL = re.compile(
+    r"^(reject all|reject optional|decline all|deny|continue without accepting|continue without accept|"
+    r"continuer sans accepter|continuer sans consentir|tout refuser|refuser|refuse all)$",
+    re.I,
+)
+
+
+async def click_safe_consent_control(page: Any) -> str | None:
+    """Click only explicit reject/continue-without-accept consent controls.
+
+    This guard is deliberately conservative: it first requires a recognizable
+    consent/cookie/privacy window and then clicks only a button whose visible
+    label is an explicit refusal or continuation without accepting. It never
+    clicks generic buttons or acceptance labels.
+    """
+    for selector in CONSENT_WINDOW_SELECTORS:
+        try:
+            windows = page.locator(selector)
+            count = min(await windows.count(), 5)
+        except Exception:
+            continue
+        for index in range(count):
+            window = windows.nth(index)
+            try:
+                if hasattr(window, "is_visible") and not await window.is_visible():
+                    continue
+                text = await window.inner_text(timeout=500)
+            except Exception:
+                continue
+            if not CONSENT_WINDOW_MARKERS.search(text or ""):
+                continue
+            try:
+                buttons = window.locator("button, [role='button']")
+                button_count = min(await buttons.count(), 12)
+            except Exception:
+                continue
+            for button_index in range(button_count):
+                button = buttons.nth(button_index)
+                try:
+                    if hasattr(button, "is_visible") and not await button.is_visible():
+                        continue
+                    label = " ".join((await button.inner_text(timeout=500)).split())
+                except Exception:
+                    continue
+                if SAFE_CONSENT_LABEL.match(label):
+                    try:
+                        await button.click(timeout=1000)
+                    except Exception:
+                        # CMPs often reflow while hydrating.  The target is
+                        # already restricted to a visible, explicit refusal
+                        # control, so a forced retry remains within the guard.
+                        try:
+                            await button.click(timeout=1000, force=True)
+                        except Exception:
+                            continue
+                    return label
+    return None
 
 
 async def fetch_with_cloak_async(
@@ -81,6 +158,11 @@ async def fetch_with_cloak_async(
         response = await page.goto(url, wait_until="domcontentloaded", timeout=int(timeout_seconds * 1000))
         if post_load_wait_ms > 0:
             await page.wait_for_timeout(post_load_wait_ms)
+        clicked_consent = await click_safe_consent_control(page)
+        if clicked_consent:
+            await page.wait_for_timeout(500)
+            if post_load_wait_ms > 0:
+                await page.wait_for_timeout(post_load_wait_ms)
         html = await page.content()
         if not html.strip():
             raise BrowserFetchError("cloak rendered an empty page")
@@ -90,6 +172,7 @@ async def fetch_with_cloak_async(
             html=html,
             title=(await page.title()) or None,
             method=method,
+            consent_action=clicked_consent,
         )
     finally:
         await context.close()

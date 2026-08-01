@@ -266,6 +266,16 @@ python3 scripts/discover_strategy.py \
 
 The discovery helper writes only metadata like `{"fetch_method":"cloak-profile","success_count":1}` keyed by normalized domain.
 
+## Structured RTX price example
+
+For a dynamic search page that embeds listing records in JSON, see
+[`docs/GENERIC_RTX_PRICE_EXAMPLE.md`](docs/GENERIC_RTX_PRICE_EXAMPLE.md) and
+[`examples/generic_rtx_prices.py`](examples/generic_rtx_prices.py). The example
+keeps the target URL and field mapping local, uses the existing HTTP/SEO/browser
+fetch primitives, filters RTX listings, converts EUR values, deduplicates by
+listing id, and reports `ok`/`partial`/`error` with page-level warnings. It does
+not store live HTML or provide a bypass flow.
+
 ## HTTP service
 
 Start the service:
