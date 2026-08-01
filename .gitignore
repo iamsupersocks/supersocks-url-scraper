@@ -4,6 +4,7 @@
 !.env.example
 data/
 browser-profiles/
+runs/
 
 # Python
 __pycache__/
