@@ -36,8 +36,15 @@ from supersocks_url_scraper.reader import (
 
 MAX_PAGE_LIMIT = 100
 RTX_PATTERN = re.compile(r"\brtx(?=\s|\d|[-_/]|$)", re.I)
+# Prefer vendor/interstitial markers. Avoid bare "forbidden"/"challenge" which
+# false-positive inside ordinary product copy and i18n keys (e.g. deletion-forbidden).
 ACCESS_CHALLENGE_PATTERN = re.compile(
-    r"\b(captcha|challenge|access denied|forbidden)\b|geo\.captcha-delivery\.com",
+    r"geo\.captcha-delivery\.com|"
+    r"\bcaptcha\b|"
+    r"\baccess\s+denied\b|"
+    r"\baccess\s+challenge\b|"
+    r"cf-browser-verification|"
+    r"cdn-cgi/challenge",
     re.I,
 )
 SCRIPT_RE = re.compile(r"<script\b(?P<attrs>[^>]*)>(?P<body>.*?)</script>", re.I | re.S)

@@ -129,6 +129,22 @@ def test_collect_rtx_prices_bounds_pagination(rtx_example: ModuleType) -> None:
         rtx_example.collect_rtx_prices("https://marketplace.invalid/search?page={page}", max_pages=101)
 
 
+def test_is_access_challenge_ignores_embedded_forbidden_key(rtx_example: ModuleType) -> None:
+    # Ordinary search markup can include i18n keys like deletion-forbidden.
+    ordinary = (
+        '<html><body><script id="RTX_PRICE_DATA">'
+        '{"global":{"deletion-forbidden":{"error":"not allowed"}},'
+        '"items":[{"id":"1","title":"Generic RTX 4070","price":"599 €","currency":"EUR"}]}'
+        "</script></body></html>"
+    )
+    assert rtx_example.is_access_challenge(ordinary) is False
+    interstitial = (
+        '<html><head><title>Access challenge</title></head>'
+        '<body><script src="https://geo.captcha-delivery.com/i.js"></script>captcha</body></html>'
+    )
+    assert rtx_example.is_access_challenge(interstitial) is True
+
+
 def test_collect_stops_on_access_challenge(monkeypatch: pytest.MonkeyPatch, rtx_example: ModuleType) -> None:
     calls: list[str] = []
 
