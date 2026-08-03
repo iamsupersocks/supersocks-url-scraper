@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 import os
+import shutil
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -21,6 +22,10 @@ def _env_int(name: str, default: int) -> int:
         return int(os.environ.get(name, str(default)))
     except (TypeError, ValueError):
         return default
+
+
+def _js_runtime_available() -> bool:
+    return shutil.which("node") is not None or shutil.which("deno") is not None
 
 
 def _path_status(raw_path: str, *, kind: str) -> dict:
@@ -55,12 +60,25 @@ def health_payload() -> dict:
         "fallbacks": {
             "seo_default": _truthy(os.environ.get("SEO_FALLBACK"), True),
             "archive_default": _truthy(os.environ.get("ARCHIVE_FALLBACK"), True),
+            "jina_default": _truthy(os.environ.get("JINA_FALLBACK"), False),
+        },
+        "social": {
+            "youtube_extra_installed": importlib.util.find_spec("yt_dlp") is not None,
+            "js_runtime_available": _js_runtime_available(),
+            "platforms": ["youtube", "linkedin"],
+            "jina_fallback_default": _truthy(os.environ.get("JINA_FALLBACK"), False),
         },
         "strategy_cache": _path_status(strategy_cache_path, kind="file"),
         "summary_provider": {
             "default": os.environ.get("SUMMARY_PROVIDER", "local") or "local",
-            "url_configured": bool(os.environ.get("SUMMARY_PROVIDER_URL", "").strip()),
-            "token_configured": bool(os.environ.get("SUMMARY_PROVIDER_TOKEN", "").strip()),
+            "url_configured": bool(
+                (os.environ.get("SUMMARY_PROVIDER_URL") or os.environ.get("KIMI_API_URL") or "").strip()
+            ),
+            "token_configured": bool(
+                (os.environ.get("SUMMARY_PROVIDER_TOKEN") or os.environ.get("KIMI_API_KEY") or "").strip()
+            ),
+            "kimi_key_configured": bool(os.environ.get("KIMI_API_KEY", "").strip()),
+            "kimi_model": os.environ.get("KIMI_MODEL", "kimi-k2.5") or "kimi-k2.5",
             "timeout_seconds": _env_int("SUMMARY_PROVIDER_TIMEOUT", 30),
         },
     }
@@ -80,10 +98,23 @@ def openapi_payload() -> dict:
             "browser_post_load_wait_ms": {"type": "integer", "default": _env_int("BROWSER_POST_LOAD_WAIT_MS", 8000)},
             "browser_max_concurrency": {"type": "integer", "default": max(1, _env_int("BROWSER_MAX_CONCURRENCY", 1))},
             "archive_fallback": {"type": "boolean", "default": _truthy(os.environ.get("ARCHIVE_FALLBACK"), True)},
+            "jina_fallback": {"type": "boolean", "default": _truthy(os.environ.get("JINA_FALLBACK"), False), "description": "Opt-in LinkedIn/public external reader fallback via Jina Reader. Disabled by default. Never used for credentialed, local, or private URLs."},
             "strategy_cache_path": {"type": "string"},
-            "summary_provider": {"type": "string", "enum": ["local", "extractive", "none", "http"], "default": os.environ.get("SUMMARY_PROVIDER", "local") or "local"},
-            "summary_provider_url": {"type": "string", "format": "uri"},
-            "summary_provider_token": {"type": "string", "description": "Optional bearer token for the caller's own summary provider; never required by default."},
+            "summary_provider": {
+                "type": "string",
+                "enum": ["local", "extractive", "none", "http", "kimi"],
+                "default": os.environ.get("SUMMARY_PROVIDER", "local") or "local",
+                "description": "Optional summarizer after page extraction. Kimi never scrapes URLs; it only summarizes already-extracted text when provider=kimi.",
+            },
+            "summary_provider_url": {
+                "type": "string",
+                "format": "uri",
+                "description": "HTTP endpoint for summary_provider=http, or optional override of the Kimi OpenAI-compatible chat completions URL.",
+            },
+            "summary_provider_token": {
+                "type": "string",
+                "description": "Optional bearer token for http, or Kimi API key override. Prefer KIMI_API_KEY for provider=kimi. Never logged.",
+            },
             "summary_provider_timeout": {"type": "integer", "default": _env_int("SUMMARY_PROVIDER_TIMEOUT", 30)},
         },
     }
@@ -96,10 +127,25 @@ def openapi_payload() -> dict:
             "title": {"type": "string"},
             "summary": {"type": "string"},
             "length": {"type": "integer"},
-            "fetch_method": {"type": "string", "enum": ["http", "seo", "cloak", "cloak-profile", "archive", "fallback"]},
+            "fetch_method": {"type": "string", "enum": ["http", "seo", "cloak", "cloak-profile", "archive", "fallback", "yt-dlp", "jina"]},
             "warnings": {"type": "array", "items": {"type": "string"}},
             "content": {"type": "string"},
             "image_url": {"type": "string"},
+            "platform": {"type": "string", "enum": ["youtube", "linkedin"], "description": "Optional social platform tag when social routing matched."},
+            "author": {"type": "string", "description": "Optional author/channel when available from social extractors."},
+            "published_at": {"type": "string", "description": "Optional publish/upload date when available."},
+            "duration": {"type": "integer", "description": "Optional media duration in seconds when available."},
+            "transcript": {"type": "string", "description": "Optional subtitle/auto-caption text when available."},
+            "transcript_source": {"type": "string", "description": "Origin of transcript text, e.g. manual or auto-captions."},
+            "linkedin_page_type": {
+                "type": "string",
+                "enum": ["profile", "company", "school", "showcase", "job", "article", "post", "unknown"],
+                "description": "LinkedIn public page classification when LinkedIn specialized extraction ran.",
+            },
+            "structured_data": {
+                "type": "object",
+                "description": "Optional sanitized JSON-LD subset from public LinkedIn pages (JobPosting/Person/Organization/Article).",
+            },
         },
     }
     return {
@@ -157,6 +203,24 @@ class Handler(BaseHTTPRequestHandler):
         payload = self._read_payload()
         browser_fallback = _truthy(payload.get("browser_fallback"), _truthy(os.environ.get("BROWSER_FALLBACK"), False))
         archive_fallback = _truthy(payload.get("archive_fallback"), _truthy(os.environ.get("ARCHIVE_FALLBACK"), True))
+        jina_fallback = _truthy(payload.get("jina_fallback"), _truthy(os.environ.get("JINA_FALLBACK"), False))
+        summary_provider = str(payload.get("summary_provider") or os.environ.get("SUMMARY_PROVIDER") or "local")
+        if summary_provider.strip().lower() == "kimi":
+            summary_provider_url = str(
+                payload.get("summary_provider_url")
+                or os.environ.get("KIMI_API_URL")
+                or os.environ.get("SUMMARY_PROVIDER_URL")
+                or ""
+            )
+            summary_provider_token = str(
+                payload.get("summary_provider_token")
+                or os.environ.get("KIMI_API_KEY")
+                or os.environ.get("SUMMARY_PROVIDER_TOKEN")
+                or ""
+            )
+        else:
+            summary_provider_url = str(payload.get("summary_provider_url") or os.environ.get("SUMMARY_PROVIDER_URL") or "")
+            summary_provider_token = str(payload.get("summary_provider_token") or os.environ.get("SUMMARY_PROVIDER_TOKEN") or "")
         return read_url(
             str(payload.get("url") or ""),
             length=int(payload.get("length") or os.environ.get("DEFAULT_SUMMARY_LENGTH", 900)),
@@ -168,9 +232,10 @@ class Handler(BaseHTTPRequestHandler):
             browser_post_load_wait_ms=int(payload.get("browser_post_load_wait_ms") or _env_int("BROWSER_POST_LOAD_WAIT_MS", 8000)),
             browser_max_concurrency=int(payload.get("browser_max_concurrency") or _env_int("BROWSER_MAX_CONCURRENCY", 1)),
             archive_fallback=archive_fallback,
-            summary_provider=str(payload.get("summary_provider") or os.environ.get("SUMMARY_PROVIDER") or "local"),
-            summary_provider_url=str(payload.get("summary_provider_url") or os.environ.get("SUMMARY_PROVIDER_URL") or ""),
-            summary_provider_token=str(payload.get("summary_provider_token") or os.environ.get("SUMMARY_PROVIDER_TOKEN") or ""),
+            jina_fallback=jina_fallback,
+            summary_provider=summary_provider,
+            summary_provider_url=summary_provider_url,
+            summary_provider_token=summary_provider_token,
             summary_provider_timeout=int(payload.get("summary_provider_timeout") or _env_int("SUMMARY_PROVIDER_TIMEOUT", 30)),
         )
 
@@ -210,11 +275,25 @@ def main() -> int:
     parser.add_argument("--browser-post-load-wait-ms", type=int, default=8000, help="Extra wait after DOMContentLoaded for browser fallback")
     parser.add_argument("--browser-max-concurrency", type=int, default=1, help="Maximum concurrent CloakBrowser renders in this process")
     parser.add_argument("--no-archive-fallback", action="store_true", help="Disable public archive/cache fallback after HTTP/SEO/browser failures or paywall teasers")
-    parser.add_argument("--summary-provider", default="local", choices=["local", "extractive", "none", "http"], help="Optional external summary provider. Default: local extractive summary")
-    parser.add_argument("--summary-provider-url", default="", help="HTTP endpoint for --summary-provider=http")
-    parser.add_argument("--summary-provider-token", default="", help="Optional bearer token for --summary-provider=http")
-    parser.add_argument("--summary-provider-timeout", type=int, default=30, help="Timeout in seconds for the optional summary provider")
-    parser.add_argument("--serve", action="store_true", help="Run HTTP server with /health, /summarize, /read, /markdown")
+    parser.add_argument("--jina-fallback", action="store_true", help="Opt-in Jina Reader fallback for LinkedIn/public pages after the generic pipeline returns error/partial (disabled by default)")
+    parser.add_argument(
+        "--summary-provider",
+        default=os.environ.get("SUMMARY_PROVIDER", "local") or "local",
+        choices=["local", "extractive", "none", "http", "kimi"],
+        help="Optional external summary provider after extraction. Default: local. Use kimi only with explicit opt-in; Kimi summarizes extracted text and does not scrape the page.",
+    )
+    parser.add_argument(
+        "--summary-provider-url",
+        default="",
+        help="HTTP endpoint for --summary-provider=http, or optional Kimi chat completions URL override",
+    )
+    parser.add_argument(
+        "--summary-provider-token",
+        default="",
+        help="Optional bearer token for http, or Kimi API key override (prefer KIMI_API_KEY). Never logged.",
+    )
+    parser.add_argument("--summary-provider-timeout", type=int, default=_env_int("SUMMARY_PROVIDER_TIMEOUT", 30), help="Timeout in seconds for the optional summary provider")
+    parser.add_argument("--serve", action="store_true", help="Run HTTP service with /health, /summarize, /read, /markdown")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8768)
     args = parser.parse_args()
@@ -227,6 +306,13 @@ def main() -> int:
 
     if not args.url:
         parser.error("provide a URL or use --serve")
+    summary_provider = args.summary_provider
+    if summary_provider.strip().lower() == "kimi":
+        summary_provider_url = args.summary_provider_url or os.environ.get("KIMI_API_URL") or os.environ.get("SUMMARY_PROVIDER_URL") or ""
+        summary_provider_token = args.summary_provider_token or os.environ.get("KIMI_API_KEY") or os.environ.get("SUMMARY_PROVIDER_TOKEN") or ""
+    else:
+        summary_provider_url = args.summary_provider_url or os.environ.get("SUMMARY_PROVIDER_URL") or ""
+        summary_provider_token = args.summary_provider_token or os.environ.get("SUMMARY_PROVIDER_TOKEN") or ""
     result = read_url(
         args.url,
         length=args.length,
@@ -238,9 +324,10 @@ def main() -> int:
         browser_post_load_wait_ms=args.browser_post_load_wait_ms,
         browser_max_concurrency=args.browser_max_concurrency,
         archive_fallback=not args.no_archive_fallback,
-        summary_provider=args.summary_provider,
-        summary_provider_url=args.summary_provider_url,
-        summary_provider_token=args.summary_provider_token,
+        jina_fallback=args.jina_fallback or _truthy(os.environ.get("JINA_FALLBACK"), False),
+        summary_provider=summary_provider,
+        summary_provider_url=summary_provider_url,
+        summary_provider_token=summary_provider_token,
         summary_provider_timeout=args.summary_provider_timeout,
     )
     if args.markdown:

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Guest profile</title>
+  <meta property="og:description" content="Profile page where feed JSON-LD is present but no Person schema exists."/>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "DiscussionForumPosting",
+    "headline": "Feed sidebar post",
+    "articleBody": "This feed posting JSON-LD must not be used as the profile identity."
+  }
+  </script>
+</head>
+<body>
+  <div class="contextual-sign-in-modal"><p>Sign in</p></div>
+  <h1 class="top-card-layout__title">Guest Profile Name</h1>
+  <div class="top-card-layout__headline">Public headline for a guest profile without Person JSON-LD but with selector-visible content long enough to qualify as useful public material for offline tests.</div>
+</body>
+</html>

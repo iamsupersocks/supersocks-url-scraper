@@ -1,0 +1,43 @@
+{
+  "name": "supersocks-url-scraper",
+  "version": "0.2.0",
+  "description": "Dependency-light URL reader/scraper with a Node launcher that bootstraps a local Python venv from the embedded package.",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "supersocks-url-scraper": "bin/supersocks-url-scraper.js"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "src/",
+    "pyproject.toml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/npm/*.test.js",
+    "pack:check": "node scripts/npm-pack-check.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iamsupersocks/supersocks-url-scraper.git"
+  },
+  "homepage": "https://github.com/iamsupersocks/supersocks-url-scraper#readme",
+  "bugs": {
+    "url": "https://github.com/iamsupersocks/supersocks-url-scraper/issues"
+  },
+  "keywords": [
+    "url",
+    "scraper",
+    "reader",
+    "metadata",
+    "summary",
+    "html",
+    "cli"
+  ],
+  "preferGlobal": true
+}

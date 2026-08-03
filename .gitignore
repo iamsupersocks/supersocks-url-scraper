@@ -26,3 +26,9 @@ fetch-strategies.json
 
 # private live audit/run traces
 runs/
+
+# Node / npm launcher artifacts
+node_modules/
+*.tgz
+npm-debug.log*
+.npm/

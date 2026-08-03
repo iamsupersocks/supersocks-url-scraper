@@ -23,6 +23,9 @@ services:
       SUMMARY_PROVIDER_URL: ${SUMMARY_PROVIDER_URL:-}
       SUMMARY_PROVIDER_TOKEN: ${SUMMARY_PROVIDER_TOKEN:-}
       SUMMARY_PROVIDER_TIMEOUT: ${SUMMARY_PROVIDER_TIMEOUT:-30}
+      KIMI_API_KEY: ${KIMI_API_KEY:-}
+      KIMI_API_URL: ${KIMI_API_URL:-https://api.moonshot.ai/v1/chat/completions}
+      KIMI_MODEL: ${KIMI_MODEL:-kimi-k2.5}
       CLOAKBROWSER_SUPPRESS_FONT_WARNING: "1"
     volumes:
       - ./data:/data

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Pulse article with sidebar categories first</title>
+  <meta property="og:description" content="Fixture where aside categories appear before the article body in DOM order."/>
+</head>
+<body>
+  <aside class="core-section-container categories">
+    <h2>Categories</h2>
+    <ul>
+      <li>Technology</li>
+      <li>Software Engineering</li>
+      <li>Open Source</li>
+      <li>Documentation</li>
+      <li>Testing</li>
+    </ul>
+    <p>These sidebar category labels must not appear before the article body in the extracted summary.</p>
+  </aside>
+  <div class="article-main__content">
+    <h1>Primary article body comes after aside in DOM</h1>
+    <p>The extractor must prioritize this article-main__content region even when an aside with core-section-container categories appears earlier in the HTML document tree.</p>
+    <p>This paragraph continues the real Pulse article body that should lead the summary output.</p>
+  </div>
+</body>
+</html>

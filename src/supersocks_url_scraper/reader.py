@@ -890,12 +890,79 @@ def read_url(
     summary_provider_url: str | None = None,
     summary_provider_token: str | None = None,
     summary_provider_timeout: int = 30,
+    jina_fallback: bool = False,
+    skip_social_routing: bool = False,
 ) -> dict[str, Any]:
     warnings: list[str] = []
     max_chars = max(50, min(int(length or 900), 10_000))
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return {"url": url, "content_type": "unknown", "title": None, "summary": "", "length": max_chars, "fetch_method": "http", "status": "error", "warnings": ["invalid http(s) URL"]}
+
+    social_platform = None
+    if not skip_social_routing:
+        from .social import detect_platform, try_social_read
+        from .social.routing import youtube_missing_dependency_warning
+        from .social.youtube import yt_dlp_available
+
+        social_platform = detect_platform(url)
+        if social_platform == "youtube" and not yt_dlp_available():
+            warnings.append(youtube_missing_dependency_warning())
+        elif social_platform in {"youtube", "linkedin"}:
+            def _linkedin_html_fetcher(fetch_url_value: str, *, timeout: int = timeout, max_bytes: int = max_bytes) -> dict[str, Any]:
+                fetch_warnings: list[str] = []
+                resource = _fetch_with_pipeline(
+                    fetch_url_value,
+                    timeout=timeout,
+                    max_bytes=max_bytes,
+                    user_agent=user_agent,
+                    seo_fallback=seo_fallback,
+                    strategy_cache_path=strategy_cache_path,
+                    browser_fallback=browser_fallback,
+                    browser_profile_dir=browser_profile_dir,
+                    browser_post_load_wait_ms=browser_post_load_wait_ms,
+                    browser_max_concurrency=max(1, int(browser_max_concurrency or 1)),
+                    archive_fallback=archive_fallback,
+                    warnings=fetch_warnings,
+                )
+                return {
+                    "final_url": resource.final_url,
+                    "text": resource.text,
+                    "fetch_method": _fetch_method(resource),
+                    "warnings": fetch_warnings,
+                }
+
+            social_result = try_social_read(
+                url,
+                length=max_chars,
+                include_content=include_content,
+                timeout=timeout,
+                jina_fallback=jina_fallback,
+                generic_read=read_url,
+                generic_kwargs={
+                    "length": length,
+                    "include_content": include_content,
+                    "timeout": timeout,
+                    "max_bytes": max_bytes,
+                    "user_agent": user_agent,
+                    "seo_fallback": seo_fallback,
+                    "strategy_cache_path": strategy_cache_path,
+                    "browser_fallback": browser_fallback,
+                    "browser_profile_dir": browser_profile_dir,
+                    "browser_post_load_wait_ms": browser_post_load_wait_ms,
+                    "browser_max_concurrency": browser_max_concurrency,
+                    "archive_fallback": archive_fallback,
+                    "summary_provider": summary_provider,
+                    "summary_provider_url": summary_provider_url,
+                    "summary_provider_token": summary_provider_token,
+                    "summary_provider_timeout": summary_provider_timeout,
+                    "jina_fallback": False,
+                },
+                html_fetcher=_linkedin_html_fetcher if social_platform == "linkedin" else None,
+            )
+            if social_result is not None:
+                return social_result
+
     try:
         resource = _fetch_with_pipeline(
             url,
@@ -912,7 +979,10 @@ def read_url(
             warnings=warnings,
         )
     except FetchError as exc:
-        return {"url": url, "content_type": "unknown", "title": None, "summary": "", "length": max_chars, "fetch_method": "http", "status": "error", "warnings": warnings + [f"fetch failed: {exc}"]}
+        payload = {"url": url, "content_type": "unknown", "title": None, "summary": "", "length": max_chars, "fetch_method": "http", "status": "error", "warnings": warnings + [f"fetch failed: {exc}"]}
+        if social_platform:
+            payload["platform"] = social_platform
+        return payload
 
     content_type = detect_content_type(resource)
     fetch_method = _fetch_method(resource)
@@ -977,7 +1047,10 @@ def read_url(
 
         if reason:
             warnings.append(f"article extraction looks like boilerplate/non-article content: {reason}")
-            return {"url": resource.final_url, "content_type": "article", "title": article.title, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "partial", "warnings": warnings, "content": article.text if include_content else None}
+            payload = {"url": resource.final_url, "content_type": "article", "title": article.title, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "partial", "warnings": warnings, "content": article.text if include_content else None}
+            if social_platform:
+                payload["platform"] = social_platform
+            return payload
         summary = summarize_content(
             article.text,
             max_chars,
@@ -998,15 +1071,23 @@ def read_url(
         payload = {"url": resource.final_url, "content_type": "article", "title": article.title or extract_title(resource.text) or None, "summary": summary, "length": max_chars, "fetch_method": fetch_method, "status": "ok" if summary else "partial", "warnings": warnings, "image_url": extract_image_url(resource.text) or None}
         if include_content:
             payload["content"] = article.text
+        if social_platform:
+            payload["platform"] = social_platform
         return payload
 
     if content_type == "pdf":
         try:
             pdf = extract_pdf(resource.content)
         except (PdfDependencyError, PdfParseError) as exc:
-            return {"url": resource.final_url, "content_type": "pdf", "title": None, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "error", "warnings": warnings + [str(exc)]}
+            payload = {"url": resource.final_url, "content_type": "pdf", "title": None, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "error", "warnings": warnings + [str(exc)]}
+            if social_platform:
+                payload["platform"] = social_platform
+            return payload
         if not pdf.text.strip():
-            return {"url": resource.final_url, "content_type": "pdf", "title": pdf.title, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "partial", "warnings": warnings + ["PDF parsed but no extractable text"]}
+            payload = {"url": resource.final_url, "content_type": "pdf", "title": pdf.title, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "partial", "warnings": warnings + ["PDF parsed but no extractable text"]}
+            if social_platform:
+                payload["platform"] = social_platform
+            return payload
         summary = summarize_content(
             pdf.text,
             max_chars,
@@ -1027,23 +1108,46 @@ def read_url(
         payload = {"url": resource.final_url, "content_type": "pdf", "title": pdf.title, "summary": summary, "length": max_chars, "fetch_method": fetch_method, "status": "ok" if summary else "partial", "warnings": warnings}
         if include_content:
             payload["content"] = pdf.text
+        if social_platform:
+            payload["platform"] = social_platform
         return payload
 
     if content_type == "image":
         title, summary = describe_image_placeholder(resource.final_url, resource.content_type, len(resource.content), max_chars)
         _record_final_strategy(strategy_cache_path, url, resource)
-        return {"url": resource.final_url, "content_type": "image", "title": title, "summary": summary, "length": max_chars, "fetch_method": fetch_method, "status": "ok", "warnings": warnings + ["placeholder image description (no vision provider configured)"]}
+        payload = {"url": resource.final_url, "content_type": "image", "title": title, "summary": summary, "length": max_chars, "fetch_method": fetch_method, "status": "ok", "warnings": warnings + ["placeholder image description (no vision provider configured)"]}
+        if social_platform:
+            payload["platform"] = social_platform
+        return payload
 
-    return {"url": resource.final_url, "content_type": "unknown", "title": None, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "error", "warnings": warnings + [f"unsupported content type: {resource.content_type!r}"]}
+    payload = {"url": resource.final_url, "content_type": "unknown", "title": None, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "error", "warnings": warnings + [f"unsupported content type: {resource.content_type!r}"]}
+    if social_platform:
+        payload["platform"] = social_platform
+    return payload
 
 
 def to_markdown(result: dict[str, Any]) -> str:
     title = result.get("title") or result.get("url") or "Untitled"
     lines = [f"# {title}", "", f"URL: {result.get('url', '')}", f"Status: {result.get('status', '')}", f"Content type: {result.get('content_type', '')}", f"Fetch method: {result.get('fetch_method', '')}"]
+    if result.get("platform"):
+        lines.append(f"Platform: {result['platform']}")
+    if result.get("author"):
+        lines.append(f"Author: {result['author']}")
+    if result.get("published_at"):
+        lines.append(f"Published: {result['published_at']}")
+    if result.get("duration") is not None:
+        lines.append(f"Duration: {result['duration']}s")
     if result.get("warnings"):
         lines += ["", "## Warnings", ""] + [f"- {w}" for w in result["warnings"]]
     if result.get("summary"):
         lines += ["", "## Summary", "", str(result["summary"])]
+    if result.get("transcript"):
+        lines += ["", "## Transcript", "", str(result["transcript"])]
+        if result.get("transcript_source"):
+            lines.append(f"\n_Source: {result['transcript_source']}_")
     if result.get("content"):
-        lines += ["", "## Content", "", str(result["content"])]
+        content = str(result["content"])
+        transcript = str(result.get("transcript") or "")
+        if content != transcript:
+            lines += ["", "## Content", "", content]
     return "\n".join(lines).rstrip() + "\n"

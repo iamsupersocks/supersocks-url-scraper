@@ -9,15 +9,42 @@
 
 Give the package an HTTP(S) URL and get back a small JSON or Markdown contract with the title, content type, readable summary, selected fetch route, and warnings when the read is partial.
 
+🌐 [Repository](https://github.com/iamsupersocks/supersocks-url-scraper) · 🧩 JSON + Markdown · 🔒 Local-first by default · 📄 MIT
+
 It starts dependency-light for normal pages, then can opt into article/PDF extraction, CloakBrowser rendering, public archive/cache lookups, a metadata-only routing strategy cache, and a tiny HTTP service. It is not a hosted bypass service and ships no credentials, browser profiles, vendor-specific LLM SDK, or universal paywall guarantee.
 
 ## Quick start
 
+**Publication status:** PyPI and the npm registry do not host `supersocks-url-scraper@0.2.0` yet (both return 404). Until registry publishes happen, install from a GitHub checkout, pipx, or a packed npm tarball — not from `pip install` / `npx` against the public registries.
+
+Python (from GitHub with pipx today):
+
 ```bash
-pip install 'supersocks-url-scraper[full]'
+pipx install 'git+https://github.com/iamsupersocks/supersocks-url-scraper.git'
 
 supersocks-url-scraper --include-content --length 1200 https://example.com/article
+```
 
+Optional Python extras (`full`, `browser`, `youtube`, …) are not bundled by default; install them explicitly into the pipx/venv environment when needed (see [Install](#install)).
+
+npm launcher (install from this checkout today; registry publish is future):
+
+```bash
+# Future (after npm publish):
+# npx supersocks-url-scraper https://example.com/article
+# npm install -g supersocks-url-scraper
+
+# Today, from this repository:
+npm pack
+npm install -g ./supersocks-url-scraper-0.2.0.tgz
+supersocks-url-scraper https://example.com/article
+```
+
+The npm launcher bootstraps the **base** Python engine offline from the embedded package. Optional extras for article/PDF extraction, CloakBrowser, and YouTube are **not** auto-installed; add them explicitly to the versioned cache venv if needed (see [Install](#install)).
+
+Optional HTTP service:
+
+```bash
 supersocks-url-scraper --serve --host 127.0.0.1 --port 8768
 curl -s http://127.0.0.1:8768/summarize \
   -H 'content-type: application/json' \
@@ -28,9 +55,11 @@ curl -s http://127.0.0.1:8768/summarize \
 
 - No required third-party runtime dependencies for the basic reader.
 - Optional extras for high-quality article extraction and PDF parsing.
+- Optional `youtube`/`social` extras for public YouTube metadata and subtitle extraction via yt-dlp (no media download; never auto-installed).
 - CLI one-shot mode.
 - Optional HTTP service with `/health`, `/summarize`, `/read`, and `/markdown`.
 - Detects articles, PDFs, images, and unknown binary content.
+- Extensible public social routing for YouTube and LinkedIn (specialized public LinkedIn guest extraction first; generic pipeline and opt-in Jina Reader only as last resorts).
 - Extracts from:
   - OpenGraph/Twitter/HTML metadata
   - JSON-LD article objects
@@ -154,23 +183,17 @@ When that happens, check the `status` and `warnings` fields.
 
 ## Install
 
-```bash
-pip install supersocks-url-scraper
-```
+### Python (pip / pipx)
 
-For better article extraction and PDF support:
+**PyPI:** not published yet — `pip install supersocks-url-scraper` returns 404 until a release is uploaded.
 
-```bash
-pip install 'supersocks-url-scraper[full]'
-```
-
-For hostile/paywalled media fallback via CloakBrowser:
+From GitHub with pipx (recommended today):
 
 ```bash
-pip install 'supersocks-url-scraper[full,browser]'
+pipx install 'git+https://github.com/iamsupersocks/supersocks-url-scraper.git'
+# Optional extras require explicit install, e.g. after pipx install:
+# pipx inject supersocks-url-scraper 'PyMuPDF>=1.24' 'trafilatura>=1.12' ...
 ```
-
-> **Important:** for the best paywall / anti-bot results, install the `browser` extra or use the default Docker image. Without CloakBrowser, the tool still works for normal sites but cannot perform the browser-rendered fallback that handles many 403s, bot walls, and paywall-heavy publishers.
 
 Or from a local checkout:
 
@@ -178,8 +201,43 @@ Or from a local checkout:
 python -m venv .venv
 . .venv/bin/activate
 pip install -e .
-# or: pip install -e '.[full,test]'
+# Optional extras on a checkout:
+# pip install -e '.[full,test]'
+# pip install -e '.[full,browser]'
+# pip install -e '.[youtube]'
 ```
+
+Future (after PyPI publish):
+
+```bash
+# pip install supersocks-url-scraper
+# pip install 'supersocks-url-scraper[full]'
+# pip install 'supersocks-url-scraper[full,browser]'
+# pip install 'supersocks-url-scraper[youtube]'
+# pip install 'supersocks-url-scraper[social]'
+```
+
+> **Important:** for the best paywall / anti-bot results, install the `browser` extra or use the default Docker image. Without CloakBrowser, the tool still works for normal sites but cannot perform the browser-rendered fallback that handles many 403s, bot walls, and paywall-heavy publishers.
+
+### npm (Node launcher, version 0.2.0)
+
+The repository ships a zero-dependency Node bin that bootstraps an isolated Python >=3.10 venv under `XDG_CACHE_HOME/supersocks-url-scraper` (or `~/.cache/supersocks-url-scraper`) from the **embedded** Python package inside the npm tarball. No `postinstall`, no remote GitHub/curl install, and no sudo.
+
+**Publication status:** `package.json` is prepared for the npm name `supersocks-url-scraper@0.2.0`, but **`npm publish` has not been executed**. Until a registry publish happens, install from a packed tarball or path — do not expect `npx supersocks-url-scraper` to resolve from the public registry yet.
+
+```bash
+# Future (after npm publish):
+# npx supersocks-url-scraper https://example.com/article
+# npm install -g supersocks-url-scraper
+
+# Today, from this checkout:
+npm pack
+npm install -g ./supersocks-url-scraper-0.2.0.tgz
+# or one-shot without a global install:
+npx --yes ./supersocks-url-scraper-0.2.0.tgz https://example.com/article
+```
+
+Requirements for the launcher: Node >=18 and Python >=3.10 on `PATH` (or set `PYTHON=`). Optional Python extras (`full`, `browser`, `youtube`, …) are not auto-installed by the npm launcher; install them into the versioned cache venv manually if needed.
 
 ## CLI usage
 
@@ -234,6 +292,25 @@ By default the CLI also tries public archive/cache snapshots as a last resort, i
 ```bash
 supersocks-url-scraper --no-archive-fallback https://example.com/article
 ```
+
+### Public social routing (YouTube / LinkedIn)
+
+Social routing is inspired by the channel/backend pattern popularized by [Agent Reach](https://github.com/Panniantong/Agent-Reach) (MIT). This repository adapts that idea minimally for two public platforms and does **not** vendor Agent Reach, copy its package, auto-install upstream tools, or enable authenticated LinkedIn/MCP/browser-login flows.
+
+- **YouTube** (`youtube.com`, `youtu.be`): when the optional `youtube`/`social` extra is installed, metadata and available subtitles/auto-captions are extracted with `yt-dlp` (`fetch_method=yt-dlp`, `platform=youtube`) without downloading media. If yt-dlp is missing, the reader warns and falls back to the generic HTTP pipeline.
+- **LinkedIn** (`linkedin.com`): uses a specialized **public guest** extractor first. It classifies common public paths (`/in/`, `/company/`, `/school/`, `/showcase/`, `/jobs/view/` and jobs-guest variants, `/pulse/`/`/articles/`, `/posts/`/`/feed/update/`), prefers Open Graph/meta, valid JSON-LD, and stable guest selectors, and may add backward-compatible fields `linkedin_page_type` and `structured_data`. Auth walls, security challenges, navigation/CTA shells, and too-poor useful content return `status=partial` with an explicit warning — never `ok`. The generic HTTP/SEO/Cloak/archive pipeline and the opt-in Jina Reader fallback run only as last resorts. Jina is off by default and blocked for credentialed URLs, localhost/private hosts, and non-HTTP(S) schemes. No cookies, tokens, Voyager private APIs, login browsers, proxies, or caller headers are used or forwarded. Successful Jina reads set `fetch_method=jina` and warn `external reader used: jina`.
+
+```bash
+# YouTube (requires optional yt-dlp extra)
+supersocks-url-scraper --include-content https://www.youtube.com/watch?v=EXAMPLEVIDEO01
+
+# LinkedIn specialized public extraction; optional Jina only when explicitly requested
+supersocks-url-scraper --jina-fallback https://www.linkedin.com/pulse/example-public-post
+```
+
+**LinkedIn public support and limits:** guest-visible HTML/meta/JSON-LD only. Logged-in-only content, paywalled profiles, and challenge pages are reported as `partial` rather than guessed. Authenticated LinkedIn scraping remains out of scope.
+
+Domain matching rejects suffix lookalikes (e.g. `notyoutube.com`) and URLs with userinfo/credentials.
 
 For sites that need an already-authenticated/sessioned browser profile, pass a persistent profile directory:
 
@@ -334,15 +411,45 @@ Supported service environment variables:
 - `BROWSER_MAX_CONCURRENCY`: maximum concurrent CloakBrowser renders in this process. Keep this low; browser rendering is CPU/RAM-heavy.
 - `ARCHIVE_FALLBACK`: set to `latest`/`1`/`true` to allow public archive/cache fallback by default.
 - `SEO_FALLBACK`: enable/disable SEO-style HTTP variants by default.
+- `JINA_FALLBACK`: opt-in Jina Reader fallback after specialized LinkedIn (or generic last-resort) `error`/`partial` results. Disabled by default. Never used for credentialed, local, or private URLs; never forwards cookies/tokens.
 - `FETCH_STRATEGY_CACHE_PATH`: metadata-only domain strategy cache.
-- `SUMMARY_PROVIDER`: optional summary provider, default `local`. Currently supports `local`/`extractive`/`none` and `http`.
-- `SUMMARY_PROVIDER_URL`: endpoint for `SUMMARY_PROVIDER=http`; unset by default.
-- `SUMMARY_PROVIDER_TOKEN`: optional bearer token for the caller's own provider; unset by default.
+- `SUMMARY_PROVIDER`: optional summary provider, default `local`. Supports `local`/`extractive`/`none`, generic `http`, and opt-in `kimi`.
+- `SUMMARY_PROVIDER_URL`: endpoint for `SUMMARY_PROVIDER=http`, or optional override of the Kimi chat-completions URL; unset by default.
+- `SUMMARY_PROVIDER_TOKEN`: optional bearer token for the caller's own `http` provider, or Kimi API key override; unset by default. Never logged.
 - `SUMMARY_PROVIDER_TIMEOUT`: timeout in seconds for the optional provider.
+- `KIMI_API_KEY`: Moonshot/Kimi API key used only when `SUMMARY_PROVIDER=kimi` (or per-request `summary_provider=kimi`). Never logged or shipped.
+- `KIMI_API_URL`: OpenAI-compatible chat completions URL for Kimi; default `https://api.moonshot.ai/v1/chat/completions`.
+- `KIMI_MODEL`: Kimi model id; default `kimi-k2.5`.
 
 Per-request JSON fields still override the environment defaults.
 
-External summary providers are intentionally opt-in. The package ships no API keys and no vendor SDK dependency; the generic HTTP adapter posts `{url,title,content_type,length,content}` to your configured endpoint and accepts JSON `{summary: "..."}` or a plain-text response. If the provider fails, the reader falls back to the local extractive summarizer and includes a warning.
+External summary providers are intentionally opt-in. The package ships no API keys and no vendor SDK dependency. The generic HTTP adapter posts `{url,title,content_type,length,content}` to your configured endpoint and accepts JSON `{summary: "..."}` or a plain-text response. The Kimi adapter is a direct OpenAI-compatible `POST` used only when `provider=kimi`; it summarizes already-extracted text and does **not** scrape the page. Warning: enabling Kimi sends extracted page text to a third-party API (cost + confidentiality). If any provider fails, the reader falls back to the local extractive summarizer and includes a warning.
+
+Exact Kimi opt-in example (CLI):
+
+```bash
+export KIMI_API_KEY=YOUR_MOONSHOT_KEY
+supersocks-url-scraper 'https://example.com/article' \
+  --summary-provider kimi \
+  --length 600
+```
+
+Exact Kimi opt-in example (HTTP service):
+
+```bash
+export SUMMARY_PROVIDER=kimi
+export KIMI_API_KEY=YOUR_MOONSHOT_KEY
+# optional overrides:
+# export KIMI_API_URL=https://api.moonshot.ai/v1/chat/completions
+# export KIMI_MODEL=kimi-k2.5
+supersocks-url-scraper --serve --host 127.0.0.1 --port 8768
+
+curl -s http://127.0.0.1:8768/summarize \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com/article","length":600,"summary_provider":"kimi"}' | jq
+```
+
+Leave `SUMMARY_PROVIDER=local` (the default) for offline/local-only operation with no third-party summary calls.
 
 
 Health check:
@@ -351,7 +458,7 @@ Health check:
 curl http://127.0.0.1:8768/health
 ```
 
-The health payload includes service config metadata: whether auth is required, whether the browser extra is installed, browser fallback defaults, profile/cache path status, archive/SEO defaults, and the configured browser concurrency limit. `GET /openapi.json` exposes a dependency-free OpenAPI 3.1 schema for the public HTTP contract.
+The health payload includes service config metadata: whether auth is required, whether the browser extra is installed, browser fallback defaults, profile/cache path status, archive/SEO defaults, the configured browser concurrency limit, and under `social` whether yt-dlp is installed plus a boolean `js_runtime_available` (true when `node` or `deno` is on `PATH`; informational only, never installed or required). `GET /openapi.json` exposes a dependency-free OpenAPI 3.1 schema for the public HTTP contract.
 
 Docker Compose production-style local deployment:
 
@@ -404,6 +511,7 @@ Response shape:
 }
 ```
 
+Optional social fields may also appear when routing matches: `platform`, `author`, `published_at`, `duration`, `transcript`, `transcript_source`. Existing fields remain stable.
 ## Python usage
 
 ```python
@@ -437,6 +545,7 @@ This public repo includes a standalone URL-reading core suitable for agent/news 
 - Article extraction with metadata, JSON-LD, trafilatura, readability, BeautifulSoup, and regex fallback.
 - Local extractive summaries plus optional full cleaned content.
 - Optional generic HTTP summary-provider adapter for external summaries; disabled by default and no private keys shipped.
+- Optional opt-in Kimi/Moonshot OpenAI-compatible summarizer (`provider=kimi`) that summarizes extracted text only; never called unless explicitly selected; falls back to local extractive summary on failure.
 - SEO-style requests: Googlebot, Bingbot, and search/social referer variants.
 - Optional CloakBrowser rendering, including persistent browser profiles. This is critical for the strongest paywall/anti-bot coverage.
 - Public archive/cache fallbacks: Google cache URL pattern, archive.today, archive.is, and Wayback.
@@ -447,7 +556,9 @@ This public repo includes a standalone URL-reading core suitable for agent/news 
 - Browser-profile probe for warming or inspecting operator-owned Cloak profiles without committing sessions.
 - Docker image with browser runtime.
 
-Intentionally excluded from this standalone public repo: social-network-native routes, private automation, chat integrations, hosted-service authentication, provider credentials/vendor-specific LLM SDK wiring, and vision-provider wiring. Those are application integrations, not required for the URL/paywall-reading core.
+Public social routing included here is intentionally narrow and legal/privacy-preserving: YouTube metadata/subtitles via optional yt-dlp, and LinkedIn public guest pages via a specialized extractor (meta/JSON-LD/public selectors) with generic + opt-in Jina Reader only as last resorts. Architectural inspiration comes from Agent Reach (MIT) without importing or copying that project. Authenticated social scrapers, LinkedIn MCP, cookie/login browsers, Voyager private APIs, and private indexers remain excluded.
+
+Intentionally excluded from this standalone public repo: authenticated social-network scrapers, private automation, chat integrations, hosted-service authentication, provider credentials/vendor-specific LLM SDK wiring, and vision-provider wiring. Those are application integrations, not required for the URL/paywall-reading core.
 
 ## Educational use, responsibility, and privacy
 
