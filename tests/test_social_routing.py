@@ -10,6 +10,7 @@ from supersocks_url_scraper import cli
 from supersocks_url_scraper.reader import read_url
 from supersocks_url_scraper.social.domains import detect_platform, host_matches_root, is_safe_public_http_url
 from supersocks_url_scraper.social.jina import fetch_jina_reader
+from supersocks_url_scraper.social.opencli import OpenCLIStatus
 from supersocks_url_scraper.social.routing import try_social_read
 from supersocks_url_scraper.social.youtube import _fetch_text, extract_youtube
 
@@ -54,6 +55,9 @@ def test_host_matches_root_rejects_lookalikes() -> None:
         ("https://www.youtube.com/watch?v=abc", "youtube"),
         ("https://youtu.be/abc", "youtube"),
         ("https://www.linkedin.com/pulse/hello", "linkedin"),
+        ("https://x.com/user/status/1", "x"),
+        ("https://www.instagram.com/nasa/", "instagram"),
+        ("https://www.facebook.com/zuck", "facebook"),
         ("https://notyoutube.com/watch?v=abc", None),
         ("https://youtube.com.evil.example/watch?v=abc", None),
         ("https://user:pass@www.youtube.com/watch?v=abc", None),
@@ -390,12 +394,20 @@ def test_read_url_linkedin_wires_platform(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_health_and_openapi_include_social_contract(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("JINA_FALLBACK", raising=False)
+    monkeypatch.setattr(
+        "supersocks_url_scraper.social.opencli.probe_opencli",
+        lambda timeout=3, **kwargs: OpenCLIStatus(installed=False),
+    )
+    monkeypatch.setattr("supersocks_url_scraper.social.twitter_x.twitter_cli_available", lambda: False)
+    monkeypatch.setattr("supersocks_url_scraper.social.twitter_x.explicit_twitter_credentials_present", lambda: False)
     health = cli.health_payload()
     assert health["fallbacks"]["jina_default"] is False
-    assert health["social"]["platforms"] == ["youtube", "linkedin"]
+    assert health["social"]["platforms"] == ["youtube", "linkedin", "x", "instagram", "facebook"]
     assert "youtube_extra_installed" in health["social"]
     assert "js_runtime_available" in health["social"]
     assert isinstance(health["social"]["js_runtime_available"], bool)
+    assert health["social"]["twitter_cli_available"] is False
+    assert health["social"]["opencli_available"] is False
 
     schema = cli.openapi_payload()
     props = schema["paths"]["/summarize"]["post"]["requestBody"]["content"]["application/json"]["schema"]["properties"]
@@ -403,6 +415,9 @@ def test_health_and_openapi_include_social_contract(monkeypatch: pytest.MonkeyPa
     result_props = schema["paths"]["/summarize"]["post"]["responses"]["200"]["content"]["application/json"]["schema"]["properties"]
     assert "yt-dlp" in result_props["fetch_method"]["enum"]
     assert "jina" in result_props["fetch_method"]["enum"]
+    assert "twitter-cli" in result_props["fetch_method"]["enum"]
+    assert "opencli" in result_props["fetch_method"]["enum"]
+    assert set(result_props["platform"]["enum"]) == {"youtube", "linkedin", "x", "instagram", "facebook"}
     assert "platform" in result_props
     assert "transcript" in result_props
     assert "linkedin_page_type" in result_props

@@ -45,6 +45,11 @@ def _path_status(raw_path: str, *, kind: str) -> dict:
 def health_payload() -> dict:
     browser_profile_dir = os.environ.get("BROWSER_PROFILE_DIR", "")
     strategy_cache_path = os.environ.get("FETCH_STRATEGY_CACHE_PATH", "")
+    from .social import SOCIAL_PLATFORMS
+    from .social.opencli import probe_opencli
+    from .social.twitter_x import explicit_twitter_credentials_present, twitter_cli_available
+
+    opencli = probe_opencli(timeout=3)
     return {
         "status": "ok",
         "version": "0.2.0",
@@ -65,8 +70,12 @@ def health_payload() -> dict:
         "social": {
             "youtube_extra_installed": importlib.util.find_spec("yt_dlp") is not None,
             "js_runtime_available": _js_runtime_available(),
-            "platforms": ["youtube", "linkedin"],
+            "platforms": list(SOCIAL_PLATFORMS),
             "jina_fallback_default": _truthy(os.environ.get("JINA_FALLBACK"), False),
+            "twitter_cli_available": twitter_cli_available(),
+            "twitter_explicit_credentials": explicit_twitter_credentials_present(),
+            "opencli_available": opencli.installed and not opencli.broken,
+            "opencli_extension_connected": opencli.extension_connected,
         },
         "strategy_cache": _path_status(strategy_cache_path, kind="file"),
         "summary_provider": {
@@ -116,11 +125,11 @@ def openapi_payload() -> dict:
             "title": {"type": "string"},
             "summary": {"type": "string"},
             "length": {"type": "integer"},
-            "fetch_method": {"type": "string", "enum": ["http", "seo", "cloak", "cloak-profile", "archive", "fallback", "yt-dlp", "jina"]},
+            "fetch_method": {"type": "string", "enum": ["http", "seo", "cloak", "cloak-profile", "archive", "fallback", "yt-dlp", "jina", "twitter-cli", "opencli"]},
             "warnings": {"type": "array", "items": {"type": "string"}},
             "content": {"type": "string"},
             "image_url": {"type": "string"},
-            "platform": {"type": "string", "enum": ["youtube", "linkedin"], "description": "Optional social platform tag when social routing matched."},
+            "platform": {"type": "string", "enum": ["youtube", "linkedin", "x", "instagram", "facebook"], "description": "Optional social platform tag when social routing matched."},
             "author": {"type": "string", "description": "Optional author/channel when available from social extractors."},
             "published_at": {"type": "string", "description": "Optional publish/upload date when available."},
             "duration": {"type": "integer", "description": "Optional media duration in seconds when available."},

@@ -1,4 +1,4 @@
-"""Social routing entrypoints for YouTube and LinkedIn MVP channels."""
+"""Social routing entrypoints for public and opt-in desktop social channels."""
 
 from __future__ import annotations
 
@@ -7,10 +7,14 @@ from typing import Any, Callable
 from .domains import detect_platform
 from .jina import fetch_jina_reader
 from .linkedin import extract_linkedin
+from .meta_opencli import extract_facebook, extract_instagram
+from .twitter_x import extract_x
 from .youtube import extract_youtube, yt_dlp_available
 
 ReadUrlFn = Callable[..., dict[str, Any]]
 HtmlFetcher = Callable[..., dict[str, Any]]
+
+SOCIAL_PLATFORMS = ("youtube", "linkedin", "x", "instagram", "facebook")
 
 
 def _result_has_useful_text(result: dict[str, Any]) -> bool:
@@ -32,6 +36,9 @@ def try_social_read(
     subtitle_fetcher: Any | None = None,
     jina_opener: Any | None = None,
     html_fetcher: HtmlFetcher | None = None,
+    twitter_runner: Any | None = None,
+    opencli_runner: Any | None = None,
+    opencli_daemon_fetcher: Any | None = None,
 ) -> dict[str, Any] | None:
     """Attempt a social-specific read.
 
@@ -54,6 +61,35 @@ def try_social_read(
             timeout=timeout,
             ydl_factory=ydl_factory,
             subtitle_fetcher=subtitle_fetcher,
+        )
+
+    if platform == "x":
+        return extract_x(
+            url,
+            length=length,
+            include_content=include_content,
+            timeout=max(timeout, 30),
+            runner=twitter_runner,
+        )
+
+    if platform == "instagram":
+        return extract_instagram(
+            url,
+            length=length,
+            include_content=include_content,
+            timeout=max(timeout, 45),
+            runner=opencli_runner,
+            daemon_fetcher=opencli_daemon_fetcher,
+        )
+
+    if platform == "facebook":
+        return extract_facebook(
+            url,
+            length=length,
+            include_content=include_content,
+            timeout=max(timeout, 45),
+            runner=opencli_runner,
+            daemon_fetcher=opencli_daemon_fetcher,
         )
 
     if platform == "linkedin":

@@ -908,7 +908,7 @@ def read_url(
         social_platform = detect_platform(url)
         if social_platform == "youtube" and not yt_dlp_available():
             warnings.append(youtube_missing_dependency_warning())
-        elif social_platform in {"youtube", "linkedin"}:
+        elif social_platform in {"youtube", "linkedin", "x", "instagram", "facebook"}:
             def _linkedin_html_fetcher(fetch_url_value: str, *, timeout: int = timeout, max_bytes: int = max_bytes) -> dict[str, Any]:
                 fetch_warnings: list[str] = []
                 resource = _fetch_with_pipeline(
