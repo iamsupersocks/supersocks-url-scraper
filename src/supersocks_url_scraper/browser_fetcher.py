@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import io
 import os
+import re
 import threading
 from dataclasses import dataclass
 from typing import Any
@@ -42,6 +43,74 @@ class BrowserRenderedPage:
     html: str
     title: str | None = None
     method: str = "cloak"
+    consent_action: str | None = None
+
+
+_CONSENT_REJECTION_LABELS = (
+    "Continuer sans accepter",
+    "Tout refuser",
+    "Refuser et continuer",
+    "Je refuse",
+    "Refuser",
+    "Continue without accepting",
+    "Reject all",
+    "Decline all",
+    "Reject",
+)
+
+
+def _looks_like_consent_wall(text: str) -> bool:
+    normalized = " ".join((text or "").lower().split())
+    if not normalized:
+        return False
+    strong_markers = (
+        "contenu de la fenêtre de consentement",
+        "contenu de la fenetre de consentement",
+        "continuer sans accepter",
+        "continue without accepting",
+        "centre de préférences de la confidentialité",
+        "privacy preference center",
+    )
+    if any(marker in normalized for marker in strong_markers):
+        return True
+    marker_groups = (
+        ("nous utilisons des cookies", "personnaliser", "accepter"),
+        ("utilisation de cookies", "personnaliser", "refuser"),
+        ("we use cookies", "customize", "accept"),
+        ("we use cookies", "manage preferences", "reject"),
+    )
+    return any(all(marker in normalized for marker in group) for group in marker_groups)
+
+
+async def _dismiss_consent_wall(page: Any) -> str | None:
+    """Dismiss a detected CMP through an explicit privacy-preserving control."""
+    try:
+        visible_text = await page.locator("body").inner_text(timeout=5000)
+    except Exception:
+        visible_text = ""
+    if not _looks_like_consent_wall(visible_text):
+        return None
+
+    for label in _CONSENT_REJECTION_LABELS:
+        try:
+            button = page.get_by_role(
+                "button",
+                name=re.compile(rf"^\s*{re.escape(label)}\s*$", re.I),
+            )
+            count = await button.count()
+        except Exception:
+            continue
+        for index in range(min(count, 5)):
+            candidate = button.nth(index)
+            try:
+                if not await candidate.is_visible():
+                    continue
+                await candidate.click(timeout=5000)
+                await page.wait_for_timeout(1500)
+                return label
+            except Exception:
+                continue
+    return None
 
 
 async def fetch_with_cloak_async(
@@ -81,6 +150,7 @@ async def fetch_with_cloak_async(
         response = await page.goto(url, wait_until="domcontentloaded", timeout=int(timeout_seconds * 1000))
         if post_load_wait_ms > 0:
             await page.wait_for_timeout(post_load_wait_ms)
+        consent_action = await _dismiss_consent_wall(page)
         html = await page.content()
         if not html.strip():
             raise BrowserFetchError("cloak rendered an empty page")
@@ -90,6 +160,7 @@ async def fetch_with_cloak_async(
             html=html,
             title=(await page.title()) or None,
             method=method,
+            consent_action=consent_action,
         )
     finally:
         await context.close()
