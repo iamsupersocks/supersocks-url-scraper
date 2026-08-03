@@ -1,8 +1,28 @@
-# URL Scraper
+# Supersocks URL Scraper
 
-A small, dependency-light URL reader/scraper for extracting a page title, metadata, readable summary, publication date, content type, and extraction warnings.
+[![Python >=3.10](https://img.shields.io/badge/python-%3E%3D3.10-blue)](pyproject.toml)
+[![Version 0.2.0](https://img.shields.io/badge/version-0.2.0-informational)](pyproject.toml)
+[![License MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Repository](https://img.shields.io/badge/repository-GitHub-black)](https://github.com/iamsupersocks/supersocks-url-scraper)
 
-It is designed for agent pipelines, RSS/news tooling, and local automation where you want a simple JSON contract. The basic HTTP reader is dependency-light, but **CloakBrowser is the important part for hostile media, bot walls, and paywall-heavy sites**.
+> **Turn a URL into usable context.**
+
+Give the package an HTTP(S) URL and get back a small JSON or Markdown contract with the title, content type, readable summary, selected fetch route, and warnings when the read is partial.
+
+It starts dependency-light for normal pages, then can opt into article/PDF extraction, CloakBrowser rendering, public archive/cache lookups, a metadata-only routing strategy cache, and a tiny HTTP service. It is not a hosted bypass service and ships no credentials, browser profiles, vendor-specific LLM SDK, or universal paywall guarantee.
+
+## Quick start
+
+```bash
+pip install 'supersocks-url-scraper[full]'
+
+supersocks-url-scraper --include-content --length 1200 https://example.com/article
+
+supersocks-url-scraper --serve --host 127.0.0.1 --port 8768
+curl -s http://127.0.0.1:8768/summarize \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com/article","length":900}'
+```
 
 ## Features
 
@@ -26,6 +46,99 @@ It is designed for agent pipelines, RSS/news tooling, and local automation where
 - Markdown output.
 - Returns warnings for partial extraction, boilerplate, paywalls, and placeholders.
 - Safe to run locally or in cron/server contexts.
+
+## Architecture diagrams
+
+### URL read pipeline
+
+```mermaid
+flowchart TD
+    A[HTTP or HTTPS URL input] --> B{"Valid HTTP(S) URL?"}
+    B -->|No| Z[error: invalid URL]
+    B -->|Yes| C[Reader options]
+    C --> D{"Strategy cache route?"}
+    D -->|cloak or cloak-profile| D1[CloakBrowser preferred]
+    D -->|seo| D2[SEO route preferred]
+    D -->|archive| D3[Archive route preferred]
+    D -->|http, fallback, none, or failed| E[Full pipeline]
+    D1 -->|Fetched| L[Detect content type]
+    D1 -->|Failed| E
+    D2 -->|Fetched| L
+    D2 -->|Failed| E
+    D3 -->|Fetched| L
+    D3 -->|Failed| E
+    E --> F[HTTP fetch: timeout and 25 MB guard]
+    F -->|Fetched| L
+    F -->|Transport failure| G{"SEO fallback on?"}
+    G -->|Yes| H[SEO HTTP variants]
+    G -->|No or failed| I{"Browser fallback on?"}
+    H -->|Fetched| L
+    H -->|Failed| I
+    I -->|Yes| J[CloakBrowser render]
+    I -->|No or failed| K{"Archive fallback on?"}
+    J -->|Fetched| L
+    J -->|Failed| K
+    K -->|Yes| K1[Public archive/cache]
+    K -->|No or failed| Z1[error: fetch failed]
+    K1 -->|Fetched| L
+    K1 -->|Failed| Z1
+    L --> M{"Resource type"}
+    M -->|Article| N[Extract article text]
+    M -->|PDF| O[PyMuPDF text extraction]
+    M -->|Image| P[Placeholder image summary]
+    M -->|Unknown| Z2[error: unsupported type]
+    N --> Q{"Article quality + fetch method"}
+    Q -->|Readable| S[Local or HTTP summary]
+    Q -->|Unusable after HTTP, SEO, or fallback| R[Browser retry if enabled]
+    Q -->|Unusable after CloakBrowser| T[Archive retry if enabled]
+    Q -->|Unusable after archive| V[partial: warnings]
+    R -->|Readable| S
+    R -->|Disabled, failed, or still unusable| T
+    T -->|Readable| S
+    T -->|Disabled, failed, or still unusable| V
+    O -->|Text extracted| S
+    O -->|No text| V
+    O -->|Parse or dependency error| Z3[error: PDF extraction]
+    P --> U[status: ok]
+    S -->|Summary| U
+    S -->|Empty summary| V
+    Z --> W[status: error + warnings]
+    Z1 --> W
+    Z2 --> W
+    Z3 --> W
+    V --> Y[status: partial + warnings]
+```
+
+### HTTP service contract
+
+```mermaid
+flowchart LR
+    Client[Client or agent] --> Route{"HTTP route"}
+    Route --> Health[GET /health]
+    Route --> OpenAPI[GET /openapi.json]
+    Route --> Summarize[POST /summarize]
+    Route --> Read[POST /read]
+    Route --> Markdown[POST /markdown]
+    Route --> Unknown[Unknown route]
+
+    Health --> HealthJSON[JSON runtime config: auth_required, browser, fallbacks, strategy_cache, summary_provider]
+    OpenAPI --> Schema[Dependency-free OpenAPI 3.1 JSON schema]
+
+    Summarize --> Auth{API_BEARER_TOKEN set?}
+    Read --> Auth
+    Markdown --> Auth
+    Auth -->|Missing or wrong bearer| Unauthorized[401 JSON error]
+    Auth -->|Authorized or token not configured| Payload[JSON request: url, length, include_content, fallback toggles, strategy cache path, optional summary provider]
+    Payload -->|Invalid JSON or request exception| BadRequest[400 JSON error]
+    Payload -->|Valid| Pipeline[read_url pipeline]
+    Pipeline --> Outcome{read_url status}
+    Outcome -->|ok or partial| OK[HTTP 200]
+    Outcome -->|error| BadGateway[HTTP 502]
+    OK --> JSONResult[JSON for /summarize and /read]
+    OK --> MarkdownResult[Markdown for /markdown]
+    BadGateway --> JSONError[JSON or Markdown error body]
+    Unknown --> NotFound[404 JSON error]
+```
 
 ## Limitations
 
@@ -174,6 +287,21 @@ python3 scripts/seed_strategy_cache.py \
 ```
 
 `data/` is gitignored. Never commit real URLs, domains, cookies, fetched content, raw HTML, browser profiles, screenshots, tokens, or local private seeds. The discovery helper writes only metadata like `{"fetch_method":"cloak-profile","success_count":1}` keyed by normalized domain.
+
+## Structured RTX price example
+
+For a dynamic search page that embeds listing records in JSON, see
+[`docs/GENERIC_RTX_PRICE_EXAMPLE.md`](docs/GENERIC_RTX_PRICE_EXAMPLE.md) and
+[`examples/generic_rtx_prices.py`](examples/generic_rtx_prices.py). The example
+keeps the target URL and field mapping local, uses the existing HTTP/SEO/browser
+fetch primitives, filters RTX listings, converts EUR values, deduplicates by
+listing id, and reports `ok`/`partial`/`error` with page-level warnings. It does
+not store live HTML or provide a bypass flow.
+
+An aggregate model-level snapshot is available in
+[`docs/RTX_PRICE_ANALYSIS_REPORT.md`](docs/RTX_PRICE_ANALYSIS_REPORT.md). It
+contains only counts and medians; live listing data and target details remain
+outside the repository.
 
 ## HTTP service
 

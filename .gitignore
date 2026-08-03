@@ -23,3 +23,6 @@ fetch-strategies.json
 .DS_Store
 .vscode/
 .idea/
+
+# private live audit/run traces
+runs/
