@@ -13,26 +13,32 @@ It starts dependency-light for normal pages, then can opt into article/PDF extra
 
 ## Quick start
 
-Python (current, published via PyPI / source):
+**Publication status:** PyPI and the npm registry do not host `supersocks-url-scraper@0.2.0` yet (both return 404). Until registry publishes happen, install from a GitHub checkout, pipx, or a packed npm tarball — not from `pip install` / `npx` against the public registries.
+
+Python (from GitHub with pipx today):
 
 ```bash
-pip install 'supersocks-url-scraper[full]'
+pipx install 'git+https://github.com/iamsupersocks/supersocks-url-scraper.git'
 
 supersocks-url-scraper --include-content --length 1200 https://example.com/article
 ```
 
-npm launcher (package metadata is ready; **not published to the npm registry yet** — use a local checkout / packed tarball until `npm publish` is run):
+Optional Python extras (`full`, `browser`, `youtube`, …) are not bundled by default; install them explicitly into the pipx/venv environment when needed (see [Install](#install)).
+
+npm launcher (install from this checkout today; registry publish is future):
 
 ```bash
-# After a future registry publish:
-npx supersocks-url-scraper https://example.com/article
-npm install -g supersocks-url-scraper
+# Future (after npm publish):
+# npx supersocks-url-scraper https://example.com/article
+# npm install -g supersocks-url-scraper
 
-# From this repository today (no registry publish required):
+# Today, from this repository:
 npm pack
 npm install -g ./supersocks-url-scraper-0.2.0.tgz
 supersocks-url-scraper https://example.com/article
 ```
+
+The npm launcher bootstraps the **base** Python engine offline from the embedded package. Optional extras for article/PDF extraction, CloakBrowser, and YouTube are **not** auto-installed; add them explicitly to the versioned cache venv if needed (see [Install](#install)).
 
 Optional HTTP service:
 
@@ -176,18 +182,17 @@ When that happens, check the `status` and `warnings` fields.
 
 ### Python (pip / pipx)
 
-```bash
-pip install supersocks-url-scraper
-```
+**PyPI:** not published yet — `pip install supersocks-url-scraper` returns 404 until a release is uploaded.
 
-From GitHub with pipx (no npm involved):
+From GitHub with pipx (recommended today):
 
 ```bash
 pipx install 'git+https://github.com/iamsupersocks/supersocks-url-scraper.git'
-# or with extras:
-pipx install 'git+https://github.com/iamsupersocks/supersocks-url-scraper.git[full]'
+# Optional extras require explicit install, e.g. after pipx install:
+# pipx inject supersocks-url-scraper 'PyMuPDF>=1.24' 'trafilatura>=1.12' ...
 ```
 
+<<<<<<< HEAD
 For better article extraction and PDF support:
 
 ```bash
@@ -202,14 +207,31 @@ pip install 'supersocks-url-scraper[full,browser]'
 
 > **Important:** for the best paywall / anti-bot results, install the `browser` extra or use the default Docker image. Without CloakBrowser, the tool still works for normal sites but cannot perform the browser-rendered fallback that handles many 403s, bot walls, and paywall-heavy publishers.
 
+=======
+>>>>>>> 30bdf5e (fix: correct npm launcher docs and recover stale install locks)
 Or from a local checkout:
 
 ```bash
 python -m venv .venv
 . .venv/bin/activate
 pip install -e .
-# or: pip install -e '.[full,test]'
+# Optional extras on a checkout:
+# pip install -e '.[full,test]'
+# pip install -e '.[full,browser]'
+# pip install -e '.[youtube]'
 ```
+
+Future (after PyPI publish):
+
+```bash
+# pip install supersocks-url-scraper
+# pip install 'supersocks-url-scraper[full]'
+# pip install 'supersocks-url-scraper[full,browser]'
+# pip install 'supersocks-url-scraper[youtube]'
+# pip install 'supersocks-url-scraper[social]'
+```
+
+> **Important:** for the best paywall / anti-bot results, install the `browser` extra or use the default Docker image. Without CloakBrowser, the tool still works for normal sites but cannot perform the browser-rendered fallback that handles many 403s, bot walls, and paywall-heavy publishers.
 
 ### npm (Node launcher, version 0.2.0)
 
@@ -219,8 +241,8 @@ The repository ships a zero-dependency Node bin that bootstraps an isolated Pyth
 
 ```bash
 # Future (after npm publish):
-npx supersocks-url-scraper https://example.com/article
-npm install -g supersocks-url-scraper
+# npx supersocks-url-scraper https://example.com/article
+# npm install -g supersocks-url-scraper
 
 # Today, from this checkout:
 npm pack
