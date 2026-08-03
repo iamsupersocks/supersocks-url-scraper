@@ -129,6 +129,44 @@ def test_to_markdown_contains_summary_and_content(fixture_base_url: str) -> None
     assert "## Content" in md
 
 
+def test_to_markdown_omits_content_when_identical_to_transcript() -> None:
+    shared = "Hello from captions and more words for the transcript body."
+    result = {
+        "url": "https://www.youtube.com/watch?v=abc123",
+        "status": "ok",
+        "content_type": "article",
+        "fetch_method": "yt-dlp",
+        "platform": "youtube",
+        "title": "Demo Video",
+        "summary": shared,
+        "transcript": shared,
+        "content": shared,
+        "warnings": [],
+    }
+    md = to_markdown(result)
+    assert "## Transcript" in md
+    assert "## Content" not in md
+
+
+def test_to_markdown_keeps_content_when_different_from_transcript() -> None:
+    result = {
+        "url": "https://www.youtube.com/watch?v=abc123",
+        "status": "ok",
+        "content_type": "article",
+        "fetch_method": "yt-dlp",
+        "platform": "youtube",
+        "title": "Demo Video",
+        "summary": "Short summary",
+        "transcript": "Caption text only",
+        "content": "Full description with extra details beyond captions",
+        "warnings": [],
+    }
+    md = to_markdown(result)
+    assert "## Transcript" in md
+    assert "## Content" in md
+    assert "Full description with extra details" in md
+
+
 def test_strategy_cache_records_http_success(fixture_base_url: str, tmp_path: Path) -> None:
     cache = tmp_path / "strategies.json"
     result = read_url(f"{fixture_base_url}/article", strategy_cache_path=str(cache))

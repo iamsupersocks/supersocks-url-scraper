@@ -31,6 +31,7 @@ curl -s http://127.0.0.1:8768/summarize \
 - CLI one-shot mode.
 - Optional HTTP service with `/health`, `/summarize`, `/read`, and `/markdown`.
 - Detects articles, PDFs, images, and unknown binary content.
+- Extensible public social routing for YouTube and LinkedIn (specialized public LinkedIn guest extraction first; generic pipeline and opt-in Jina Reader only as last resorts).
 - Extracts from:
   - OpenGraph/Twitter/HTML metadata
   - JSON-LD article objects
@@ -235,6 +236,25 @@ By default the CLI also tries public archive/cache snapshots as a last resort, i
 supersocks-url-scraper --no-archive-fallback https://example.com/article
 ```
 
+### Public social routing (YouTube / LinkedIn)
+
+Social routing is inspired by the channel/backend pattern popularized by [Agent Reach](https://github.com/Panniantong/Agent-Reach) (MIT). This repository adapts that idea minimally for two public platforms and does **not** vendor Agent Reach, copy its package, auto-install upstream tools, or enable authenticated LinkedIn/MCP/browser-login flows.
+
+- **YouTube** (`youtube.com`, `youtu.be`): when the optional `youtube`/`social` extra is installed, metadata and available subtitles/auto-captions are extracted with `yt-dlp` (`fetch_method=yt-dlp`, `platform=youtube`) without downloading media. If yt-dlp is missing, the reader warns and falls back to the generic HTTP pipeline.
+- **LinkedIn** (`linkedin.com`): uses a specialized **public guest** extractor first. It classifies common public paths (`/in/`, `/company/`, `/school/`, `/showcase/`, `/jobs/view/` and jobs-guest variants, `/pulse/`/`/articles/`, `/posts/`/`/feed/update/`), prefers Open Graph/meta, valid JSON-LD, and stable guest selectors, and may add backward-compatible fields `linkedin_page_type` and `structured_data`. Auth walls, security challenges, navigation/CTA shells, and too-poor useful content return `status=partial` with an explicit warning — never `ok`. The generic HTTP/SEO/Cloak/archive pipeline and the opt-in Jina Reader fallback run only as last resorts. Jina is off by default and blocked for credentialed URLs, localhost/private hosts, and non-HTTP(S) schemes. No cookies, tokens, Voyager private APIs, login browsers, proxies, or caller headers are used or forwarded. Successful Jina reads set `fetch_method=jina` and warn `external reader used: jina`.
+
+```bash
+# YouTube (requires optional yt-dlp extra)
+supersocks-url-scraper --include-content https://www.youtube.com/watch?v=EXAMPLEVIDEO01
+
+# LinkedIn specialized public extraction; optional Jina only when explicitly requested
+supersocks-url-scraper --jina-fallback https://www.linkedin.com/pulse/example-public-post
+```
+
+**LinkedIn public support and limits:** guest-visible HTML/meta/JSON-LD only. Logged-in-only content, paywalled profiles, and challenge pages are reported as `partial` rather than guessed. Authenticated LinkedIn scraping remains out of scope.
+
+Domain matching rejects suffix lookalikes (e.g. `notyoutube.com`) and URLs with userinfo/credentials.
+
 For sites that need an already-authenticated/sessioned browser profile, pass a persistent profile directory:
 
 ```bash
@@ -334,6 +354,7 @@ Supported service environment variables:
 - `BROWSER_MAX_CONCURRENCY`: maximum concurrent CloakBrowser renders in this process. Keep this low; browser rendering is CPU/RAM-heavy.
 - `ARCHIVE_FALLBACK`: set to `latest`/`1`/`true` to allow public archive/cache fallback by default.
 - `SEO_FALLBACK`: enable/disable SEO-style HTTP variants by default.
+- `JINA_FALLBACK`: opt-in Jina Reader fallback after specialized LinkedIn (or generic last-resort) `error`/`partial` results. Disabled by default. Never used for credentialed, local, or private URLs; never forwards cookies/tokens.
 - `FETCH_STRATEGY_CACHE_PATH`: metadata-only domain strategy cache.
 - `SUMMARY_PROVIDER`: optional summary provider, default `local`. Currently supports `local`/`extractive`/`none` and `http`.
 - `SUMMARY_PROVIDER_URL`: endpoint for `SUMMARY_PROVIDER=http`; unset by default.
@@ -447,7 +468,9 @@ This public repo includes a standalone URL-reading core suitable for agent/news 
 - Browser-profile probe for warming or inspecting operator-owned Cloak profiles without committing sessions.
 - Docker image with browser runtime.
 
-Intentionally excluded from this standalone public repo: social-network-native routes, private automation, chat integrations, hosted-service authentication, provider credentials/vendor-specific LLM SDK wiring, and vision-provider wiring. Those are application integrations, not required for the URL/paywall-reading core.
+Public social routing included here is intentionally narrow and legal/privacy-preserving: YouTube metadata/subtitles via optional yt-dlp, and LinkedIn public guest pages via a specialized extractor (meta/JSON-LD/public selectors) with generic + opt-in Jina Reader only as last resorts. Architectural inspiration comes from Agent Reach (MIT) without importing or copying that project. Authenticated social scrapers, LinkedIn MCP, cookie/login browsers, Voyager private APIs, and private indexers remain excluded.
+
+Intentionally excluded from this standalone public repo: authenticated social-network scrapers, private automation, chat integrations, hosted-service authentication, provider credentials/vendor-specific LLM SDK wiring, and vision-provider wiring. Those are application integrations, not required for the URL/paywall-reading core.
 
 ## Educational use, responsibility, and privacy
 

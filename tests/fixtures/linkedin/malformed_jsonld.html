@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Malformed JSON-LD fixture</title>
+  <meta property="og:title" content="Malformed JSON-LD still yields meta text"/>
+  <meta property="og:description" content="This fixture includes a broken JSON-LD block so the extractor can ignore it and still recover useful Open Graph text for a public LinkedIn guest page."/>
+  <script type="application/ld+json">
+  { "broken": true, "name":
+  </script>
+</head>
+<body>
+  <p>This fixture includes a broken JSON-LD block so the extractor can ignore it and still recover useful Open Graph text for a public LinkedIn guest page.</p>
+</body>
+</html>

@@ -11,8 +11,10 @@ The public service should keep the same operational contract that downstream too
 - `POST /read`
 - `POST /markdown`
 - JSON response fields: `status`, `url`, `content_type`, `title`, `summary`, `length`, `fetch_method`, `warnings`, optional `content`
-- fetch methods: `http`, `seo`, `cloak`, `cloak-profile`, `archive`, `fallback`
+- optional social fields when routing matches: `platform`, `author`, `published_at`, `duration`, `transcript`, `transcript_source`, plus LinkedIn `linkedin_page_type` / `structured_data` when specialized extraction ran
+- fetch methods: `http`, `seo`, `cloak`, `cloak-profile`, `archive`, `fallback`, plus social `yt-dlp` and opt-in `jina`
 - layered route: HTTP → SEO variants → CloakBrowser → public archive/cache snapshots
+- public social routing: YouTube via optional yt-dlp; LinkedIn specialized public guest extractor first, with generic pipeline and opt-in Jina Reader only as last resorts
 - metadata-only strategy cache by domain, never cookies/content/secrets
 
 ## Production-style public defaults
@@ -52,6 +54,7 @@ Implemented here:
 - optional generic HTTP summary provider interface, disabled by default, with no bundled keys or vendor SDK dependency
 - source-discovery registry and `scripts/discover_source.py` loop, ported from the internal method but storing only sanitized domain metadata
 - browser-profile probe script for operator-owned Cloak profile warm-up/diagnostics, with outputs outside git by default
+- public social routing inspired by Agent Reach's channel/backend idea (MIT; no Agent Reach code imported): YouTube metadata/subtitles via optional `yt-dlp` extra; LinkedIn specialized public guest extraction (page-type classification, OG/JSON-LD/public selectors, honest authwall/challenge `partial` status) with generic + opt-in Jina Reader only as last resorts (`JINA_FALLBACK` / `--jina-fallback` / JSON `jina_fallback`); robust domain matching (no suffix lookalikes, no userinfo); no authenticated LinkedIn MCP/login/cookie/Voyager paths
 
 Still worth adding where it can remain public and generic:
 
