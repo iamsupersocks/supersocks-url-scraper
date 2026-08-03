@@ -13,11 +13,30 @@ It starts dependency-light for normal pages, then can opt into article/PDF extra
 
 ## Quick start
 
+Python (current, published via PyPI / source):
+
 ```bash
 pip install 'supersocks-url-scraper[full]'
 
 supersocks-url-scraper --include-content --length 1200 https://example.com/article
+```
 
+npm launcher (package metadata is ready; **not published to the npm registry yet** — use a local checkout / packed tarball until `npm publish` is run):
+
+```bash
+# After a future registry publish:
+npx supersocks-url-scraper https://example.com/article
+npm install -g supersocks-url-scraper
+
+# From this repository today (no registry publish required):
+npm pack
+npm install -g ./supersocks-url-scraper-0.2.0.tgz
+supersocks-url-scraper https://example.com/article
+```
+
+Optional HTTP service:
+
+```bash
 supersocks-url-scraper --serve --host 127.0.0.1 --port 8768
 curl -s http://127.0.0.1:8768/summarize \
   -H 'content-type: application/json' \
@@ -155,8 +174,18 @@ When that happens, check the `status` and `warnings` fields.
 
 ## Install
 
+### Python (pip / pipx)
+
 ```bash
 pip install supersocks-url-scraper
+```
+
+From GitHub with pipx (no npm involved):
+
+```bash
+pipx install 'git+https://github.com/iamsupersocks/supersocks-url-scraper.git'
+# or with extras:
+pipx install 'git+https://github.com/iamsupersocks/supersocks-url-scraper.git[full]'
 ```
 
 For better article extraction and PDF support:
@@ -181,6 +210,26 @@ python -m venv .venv
 pip install -e .
 # or: pip install -e '.[full,test]'
 ```
+
+### npm (Node launcher, version 0.2.0)
+
+The repository ships a zero-dependency Node bin that bootstraps an isolated Python >=3.10 venv under `XDG_CACHE_HOME/supersocks-url-scraper` (or `~/.cache/supersocks-url-scraper`) from the **embedded** Python package inside the npm tarball. No `postinstall`, no remote GitHub/curl install, and no sudo.
+
+**Publication status:** `package.json` is prepared for the npm name `supersocks-url-scraper@0.2.0`, but **`npm publish` has not been executed**. Until a registry publish happens, install from a packed tarball or path — do not expect `npx supersocks-url-scraper` to resolve from the public registry yet.
+
+```bash
+# Future (after npm publish):
+npx supersocks-url-scraper https://example.com/article
+npm install -g supersocks-url-scraper
+
+# Today, from this checkout:
+npm pack
+npm install -g ./supersocks-url-scraper-0.2.0.tgz
+# or one-shot without a global install:
+npx --yes ./supersocks-url-scraper-0.2.0.tgz https://example.com/article
+```
+
+Requirements for the launcher: Node >=18 and Python >=3.10 on `PATH` (or set `PYTHON=`). Optional Python extras (`full`, `browser`, `youtube`, …) are not auto-installed by the npm launcher; install them into the versioned cache venv manually if needed.
 
 ## CLI usage
 

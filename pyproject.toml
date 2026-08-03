@@ -36,4 +36,4 @@ supersocks-url-scraper = "supersocks_url_scraper.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
