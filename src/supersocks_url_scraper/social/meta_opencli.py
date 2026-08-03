@@ -137,14 +137,58 @@ def _failure(url: str, *, platform: str, length: int, warnings: list[str], statu
     }
 
 
+def _markdown_to_text(markdown: str) -> tuple[str | None, str]:
+    """Extract (title, body) from raw OpenCLI markdown stdout."""
+    text = (markdown or "").strip()
+    if not text:
+        return None, ""
+    title: str | None = None
+    body_lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if title is None and stripped.startswith("#"):
+            title = stripped.lstrip("#").strip() or None
+            continue
+        body_lines.append(line)
+    body = "\n".join(body_lines).strip() or text
+    return title, body
+
+
 def _build_command(url: str, *, platform: str) -> list[str]:
     handle = _profile_handle(url, platform=platform)
     if handle and platform == "instagram":
         return ["instagram", "profile", handle, "-f", "json"]
     if handle and platform == "facebook":
         return ["facebook", "profile", handle, "-f", "json"]
-    # Posts and other shapes: read through the logged-in Chrome session.
-    return ["web", "read", "--url", url, "--download-images", "false", "-f", "json"]
+    # Posts and other shapes: stream Markdown on stdout (avoid -f json save manifest).
+    return ["web", "read", "--url", url, "--download-images", "false", "--stdout"]
+
+
+def _result_from_markdown_stdout(
+    url: str,
+    *,
+    platform: str,
+    markdown: str,
+    length: int,
+    include_content: bool,
+) -> dict[str, Any]:
+    title, body = _markdown_to_text(markdown)
+    max_chars = max(50, min(int(length or 900), 10_000))
+    summary = trim_text(body or title or "", max_chars)
+    out: dict[str, Any] = {
+        "url": url,
+        "content_type": "article",
+        "title": title or (trim_text(body, 80) if body else None),
+        "summary": summary,
+        "length": max_chars,
+        "fetch_method": "opencli",
+        "status": "ok" if summary else "partial",
+        "warnings": [] if summary else ["opencli returned no readable text"],
+        "platform": platform,
+    }
+    if include_content:
+        out["content"] = markdown
+    return out
 
 
 def extract_meta_opencli(
@@ -190,6 +234,7 @@ def extract_meta_opencli(
         )
 
     argv = _build_command(url, platform=platform)
+    is_profile = _profile_handle(url, platform=platform) is not None
     try:
         result = run_opencli(argv, timeout=timeout, runner=runner, environ=environ)
     except Exception as exc:  # noqa: BLE001
@@ -200,29 +245,28 @@ def extract_meta_opencli(
             warnings=[f"opencli execution failed: {redact_secrets(str(exc))}"],
         )
 
+    if not is_profile:
+        markdown = (result.stdout or "").strip()
+        if result.returncode == 0 and markdown:
+            return _result_from_markdown_stdout(
+                url,
+                platform=platform,
+                markdown=markdown,
+                length=length,
+                include_content=include_content,
+            )
+        err = redact_secrets((result.stderr or result.stdout or "opencli failed").strip().splitlines()[0][:300])
+        lower = err.lower()
+        warnings = [err]
+        if any(token in lower for token in ("auth", "login", "unauthorized", "checkpoint", "session")):
+            site = "instagram.com" if platform == "instagram" else "facebook.com"
+            warnings.append(f"OpenCLI could not use a logged-in Chrome session for {site}; log in and retry.")
+        return _failure(url, platform=platform, length=length, warnings=warnings)
+
     parsed: Any = None
     try:
         parsed = parse_json_payload(result.stdout)
     except Exception:
-        # Some opencli builds emit markdown on success without JSON.
-        markdown = (result.stdout or "").strip()
-        if result.returncode == 0 and markdown and not markdown.lstrip().startswith("{"):
-            max_chars = max(50, min(int(length or 900), 10_000))
-            summary = trim_text(markdown, max_chars)
-            out = {
-                "url": url,
-                "content_type": "article",
-                "title": trim_text(markdown, 80) if markdown else None,
-                "summary": summary,
-                "length": max_chars,
-                "fetch_method": "opencli",
-                "status": "ok" if summary else "partial",
-                "warnings": [],
-                "platform": platform,
-            }
-            if include_content:
-                out["content"] = markdown
-            return out
         parsed = None
 
     if result.returncode != 0 or parsed is None:

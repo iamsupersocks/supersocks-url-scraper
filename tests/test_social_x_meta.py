@@ -174,22 +174,67 @@ def test_facebook_profile_via_opencli_mock() -> None:
     assert "Building things" in result["summary"]
 
 
-def test_instagram_post_uses_web_read(monkeypatch: pytest.MonkeyPatch) -> None:
-    ready = OpenCLIStatus(installed=True, extension_connected=True, version="1.8.5")
-    payload = {"title": "Post", "markdown": "A long enough caption from a mocked Instagram post body for summary."}
+def test_instagram_post_uses_web_read_stdout_markdown() -> None:
+    ready = OpenCLIStatus(installed=True, extension_connected=True, version="1.8.6")
+    post_url = "https://www.instagram.com/p/AbCdEfGhIjK/"
+    markdown = (
+        "# NASA Post\n\n"
+        "A long enough caption from a mocked Instagram post body for summary."
+    )
 
     def runner(argv, timeout=30, env=None):
-        assert "web" in argv and "read" in argv
-        assert "--url" in argv
-        return CommandResult(0, json.dumps(payload), "")
+        assert argv == [
+            "opencli",
+            "web",
+            "read",
+            "--url",
+            post_url,
+            "--download-images",
+            "false",
+            "--stdout",
+        ]
+        assert "-f" not in argv
+        assert "json" not in argv
+        return CommandResult(0, markdown, "")
 
     result = extract_instagram(
-        "https://www.instagram.com/p/AbCdEfGhIjK/",
+        post_url,
+        include_content=True,
         runner=runner,
         status_override=ready,
     )
     assert result["status"] == "ok"
+    assert result["title"] == "NASA Post"
     assert "caption" in result["summary"]
+    assert result["content"] == markdown
+
+
+def test_facebook_post_uses_web_read_stdout_markdown() -> None:
+    ready = OpenCLIStatus(installed=True, extension_connected=True, version="1.8.6")
+    post_url = "https://www.facebook.com/watch/?v=1234567890"
+    markdown = "# Demo\n\nFacebook watch page body with enough text for a readable summary."
+
+    def runner(argv, timeout=30, env=None):
+        assert argv == [
+            "opencli",
+            "web",
+            "read",
+            "--url",
+            post_url,
+            "--download-images",
+            "false",
+            "--stdout",
+        ]
+        return CommandResult(0, markdown, "")
+
+    result = extract_facebook(
+        post_url,
+        runner=runner,
+        status_override=ready,
+    )
+    assert result["status"] == "ok"
+    assert result["title"] == "Demo"
+    assert "Facebook watch page" in result["summary"]
 
 
 def test_try_social_read_routes_all_new_channels(monkeypatch: pytest.MonkeyPatch) -> None:
