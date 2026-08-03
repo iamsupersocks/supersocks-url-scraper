@@ -71,14 +71,8 @@ def health_payload() -> dict:
         "strategy_cache": _path_status(strategy_cache_path, kind="file"),
         "summary_provider": {
             "default": os.environ.get("SUMMARY_PROVIDER", "local") or "local",
-            "url_configured": bool(
-                (os.environ.get("SUMMARY_PROVIDER_URL") or os.environ.get("KIMI_API_URL") or "").strip()
-            ),
-            "token_configured": bool(
-                (os.environ.get("SUMMARY_PROVIDER_TOKEN") or os.environ.get("KIMI_API_KEY") or "").strip()
-            ),
-            "kimi_key_configured": bool(os.environ.get("KIMI_API_KEY", "").strip()),
-            "kimi_model": os.environ.get("KIMI_MODEL", "kimi-k2.5") or "kimi-k2.5",
+            "url_configured": bool(os.environ.get("SUMMARY_PROVIDER_URL", "").strip()),
+            "token_configured": bool(os.environ.get("SUMMARY_PROVIDER_TOKEN", "").strip()),
             "timeout_seconds": _env_int("SUMMARY_PROVIDER_TIMEOUT", 30),
         },
     }
@@ -102,18 +96,13 @@ def openapi_payload() -> dict:
             "strategy_cache_path": {"type": "string"},
             "summary_provider": {
                 "type": "string",
-                "enum": ["local", "extractive", "none", "http", "kimi"],
+                "enum": ["local", "extractive", "none", "http"],
                 "default": os.environ.get("SUMMARY_PROVIDER", "local") or "local",
-                "description": "Optional summarizer after page extraction. Kimi never scrapes URLs; it only summarizes already-extracted text when provider=kimi.",
             },
-            "summary_provider_url": {
-                "type": "string",
-                "format": "uri",
-                "description": "HTTP endpoint for summary_provider=http, or optional override of the Kimi OpenAI-compatible chat completions URL.",
-            },
+            "summary_provider_url": {"type": "string", "format": "uri"},
             "summary_provider_token": {
                 "type": "string",
-                "description": "Optional bearer token for http, or Kimi API key override. Prefer KIMI_API_KEY for provider=kimi. Never logged.",
+                "description": "Optional bearer token for the caller's own summary provider; never required by default.",
             },
             "summary_provider_timeout": {"type": "integer", "default": _env_int("SUMMARY_PROVIDER_TIMEOUT", 30)},
         },
@@ -205,22 +194,8 @@ class Handler(BaseHTTPRequestHandler):
         archive_fallback = _truthy(payload.get("archive_fallback"), _truthy(os.environ.get("ARCHIVE_FALLBACK"), True))
         jina_fallback = _truthy(payload.get("jina_fallback"), _truthy(os.environ.get("JINA_FALLBACK"), False))
         summary_provider = str(payload.get("summary_provider") or os.environ.get("SUMMARY_PROVIDER") or "local")
-        if summary_provider.strip().lower() == "kimi":
-            summary_provider_url = str(
-                payload.get("summary_provider_url")
-                or os.environ.get("KIMI_API_URL")
-                or os.environ.get("SUMMARY_PROVIDER_URL")
-                or ""
-            )
-            summary_provider_token = str(
-                payload.get("summary_provider_token")
-                or os.environ.get("KIMI_API_KEY")
-                or os.environ.get("SUMMARY_PROVIDER_TOKEN")
-                or ""
-            )
-        else:
-            summary_provider_url = str(payload.get("summary_provider_url") or os.environ.get("SUMMARY_PROVIDER_URL") or "")
-            summary_provider_token = str(payload.get("summary_provider_token") or os.environ.get("SUMMARY_PROVIDER_TOKEN") or "")
+        summary_provider_url = str(payload.get("summary_provider_url") or os.environ.get("SUMMARY_PROVIDER_URL") or "")
+        summary_provider_token = str(payload.get("summary_provider_token") or os.environ.get("SUMMARY_PROVIDER_TOKEN") or "")
         return read_url(
             str(payload.get("url") or ""),
             length=int(payload.get("length") or os.environ.get("DEFAULT_SUMMARY_LENGTH", 900)),
@@ -279,19 +254,11 @@ def main() -> int:
     parser.add_argument(
         "--summary-provider",
         default=os.environ.get("SUMMARY_PROVIDER", "local") or "local",
-        choices=["local", "extractive", "none", "http", "kimi"],
-        help="Optional external summary provider after extraction. Default: local. Use kimi only with explicit opt-in; Kimi summarizes extracted text and does not scrape the page.",
+        choices=["local", "extractive", "none", "http"],
+        help="Optional external summary provider after extraction. Default: local extractive summary",
     )
-    parser.add_argument(
-        "--summary-provider-url",
-        default="",
-        help="HTTP endpoint for --summary-provider=http, or optional Kimi chat completions URL override",
-    )
-    parser.add_argument(
-        "--summary-provider-token",
-        default="",
-        help="Optional bearer token for http, or Kimi API key override (prefer KIMI_API_KEY). Never logged.",
-    )
+    parser.add_argument("--summary-provider-url", default="", help="HTTP endpoint for --summary-provider=http")
+    parser.add_argument("--summary-provider-token", default="", help="Optional bearer token for --summary-provider=http")
     parser.add_argument("--summary-provider-timeout", type=int, default=_env_int("SUMMARY_PROVIDER_TIMEOUT", 30), help="Timeout in seconds for the optional summary provider")
     parser.add_argument("--serve", action="store_true", help="Run HTTP service with /health, /summarize, /read, /markdown")
     parser.add_argument("--host", default="127.0.0.1")
@@ -306,13 +273,6 @@ def main() -> int:
 
     if not args.url:
         parser.error("provide a URL or use --serve")
-    summary_provider = args.summary_provider
-    if summary_provider.strip().lower() == "kimi":
-        summary_provider_url = args.summary_provider_url or os.environ.get("KIMI_API_URL") or os.environ.get("SUMMARY_PROVIDER_URL") or ""
-        summary_provider_token = args.summary_provider_token or os.environ.get("KIMI_API_KEY") or os.environ.get("SUMMARY_PROVIDER_TOKEN") or ""
-    else:
-        summary_provider_url = args.summary_provider_url or os.environ.get("SUMMARY_PROVIDER_URL") or ""
-        summary_provider_token = args.summary_provider_token or os.environ.get("SUMMARY_PROVIDER_TOKEN") or ""
     result = read_url(
         args.url,
         length=args.length,
@@ -325,9 +285,9 @@ def main() -> int:
         browser_max_concurrency=args.browser_max_concurrency,
         archive_fallback=not args.no_archive_fallback,
         jina_fallback=args.jina_fallback or _truthy(os.environ.get("JINA_FALLBACK"), False),
-        summary_provider=summary_provider,
-        summary_provider_url=summary_provider_url,
-        summary_provider_token=summary_provider_token,
+        summary_provider=args.summary_provider,
+        summary_provider_url=args.summary_provider_url or os.environ.get("SUMMARY_PROVIDER_URL") or "",
+        summary_provider_token=args.summary_provider_token or os.environ.get("SUMMARY_PROVIDER_TOKEN") or "",
         summary_provider_timeout=args.summary_provider_timeout,
     )
     if args.markdown:
