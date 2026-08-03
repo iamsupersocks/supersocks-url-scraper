@@ -9,6 +9,8 @@
 
 Give the package an HTTP(S) URL and get back a small JSON or Markdown contract with the title, content type, readable summary, selected fetch route, and warnings when the read is partial.
 
+🌐 [Repository](https://github.com/iamsupersocks/supersocks-url-scraper) · 🧩 JSON + Markdown · 🔒 Local-first by default · 📄 MIT
+
 It starts dependency-light for normal pages, then can opt into article/PDF extraction, CloakBrowser rendering, public archive/cache lookups, a metadata-only routing strategy cache, and a tiny HTTP service. It is not a hosted bypass service and ships no credentials, browser profiles, vendor-specific LLM SDK, or universal paywall guarantee.
 
 ## Quick start
@@ -53,6 +55,7 @@ curl -s http://127.0.0.1:8768/summarize \
 
 - No required third-party runtime dependencies for the basic reader.
 - Optional extras for high-quality article extraction and PDF parsing.
+- Optional `youtube`/`social` extras for public YouTube metadata and subtitle extraction via yt-dlp (no media download; never auto-installed).
 - CLI one-shot mode.
 - Optional HTTP service with `/health`, `/summarize`, `/read`, and `/markdown`.
 - Detects articles, PDFs, images, and unknown binary content.
@@ -192,23 +195,6 @@ pipx install 'git+https://github.com/iamsupersocks/supersocks-url-scraper.git'
 # pipx inject supersocks-url-scraper 'PyMuPDF>=1.24' 'trafilatura>=1.12' ...
 ```
 
-<<<<<<< HEAD
-For better article extraction and PDF support:
-
-```bash
-pip install 'supersocks-url-scraper[full]'
-```
-
-For hostile/paywalled media fallback via CloakBrowser:
-
-```bash
-pip install 'supersocks-url-scraper[full,browser]'
-```
-
-> **Important:** for the best paywall / anti-bot results, install the `browser` extra or use the default Docker image. Without CloakBrowser, the tool still works for normal sites but cannot perform the browser-rendered fallback that handles many 403s, bot walls, and paywall-heavy publishers.
-
-=======
->>>>>>> 30bdf5e (fix: correct npm launcher docs and recover stale install locks)
 Or from a local checkout:
 
 ```bash
@@ -427,14 +413,43 @@ Supported service environment variables:
 - `SEO_FALLBACK`: enable/disable SEO-style HTTP variants by default.
 - `JINA_FALLBACK`: opt-in Jina Reader fallback after specialized LinkedIn (or generic last-resort) `error`/`partial` results. Disabled by default. Never used for credentialed, local, or private URLs; never forwards cookies/tokens.
 - `FETCH_STRATEGY_CACHE_PATH`: metadata-only domain strategy cache.
-- `SUMMARY_PROVIDER`: optional summary provider, default `local`. Currently supports `local`/`extractive`/`none` and `http`.
-- `SUMMARY_PROVIDER_URL`: endpoint for `SUMMARY_PROVIDER=http`; unset by default.
-- `SUMMARY_PROVIDER_TOKEN`: optional bearer token for the caller's own provider; unset by default.
+- `SUMMARY_PROVIDER`: optional summary provider, default `local`. Supports `local`/`extractive`/`none`, generic `http`, and opt-in `kimi`.
+- `SUMMARY_PROVIDER_URL`: endpoint for `SUMMARY_PROVIDER=http`, or optional override of the Kimi chat-completions URL; unset by default.
+- `SUMMARY_PROVIDER_TOKEN`: optional bearer token for the caller's own `http` provider, or Kimi API key override; unset by default. Never logged.
 - `SUMMARY_PROVIDER_TIMEOUT`: timeout in seconds for the optional provider.
+- `KIMI_API_KEY`: Moonshot/Kimi API key used only when `SUMMARY_PROVIDER=kimi` (or per-request `summary_provider=kimi`). Never logged or shipped.
+- `KIMI_API_URL`: OpenAI-compatible chat completions URL for Kimi; default `https://api.moonshot.ai/v1/chat/completions`.
+- `KIMI_MODEL`: Kimi model id; default `kimi-k2.5`.
 
 Per-request JSON fields still override the environment defaults.
 
-External summary providers are intentionally opt-in. The package ships no API keys and no vendor SDK dependency; the generic HTTP adapter posts `{url,title,content_type,length,content}` to your configured endpoint and accepts JSON `{summary: "..."}` or a plain-text response. If the provider fails, the reader falls back to the local extractive summarizer and includes a warning.
+External summary providers are intentionally opt-in. The package ships no API keys and no vendor SDK dependency. The generic HTTP adapter posts `{url,title,content_type,length,content}` to your configured endpoint and accepts JSON `{summary: "..."}` or a plain-text response. The Kimi adapter is a direct OpenAI-compatible `POST` used only when `provider=kimi`; it summarizes already-extracted text and does **not** scrape the page. Warning: enabling Kimi sends extracted page text to a third-party API (cost + confidentiality). If any provider fails, the reader falls back to the local extractive summarizer and includes a warning.
+
+Exact Kimi opt-in example (CLI):
+
+```bash
+export KIMI_API_KEY=YOUR_MOONSHOT_KEY
+supersocks-url-scraper 'https://example.com/article' \
+  --summary-provider kimi \
+  --length 600
+```
+
+Exact Kimi opt-in example (HTTP service):
+
+```bash
+export SUMMARY_PROVIDER=kimi
+export KIMI_API_KEY=YOUR_MOONSHOT_KEY
+# optional overrides:
+# export KIMI_API_URL=https://api.moonshot.ai/v1/chat/completions
+# export KIMI_MODEL=kimi-k2.5
+supersocks-url-scraper --serve --host 127.0.0.1 --port 8768
+
+curl -s http://127.0.0.1:8768/summarize \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com/article","length":600,"summary_provider":"kimi"}' | jq
+```
+
+Leave `SUMMARY_PROVIDER=local` (the default) for offline/local-only operation with no third-party summary calls.
 
 
 Health check:
@@ -443,7 +458,7 @@ Health check:
 curl http://127.0.0.1:8768/health
 ```
 
-The health payload includes service config metadata: whether auth is required, whether the browser extra is installed, browser fallback defaults, profile/cache path status, archive/SEO defaults, and the configured browser concurrency limit. `GET /openapi.json` exposes a dependency-free OpenAPI 3.1 schema for the public HTTP contract.
+The health payload includes service config metadata: whether auth is required, whether the browser extra is installed, browser fallback defaults, profile/cache path status, archive/SEO defaults, the configured browser concurrency limit, and under `social` whether yt-dlp is installed plus a boolean `js_runtime_available` (true when `node` or `deno` is on `PATH`; informational only, never installed or required). `GET /openapi.json` exposes a dependency-free OpenAPI 3.1 schema for the public HTTP contract.
 
 Docker Compose production-style local deployment:
 
@@ -496,6 +511,7 @@ Response shape:
 }
 ```
 
+Optional social fields may also appear when routing matches: `platform`, `author`, `published_at`, `duration`, `transcript`, `transcript_source`. Existing fields remain stable.
 ## Python usage
 
 ```python
@@ -529,6 +545,7 @@ This public repo includes a standalone URL-reading core suitable for agent/news 
 - Article extraction with metadata, JSON-LD, trafilatura, readability, BeautifulSoup, and regex fallback.
 - Local extractive summaries plus optional full cleaned content.
 - Optional generic HTTP summary-provider adapter for external summaries; disabled by default and no private keys shipped.
+- Optional opt-in Kimi/Moonshot OpenAI-compatible summarizer (`provider=kimi`) that summarizes extracted text only; never called unless explicitly selected; falls back to local extractive summary on failure.
 - SEO-style requests: Googlebot, Bingbot, and search/social referer variants.
 - Optional CloakBrowser rendering, including persistent browser profiles. This is critical for the strongest paywall/anti-bot coverage.
 - Public archive/cache fallbacks: Google cache URL pattern, archive.today, archive.is, and Wayback.

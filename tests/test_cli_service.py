@@ -125,6 +125,7 @@ def test_openapi_schema_exposes_public_contract(service):
     summarize_schema = body["paths"]["/summarize"]["post"]["requestBody"]["content"]["application/json"]["schema"]
     assert "browser_max_concurrency" in summarize_schema["properties"]
     assert "jina_fallback" in summarize_schema["properties"]
+    assert "kimi" in summarize_schema["properties"]["summary_provider"]["enum"]
     result_schema = body["paths"]["/summarize"]["post"]["responses"]["200"]["content"]["application/json"]["schema"]
     assert "yt-dlp" in result_schema["properties"]["fetch_method"]["enum"]
     assert "platform" in result_schema["properties"]
