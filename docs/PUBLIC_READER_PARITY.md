@@ -52,7 +52,6 @@ Implemented here:
 - Docker image with browser runtime and prewarmed Cloak binary
 - public regression corpus in `tests/fixtures/public_regression_corpus.json`, with schema/safety tests and no saved page content
 - optional generic HTTP summary provider interface, disabled by default, with no bundled keys or vendor SDK dependency
-- optional opt-in Kimi/Moonshot OpenAI-compatible summarizer (`SUMMARY_PROVIDER=kimi` / `KIMI_API_KEY`); summarizes extracted text only, never scrapes, never called without explicit opt-in; falls back to local extractive summary
 - source-discovery registry and `scripts/discover_source.py` loop, ported from the internal method but storing only sanitized domain metadata
 - browser-profile probe script for operator-owned Cloak profile warm-up/diagnostics, with outputs outside git by default
 - public social routing inspired by Agent Reach's channel/backend idea (MIT; no Agent Reach code imported): YouTube metadata/subtitles via optional `yt-dlp` extra; LinkedIn specialized public guest extraction (page-type classification, OG/JSON-LD/public selectors, honest authwall/challenge `partial` status) with generic + opt-in Jina Reader only as last resorts (`JINA_FALLBACK` / `--jina-fallback` / JSON `jina_fallback`); robust domain matching (no suffix lookalikes, no userinfo); no authenticated LinkedIn MCP/login/cookie/Voyager paths

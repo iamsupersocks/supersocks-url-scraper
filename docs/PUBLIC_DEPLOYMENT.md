@@ -221,11 +221,7 @@ The script prints status, final URL, markers such as CAPTCHA/paywall/cookie cons
 
 ## 7. Optional external summary provider
 
-External summarizers are opt-in. Default remains local extractive summary.
-
-### Generic HTTP adapter
-
-If you operate your own summarizer, configure the generic HTTP adapter:
+The public package does not ship vendor-specific LLM wiring. If you operate your own summarizer, configure the generic HTTP adapter:
 
 ```bash
 SUMMARY_PROVIDER=http
@@ -246,29 +242,7 @@ The adapter posts:
 }
 ```
 
-It accepts JSON `{ "summary": "..." }`, `{ "text": "..." }`, `{ "result": "..." }`, or plain text.
-
-### Opt-in Kimi / Moonshot
-
-Kimi is never called unless `SUMMARY_PROVIDER=kimi` (or per-request `summary_provider=kimi`). It summarizes already-extracted text only; it does not scrape the page. Sending page text to a third-party API has cost and confidentiality implications—prefer `local` when that is unacceptable.
-
-```bash
-SUMMARY_PROVIDER=kimi
-KIMI_API_KEY=CHANGE_ME_MOONSHOT_KEY
-# optional:
-# KIMI_API_URL=https://api.moonshot.ai/v1/chat/completions
-# KIMI_MODEL=kimi-k2.5
-SUMMARY_PROVIDER_TIMEOUT=30
-```
-
-Exact CLI example:
-
-```bash
-export KIMI_API_KEY=CHANGE_ME_MOONSHOT_KEY
-supersocks-url-scraper 'https://example.com/article' --summary-provider kimi --length 600
-```
-
-If any provider fails, the reader falls back to local extractive summary and adds a warning. Never commit real API keys.
+It accepts JSON `{ "summary": "..." }`, `{ "text": "..." }`, `{ "result": "..." }`, or plain text. If the provider fails, the reader falls back to local extractive summary and adds a warning. Never commit real API keys.
 
 ## 8. What not to publish
 
