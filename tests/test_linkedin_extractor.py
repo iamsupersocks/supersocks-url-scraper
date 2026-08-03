@@ -297,3 +297,43 @@ def test_no_real_pii_in_fixtures() -> None:
         text = path.read_text(encoding="utf-8").lower()
         for token in banned:
             assert token not in text, path.name
+
+
+@pytest.mark.parametrize(
+    ("fixture", "url", "page_type"),
+    [
+        ("profile_signin_modal.html", "https://www.linkedin.com/in/alex-example", "profile"),
+        ("company_signin_modal.html", "https://www.linkedin.com/company/example-labs", "company"),
+        ("job_signin_modal.html", "https://www.linkedin.com/jobs/view/123456789", "job"),
+        ("article_signin_modal.html", "https://www.linkedin.com/pulse/public-extractors", "article"),
+        ("post_signin_modal.html", "https://www.linkedin.com/posts/example-labs_update-activity-1", "post"),
+    ],
+)
+def test_signin_modal_with_public_content_returns_ok(fixture: str, url: str, page_type: str) -> None:
+    result = extract_linkedin_html(url, _load(fixture))
+    assert result["status"] == "ok"
+    assert result["linkedin_page_type"] == page_type
+    assert any("sign-in chrome ignored" in w.lower() for w in result["warnings"])
+    assert len(result["summary"]) >= 80
+
+
+def test_article_aside_before_main_prioritizes_body() -> None:
+    result = extract_linkedin_html(
+        "https://www.linkedin.com/pulse/aside-order",
+        _load("article_aside_before_main.html"),
+    )
+    assert result["status"] == "ok"
+    summary = result["summary"].lower()
+    assert summary.startswith("primary article body") or "primary article body" in summary[:120].lower()
+    assert "technology" not in summary[:80].lower()
+    assert "sidebar category labels must not" not in summary[:120].lower()
+
+
+def test_profile_rejects_mismatched_jsonld_type() -> None:
+    result = extract_linkedin_html(
+        "https://www.linkedin.com/in/guest-profile",
+        _load("profile_wrong_jsonld.html"),
+    )
+    assert result["status"] == "ok"
+    assert "structured_data" not in result or not result.get("structured_data")
+    assert "guest profile name" in result["summary"].lower()

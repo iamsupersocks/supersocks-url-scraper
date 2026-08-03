@@ -17,6 +17,7 @@ from __future__ import annotations
 import html
 import json
 import re
+from html.parser import HTMLParser
 from typing import Any, Callable
 from urllib.parse import urlparse
 
@@ -39,7 +40,7 @@ _PAGE_TYPE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 _AUTHWALL_STRUCTURAL = re.compile(
-    r"""(?:\bid|\bclass)=["'][^"']*(?:authwall|auth-wall|join-form|sign-in-modal)[^"']*["']""",
+    r"""(?:\bid|\bclass)=["'][^"']*(?:authwall|auth-wall|join-form|sign-in-modal|contextual-sign-in-modal)[^"']*["']""",
     re.I,
 )
 _AUTHWALL_PHRASES = (
@@ -83,7 +84,16 @@ _NOISE_SELECTORS = (
     r'<aside\b[^>]*>.*?</aside>',
     r'<dialog\b[^>]*>.*?</dialog>',
     r'<form\b[^>]*(?:authwall|join|login|sign-?in)[^>]*>.*?</form>',
-    r'<div\b[^>]*(?:modal|authwall|join-form|sign-in-modal|global-nav)[^>]*>.*?</div>',
+    r'<div\b[^>]*(?:modal|authwall|join-form|sign-in-modal|contextual-sign-in-modal|global-nav)[^>]*>.*?</div>',
+)
+
+_MAIN_CONTENT_CLASS = re.compile(
+    r"(?:^|\s)(?:article-main__content|reader-article-content|article-content)(?:\s|$)",
+    re.I,
+)
+_SIDEBAR_OR_NOISE_CLASS = re.compile(
+    r"(?:^|\s)(?:core-section-container|categories|global-nav|sign-in-modal|contextual-sign-in-modal|authwall|join-form)(?:\s|$)",
+    re.I,
 )
 
 _PUBLIC_TEXT_SELECTORS = (
@@ -179,15 +189,125 @@ def _normalized_blob(markup: str) -> str:
     return " ".join(_clean_text(markup).lower().split())
 
 
+def _authwall_signals(markup: str) -> bool:
+    """Return True when sign-in/authwall chrome is present (may coexist with public content)."""
+    blob = _normalized_blob(markup)
+    structural_authwall = bool(_AUTHWALL_STRUCTURAL.search(markup or ""))
+    phrase_authwall = any(marker in blob for marker in _AUTHWALL_PHRASES)
+    return structural_authwall or phrase_authwall
+
+
+class _MainContentParser(HTMLParser):
+    """Extract primary article/main body text, skipping aside and sign-in chrome."""
+
+    _SKIP_TAGS = frozenset({"script", "style", "nav", "header", "footer", "aside", "dialog", "form"})
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._skip_depth = 0
+        self._capture_depth = 0
+        self._parts: list[str] = []
+        self._found_main = False
+
+    @staticmethod
+    def _class_str(attrs: list[tuple[str, str | None]]) -> str:
+        for key, value in attrs:
+            if key == "class" and value:
+                return value
+        return ""
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        cls = self._class_str(attrs)
+        if tag in self._SKIP_TAGS or _SIDEBAR_OR_NOISE_CLASS.search(cls):
+            self._skip_depth += 1
+            return
+        if self._skip_depth:
+            return
+        if not self._found_main:
+            is_main_tag = tag in {"article", "main"}
+            is_main_class = bool(_MAIN_CONTENT_CLASS.search(cls))
+            if is_main_class or (is_main_tag and not _SIDEBAR_OR_NOISE_CLASS.search(cls)):
+                self._capture_depth = 1
+                self._found_main = True
+                return
+        if self._capture_depth:
+            self._capture_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._skip_depth:
+            self._skip_depth -= 1
+            return
+        if self._capture_depth:
+            self._capture_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._capture_depth > 0 and not self._skip_depth:
+            text = data.strip()
+            if text:
+                self._parts.append(text)
+
+    def get_text(self) -> str:
+        return _clean_text(" ".join(self._parts))
+
+
+def _extract_article_main_text(markup: str) -> str:
+    """Prefer article-main__content (and equivalents) over sidebar/aside regions."""
+    parser = _MainContentParser()
+    try:
+        parser.feed(markup or "")
+        parser.close()
+    except Exception:
+        return ""
+    return parser.get_text()
+
+
+def _structured_is_substantial(data: dict[str, Any] | None, page_type: str) -> bool:
+    if not data:
+        return False
+    text, _, _ = _text_from_structured(data)
+    if len(text) >= MIN_USEFUL_CHARS:
+        return True
+    preferred: dict[str, tuple[str, ...]] = {
+        "profile": ("person", "profilepage"),
+        "company": ("organization", "corporation"),
+        "school": ("organization", "collegeoruniversity", "educationalorganization"),
+        "showcase": ("organization",),
+        "job": ("jobposting",),
+        "article": ("article", "newsarticle", "blogposting", "techarticle"),
+        "post": ("socialmediaposting", "discussionforumposting", "article", "blogposting"),
+    }
+    want = {t.lower() for t in preferred.get(page_type, ())}
+    types = _as_types(data)
+    if want and not any(t in want for t in types):
+        return False
+    for key in ("name", "headline", "title", "description", "articleBody"):
+        value = data.get(key)
+        if isinstance(value, str) and len(value.strip()) >= 40:
+            return True
+    return False
+
+
+def _has_strong_public_signal(
+    *,
+    page_type: str,
+    structured: dict[str, Any] | None,
+    structured_text: str,
+    selector_text: str,
+    og_desc: str,
+) -> bool:
+    if _structured_is_substantial(structured, page_type):
+        return True
+    for text in (selector_text, structured_text, og_desc):
+        if _is_useful(text):
+            return True
+    return False
+
+
 def detect_linkedin_gate(markup: str) -> str | None:
-    """Return an explicit gate reason when page is authwall/challenge/nav-only."""
+    """Return an explicit gate reason for challenge/nav-only/empty shells."""
     blob = _normalized_blob(markup)
     if not blob:
         return "empty LinkedIn HTML"
-    structural_authwall = bool(_AUTHWALL_STRUCTURAL.search(markup or ""))
-    phrase_authwall = any(marker in blob for marker in _AUTHWALL_PHRASES)
-    if structural_authwall or phrase_authwall:
-        return "linkedin authwall/login gate"
     if any(marker in blob for marker in _CHALLENGE_MARKERS) and (
         "captcha" in blob or "security verification" in blob or "checkpoint/challenge" in blob or len(blob) < 1600
     ):
@@ -282,12 +402,6 @@ def extract_structured_data(markup: str, page_type: str) -> tuple[dict[str, Any]
         if isinstance(sanitized, dict) and sanitized:
             chosen = sanitized
             break
-    if chosen is None:
-        for item in items:
-            sanitized = _sanitize_structured(item)
-            if isinstance(sanitized, dict) and sanitized:
-                chosen = sanitized
-                break
     return chosen, warnings
 
 
@@ -325,7 +439,11 @@ def _text_from_structured(data: dict[str, Any] | None) -> tuple[str, str | None,
     return text, title, author
 
 
-def _selector_text(markup: str) -> str:
+def _selector_text(markup: str, *, page_type: str = "unknown") -> str:
+    if page_type == "article":
+        article_main = _extract_article_main_text(markup)
+        if _is_useful(article_main):
+            return article_main
     cleaned = strip_linkedin_chrome(markup)
     chunks: list[str] = []
     for pattern in _PUBLIC_TEXT_SELECTORS:
@@ -408,7 +526,15 @@ def extract_linkedin_html(
     og_title = _title_from_markup(markup)
     og_desc = _meta_content(markup, prop="og:description") or _meta_content(markup, name="description")
     structured_text, structured_title, structured_author = _text_from_structured(structured)
-    selector_text = _selector_text(markup)
+    selector_text = _selector_text(markup, page_type=page_type)
+    authwall = _authwall_signals(markup)
+    has_public = _has_strong_public_signal(
+        page_type=page_type,
+        structured=structured,
+        structured_text=structured_text,
+        selector_text=selector_text,
+        og_desc=og_desc,
+    )
 
     title = structured_title or og_title or None
     if title and title.lower() in {"linkedin", "linkedin login", "sign up", "join linkedin"}:
@@ -439,11 +565,23 @@ def extract_linkedin_html(
 
     if gate:
         warnings.append(gate)
-        # Never claim ok for gated shells, even if OG teaser text exists.
+        if authwall:
+            warnings.append("linkedin authwall/login gate")
         status = "partial"
         if not _is_useful(summary):
             summary = _trim(summary or og_desc or "", max_chars)
             warnings.append("useful public content too poor after LinkedIn gate detection")
+    elif authwall and not has_public:
+        warnings.append("linkedin authwall/login gate")
+        status = "partial"
+        if not _is_useful(summary):
+            summary = _trim(summary or og_desc or "", max_chars)
+            warnings.append("useful public content too poor after LinkedIn gate detection")
+    elif authwall and has_public:
+        warnings.append("linkedin sign-in chrome ignored; public content extracted")
+        status = "ok" if _is_useful(summary) else "partial"
+        if status == "partial":
+            warnings.append("useful public LinkedIn content too poor")
     elif not markup.strip():
         status = "partial"
         warnings.append("empty LinkedIn HTML")
