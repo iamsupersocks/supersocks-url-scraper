@@ -15,6 +15,9 @@ from urllib.parse import urlparse
 _PLATFORM_ROOTS: dict[str, frozenset[str]] = {
     "youtube": frozenset({"youtube.com", "youtu.be"}),
     "linkedin": frozenset({"linkedin.com"}),
+    "x": frozenset({"x.com", "twitter.com"}),
+    "instagram": frozenset({"instagram.com", "instagr.am"}),
+    "facebook": frozenset({"facebook.com", "fb.com", "fb.watch"}),
 }
 
 

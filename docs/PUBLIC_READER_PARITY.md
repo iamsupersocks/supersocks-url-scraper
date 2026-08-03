@@ -12,9 +12,9 @@ The public service should keep the same operational contract that downstream too
 - `POST /markdown`
 - JSON response fields: `status`, `url`, `content_type`, `title`, `summary`, `length`, `fetch_method`, `warnings`, optional `content`
 - optional social fields when routing matches: `platform`, `author`, `published_at`, `duration`, `transcript`, `transcript_source`, plus LinkedIn `linkedin_page_type` / `structured_data` when specialized extraction ran
-- fetch methods: `http`, `seo`, `cloak`, `cloak-profile`, `archive`, `fallback`, plus social `yt-dlp` and opt-in `jina`
+- fetch methods: `http`, `seo`, `cloak`, `cloak-profile`, `archive`, `fallback`, plus social `yt-dlp`, opt-in `jina`, `twitter-cli`, and `opencli`
 - layered route: HTTP → SEO variants → CloakBrowser → public archive/cache snapshots
-- public social routing: YouTube via optional yt-dlp; LinkedIn specialized public guest extractor first, with generic pipeline and opt-in Jina Reader only as last resorts
+- social routing: YouTube via optional yt-dlp; LinkedIn specialized public guest extractor first (generic + opt-in Jina as last resorts); X via optional twitter-cli with explicit env credentials only; Instagram/Facebook via optional OpenCLI Chrome session
 - metadata-only strategy cache by domain, never cookies/content/secrets
 
 ## Production-style public defaults
@@ -54,7 +54,7 @@ Implemented here:
 - optional generic HTTP summary provider interface, disabled by default, with no bundled keys or vendor SDK dependency
 - source-discovery registry and `scripts/discover_source.py` loop, ported from the internal method but storing only sanitized domain metadata
 - browser-profile probe script for operator-owned Cloak profile warm-up/diagnostics, with outputs outside git by default
-- public social routing inspired by Agent Reach's channel/backend idea (MIT; no Agent Reach code imported): YouTube metadata/subtitles via optional `yt-dlp` extra; LinkedIn specialized public guest extraction (page-type classification, OG/JSON-LD/public selectors, honest authwall/challenge `partial` status) with generic + opt-in Jina Reader only as last resorts (`JINA_FALLBACK` / `--jina-fallback` / JSON `jina_fallback`); robust domain matching (no suffix lookalikes, no userinfo); no authenticated LinkedIn MCP/login/cookie/Voyager paths
+- social routing inspired by Agent Reach's channel/backend idea (MIT; no Agent Reach code imported): YouTube metadata/subtitles via optional `yt-dlp` extra; LinkedIn specialized public guest extraction with generic + opt-in Jina as last resorts; opt-in X via upstream twitter-cli (explicit `TWITTER_AUTH_TOKEN`/`TWITTER_CT0` only, never auto-read cookies); opt-in Instagram/Facebook via upstream OpenCLI (user-controlled Chrome session only); actionable missing-tool/extension/auth warnings; no ZIP installs or fake PyPI extras for those CLIs; no cookie/token/profile collection
 
 Still worth adding where it can remain public and generic:
 
@@ -67,6 +67,7 @@ Do not move the following private pieces into this public repo:
 
 - real bearer tokens or API keys
 - browser profiles, cookies, sessions, or local user data
-- private social-native routes such as account-specific X/Twitter readers
+- harvested cookies, persisted social tokens, or bundled browser profiles for social logins
 - application-specific prompts, ranking logic, or downstream automation
 - saved fetched page content or publisher-specific bypass instructions beyond generic routing metadata
+
