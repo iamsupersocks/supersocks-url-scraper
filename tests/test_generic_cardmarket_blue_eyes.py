@@ -1185,6 +1185,12 @@ def test_official_join_schema_filter_join_decimals_hashes_determinism(
     assert manifest["join"]["matched"] == 2
     assert manifest["corpus"]["url_to_idProduct_mapping"]["verified"] is False
     assert "102062" in {str(x) for x in manifest["corpus"]["official_by_idProduct"]["idMetacard"]}
+    stats = manifest["market_statistics"]
+    assert stats["row_count"] == 2
+    assert stats["metrics"]["avg"]["present"] == 2
+    assert isinstance(stats["metrics"]["avg"]["median"], str)
+    assert len(stats["top_5_by_trend"]["rows"]) == 2
+    assert set(stats["top_5_by_trend"]["rows"][0]) == set(cm_example.OFFICIAL_TOP5_PUBLIC_FIELDS)
 
     csv_a = cm_example.export_official_join_csv(rows)
     csv_b = cm_example.export_official_join_csv(rows)
@@ -1320,11 +1326,148 @@ def test_deep_enrichment_manifest_marks_baseline_reuse(cm_example: ModuleType) -
     }
     manifest = cm_example.build_deep_enrichment_manifest(ledger, rows=rows)
     assert manifest["scope_qualification"]["live_product_details_succeeded"] == 0
+    assert manifest["scope_qualification"]["live_product_details_progress"] == "0/177"
+    assert manifest["scope_qualification"]["details_enriched_partially"] is False
     assert manifest["scope_qualification"]["live_search_challenge_navigations"] == 2
+    assert manifest["scope_qualification"]["product_queue_challenges"] == 0
+    assert manifest["challenges"] == 0
     assert "baseline" in manifest["baseline_reused_fields"]["note"].lower()
     md = cm_example.render_deep_enrichment_manifest_markdown(manifest)
     assert "Baseline reuse" in md
     assert "Live Search challenge navigations" in md
+    assert "product-queue challenges" in md.lower() or "Product-queue challenges" in md
+    assert "0/177" in md
+
+
+def test_deep_enrichment_partial_flag_requires_some_success(cm_example: ModuleType) -> None:
+    rows = [{"public_product_path": f"/p/{i}", "fields_present": ""} for i in range(3)]
+    original = cm_example.EXPECTED_EXACT_BLUE_EYES_PATHS
+    cm_example.EXPECTED_EXACT_BLUE_EYES_PATHS = 3
+    try:
+        zero = cm_example.build_deep_enrichment_manifest(
+            {
+                "timezone": "UTC",
+                "pages": [{"route": "search", "challenge": True}],
+                "queue": [{"status": "pending", "attempts": 0} for _ in range(3)],
+                "budget": {},
+            },
+            rows=rows,
+        )
+        partial = cm_example.build_deep_enrichment_manifest(
+            {
+                "timezone": "UTC",
+                "pages": [],
+                "queue": [
+                    {"status": "ok", "attempts": 1},
+                    {"status": "pending", "attempts": 0},
+                    {"status": "pending", "attempts": 0},
+                ],
+                "budget": {},
+            },
+            rows=rows,
+        )
+        full = cm_example.build_deep_enrichment_manifest(
+            {
+                "timezone": "UTC",
+                "pages": [],
+                "queue": [{"status": "ok", "attempts": 1} for _ in range(3)],
+                "budget": {},
+            },
+            rows=rows,
+        )
+    finally:
+        cm_example.EXPECTED_EXACT_BLUE_EYES_PATHS = original
+    assert zero["scope_qualification"]["details_enriched_partially"] is False
+    assert zero["scope_qualification"]["live_product_details_progress"] == "0/3"
+    assert partial["scope_qualification"]["details_enriched_partially"] is True
+    assert partial["scope_qualification"]["live_product_details_progress"] == "1/3"
+    assert full["scope_qualification"]["details_enriched_partially"] is False
+    assert full["scope_qualification"]["live_product_details_progress"] == "3/3"
+
+
+def test_official_even_median_decimal_no_float(cm_example: ModuleType) -> None:
+    from decimal import Decimal
+
+    stats = cm_example.decimal_min_median_max(
+        [Decimal("1.00"), Decimal("2.00"), Decimal("3.00"), Decimal("4.00")]
+    )
+    assert stats["n"] == 4
+    assert stats["min"] == "1.00"
+    assert stats["max"] == "4.00"
+    assert stats["median"] == "2.50"
+    assert isinstance(stats["median"], str)
+    odd = cm_example.decimal_min_median_max([Decimal("1"), Decimal("2"), Decimal("9")])
+    assert odd["median"] == "2"
+    # Documented rule must mention even-n Decimal mean without float.
+    assert "Decimal" in cm_example.OFFICIAL_EVEN_MEDIAN_RULE
+    assert "float" in cm_example.OFFICIAL_EVEN_MEDIAN_RULE.lower()
+
+
+def test_official_market_statistics_top5_public_only(cm_example: ModuleType) -> None:
+    rows = [
+        {
+            "idProduct": "10",
+            "idExpansion": "100",
+            "avg": "5.00",
+            "low": "1.00",
+            "trend": "9.00",
+            "avg1": "5",
+            "avg7": "5",
+            "avg30": "5",
+            "avg_foil": "",
+            "low_foil": "",
+            "trend_foil": "1",
+            "avg1_foil": "",
+            "avg7_foil": "",
+            "avg30_foil": "",
+        },
+        {
+            "idProduct": "11",
+            "idExpansion": "101",
+            "avg": "4.00",
+            "low": "0.50",
+            "trend": "20.00",
+            "avg1": "4",
+            "avg7": "4",
+            "avg30": "4",
+            "avg_foil": "",
+            "low_foil": "",
+            "trend_foil": "",
+            "avg1_foil": "",
+            "avg7_foil": "",
+            "avg30_foil": "",
+        },
+        {
+            "idProduct": "12",
+            "idExpansion": "102",
+            "avg": "3.00",
+            "low": "0.20",
+            "trend": "15.50",
+            "avg1": "3",
+            "avg7": "3",
+            "avg30": "3",
+            "avg_foil": "2.5",
+            "low_foil": "1.0",
+            "trend_foil": "2.0",
+            "avg1_foil": "2",
+            "avg7_foil": "2",
+            "avg30_foil": "2",
+        },
+    ]
+    stats = cm_example.compute_official_market_statistics(rows)
+    assert stats["row_count"] == 3
+    assert stats["metrics"]["trend"]["present"] == 3
+    assert stats["metrics"]["trend"]["median"] == "15.50"
+    assert stats["metrics"]["avg_foil"]["present"] == 1
+    assert stats["metrics"]["avg_foil"]["min"] == "2.5"
+    top = stats["top_5_by_trend"]["rows"]
+    assert [row["idProduct"] for row in top] == ["11", "12", "10"]
+    for row in top:
+        assert set(row) == set(cm_example.OFFICIAL_TOP5_PUBLIC_FIELDS)
+        assert "seller" not in row
+        assert "username" not in row
+        for value in row.values():
+            assert not isinstance(value, float)
 
 
 def test_published_official_join_snapshot_shape() -> None:
@@ -1344,6 +1487,35 @@ def test_published_official_join_snapshot_shape() -> None:
     assert manifest["join"]["matched"] == 177
     assert manifest["corpus"]["url_to_idProduct_mapping"]["verified"] is False
     assert manifest["corpus"]["html_by_url"]["count"] == 177
+    assert manifest["fetched_live"] is True
+    stats = manifest["market_statistics"]
+    assert stats["row_count"] == 177
+    assert "Decimal" in stats["median_rule"]
+    assert stats["metrics"]["avg"]["present"] + stats["metrics"]["avg"]["absent"] == 177
+    assert stats["metrics"]["low"]["present"] + stats["metrics"]["low"]["absent"] == 177
+    assert stats["metrics"]["trend"]["present"] + stats["metrics"]["trend"]["absent"] == 177
+    top = stats["top_5_by_trend"]["rows"]
+    assert len(top) == 5
+    for row in top:
+        assert set(row.keys()) <= set(
+            [
+                "idProduct",
+                "idExpansion",
+                "avg",
+                "low",
+                "trend",
+                "avg1",
+                "avg7",
+                "avg30",
+                "avg_foil",
+                "low_foil",
+                "trend_foil",
+                "avg1_foil",
+                "avg7_foil",
+                "avg30_foil",
+            ]
+        )
+        assert "seller" not in row
     # Deterministic idProduct order
     ids = [int(row["idProduct"]) for row in rows]
     assert ids == sorted(ids)
@@ -1362,7 +1534,12 @@ def test_published_deep_manifest_does_not_claim_live_from_extraction() -> None:
     )
     assert manifest["succeeded"] == 0
     assert manifest["scope_qualification"]["live_product_details_succeeded"] == 0
+    assert manifest["scope_qualification"]["live_product_details_progress"] == "0/177"
+    assert manifest["scope_qualification"]["details_enriched_partially"] is False
     assert manifest["scope_qualification"]["live_search_challenge_navigations"] == 2
+    assert manifest["scope_qualification"]["product_queue_challenges"] == 0
+    assert manifest["challenges"] == 0
     note = manifest["baseline_reused_fields"]["note"].lower()
     assert "reused" in note or "baseline" in note
     assert "not newly extracted" in note
+    assert "0/177" in note

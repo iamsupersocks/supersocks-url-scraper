@@ -83,7 +83,7 @@ prior coverage CSV baseline**, not newly scraped in this window.
 | Scope claim | Status after deep pass |
 | --- | --- |
 | **Versions complete** | **Yes** — inherited **177/177** from the coverage corpus; Versions pages were not re-fetched. |
-| **Details enriched** | **No live successes** — **0/177** product-detail fetches succeeded. Search resume at `site=8` hit a hard challenge on first access; one bounded cooldown + second try still challenged → stop (`first_access_hard_challenge_after_cooldown`). **2** Search challenge navigations used of budget **40**. |
+| **Details enriched** | **No** — `details_enriched_partially=false` because live successes are **0/177** (zero is not “partial”). Search resume at `site=8` hit a hard challenge on first access; one bounded cooldown + second try still challenged → stop (`first_access_hard_challenge_after_cooldown`). **2** Search challenge navigations (counted separately from the product queue, which stayed at **0** challenge rows / **177** pending). Budget used: **2/40**. |
 | **Offers exhaustive** | **No** — offer tables remain non-exhaustive (first page only when a detail page renders); language/condition aggregates are in-memory counts without seller rows. |
 
 Published deep artifacts:
@@ -98,27 +98,53 @@ still-`pending` rows.
 ### Official Cardmarket catalog join (products + price guide)
 
 A third, non-HTML path joins the public official Yu-Gi-Oh downloads (exactly one
-GET per URL when live):
+GET per URL when live; raw JSON stays **in memory only**):
 
 - `https://downloads.s3.cardmarket.com/productCatalog/productList/products_singles_3.json`
 - `https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_3.json`
 
-Observed on **2026-08-04**: **86 255** singles → strict name equality
-`Blue-Eyes White Dragon` → **177** products; **192** `contains` matches of which
-**15** excluded (Malefic / Token / White Phantom Beast); **177/177** price-guide
-joins by `idProduct`; **102** `idExpansion`; single `idMetacard` **102062**.
-Decimals are preserved as provided (no float coercion). Raw JSON is **not**
-committed.
+Live regeneration on **2026-08-04** (`fetched_live=true`): **86 255** singles →
+strict name equality `Blue-Eyes White Dragon` → **177** products; **192**
+`contains` matches of which **15** excluded (Malefic / Token / White Phantom
+Beast); **177/177** price-guide joins by `idProduct`; **102** `idExpansion`;
+single `idMetacard` **102062**. Decimals are preserved as provided (no float
+coercion). SHA-256 digests in the manifest match the bytes actually fetched.
+
+#### Cautious reading of official price fields
+
+These guide metrics are **not interchangeable**:
+
+| Field | How to read it |
+| --- | --- |
+| `low` | Current offer **floor** (plancher courant) at the price-guide snapshot — not a long-window average. |
+| `avg` | Guide average for the product — distinct from the rolling windows below. |
+| `trend` | Cardmarket trend indicator — **not** the same instrument as `avg` / `avg1` / `avg7` / `avg30`. |
+| `avg1` / `avg7` / `avg30` | Rolling **temporal** averages (1 / 7 / 30 day windows). |
+
+Foil columns (`*_foil`) are summarized only when present; `avg_foil` / `low_foil`
+are empty on this snapshot, while `trend_foil` and the foil window averages are
+partially populated.
+
+Deterministic Decimal market statistics over the **177** rows (even-n median =
+arithmetic mean of the two central Decimals as `(a + b) / 2`, serialized as
+strings — never `float`) are published in the official manifest. Example
+non-foil medians on this snapshot: `low` median **5**, `trend` median **14.07**,
+`avg` median **13.61**. Top 5 by `trend` expose only `idProduct`, `idExpansion`,
+and public price metrics — **no seller fields**.
+
+#### Edition attribution limit
+
+Official `productList` / `priceGuide` payloads expose `idExpansion` but **not**
+expansion name, public product URL, rarity, or set code. Official prices
+**cannot** be attributed to HTML edition/path slugs without a verified
+URL↔`idProduct` mapping. The HTML coverage corpus (URL/path) and the official
+corpus (`idProduct`) therefore stay as two concordant **177**-row populations;
+the manifest does **not** invent rank-to-rank links.
 
 Published official artifacts:
 
 - [`docs/data/cardmarket-blue-eyes-official-join-2026-08-04.csv`](data/cardmarket-blue-eyes-official-join-2026-08-04.csv)
 - [`docs/data/cardmarket-blue-eyes-official-join-manifest-2026-08-04.json`](data/cardmarket-blue-eyes-official-join-manifest-2026-08-04.json) / [`.md`](data/cardmarket-blue-eyes-official-join-manifest-2026-08-04.md)
-
-The HTML coverage corpus remains keyed by **public URL/path**; the official
-corpus is keyed by **`idProduct`**. Official downloads do not expose a verifiable
-URL↔`idProduct` mapping, so the manifest keeps two concordant **177** corpora
-and **does not invent** rank-to-rank links.
 
 Evidence posture unchanged: delay ≥ **8 s** + jitter for HTML deep pass, no
 parallelism, no login / CAPTCHA / proxy / fingerprint spoof / private API.

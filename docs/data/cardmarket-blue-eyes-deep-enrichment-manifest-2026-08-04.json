@@ -3,7 +3,7 @@
   "baseline_reused_fields": {
     "available_count": 175,
     "from_cents": 175,
-    "note": "from_cents / available_count values on pending rows are reused from the prior coverage CSV baseline seed; they were not newly extracted by live product-detail fetches in this deep-enrichment window (live detail successes=0)."
+    "note": "from_cents / available_count values on pending rows are reused from the prior coverage CSV baseline seed; they were not newly extracted by live product-detail fetches in this deep-enrichment window (live detail successes=0/177)."
   },
   "budget": {
     "consecutive_hard_challenges_at_stop": 2,
@@ -37,6 +37,7 @@
   "limits": [
     "Versions catalog completeness is inherited from the prior 177/177 coverage pass.",
     "Product details may be only partially enriched within the live navigation budget.",
+    "Search challenge navigations are counted separately from product-queue challenge statuses.",
     "Offer tables remain first-page only; language/condition aggregates are in-memory counts without seller rows.",
     "Printed collector numbers are recorded only when HTML exposes an explicit set-code token.",
     "Deep CSV From/availability cells on pending rows are baseline coverage seeds, not live deep-pass extractions."
@@ -62,10 +63,12 @@
     "seller_fields": "never collected/published"
   },
   "scope_qualification": {
-    "details_enriched_partially": true,
+    "details_enriched_partially": false,
+    "live_product_details_progress": "0/177",
     "live_product_details_succeeded": 0,
     "live_search_challenge_navigations": 2,
     "offers_non_exhaustive": true,
+    "product_queue_challenges": 0,
     "versions_complete": true
   },
   "search_last_site": 8,

@@ -23,7 +23,7 @@
       "verified": false
     }
   },
-  "fetched_live": false,
+  "fetched_live": true,
   "field_absence_counts": {
     "avg": 2,
     "avg1": 1,
@@ -67,7 +67,7 @@
     ],
     "name_equality": "Blue-Eyes White Dragon"
   },
-  "generated_at": "2026-08-04T21:50:59.886585+00:00",
+  "generated_at": "2026-08-04T21:57:37.557852+00:00",
   "join": {
     "expected_exact": 177,
     "key": "idProduct",
@@ -77,8 +77,237 @@
   "limits": [
     "Exactly one GET per official URL when fetching live.",
     "Decimal price fields are preserved as provided (no float coercion).",
+    "Market statistics use Decimal min/median/max with even-n ((a+b)/2) median; serialized as strings.",
+    "Top-5-by-trend rows expose only idProduct, idExpansion, and public price metrics (no seller).",
+    "Official files do not expose expansion name, URL, rarity, or set code — no edition-slug attribution without a verified mapping.",
     "HTML URL corpus and official idProduct corpus stay separate unless a verifiable mapping exists."
   ],
+  "market_statistics": {
+    "median_rule": "Even-n Decimal median: sort ascending, take the arithmetic mean of the two central values as (a + b) / Decimal('2') with Decimal division only (no float). Odd-n median: the single middle value. Serialize with format_official_decimal (format(value, 'f')), never float().",
+    "metrics": {
+      "avg": {
+        "absent": 2,
+        "max": "1249.98",
+        "median": "13.61",
+        "min": "0.11",
+        "n": 175,
+        "present": 175,
+        "total": 177
+      },
+      "avg1": {
+        "absent": 1,
+        "max": "1250",
+        "median": "11.99",
+        "min": "0.03",
+        "n": 176,
+        "present": 176,
+        "total": 177
+      },
+      "avg1_foil": {
+        "absent": 128,
+        "max": "460",
+        "median": "2.43",
+        "min": "0.02",
+        "n": 49,
+        "present": 49,
+        "total": 177
+      },
+      "avg30": {
+        "absent": 1,
+        "max": "1314.96",
+        "median": "14.685",
+        "min": "0.11",
+        "n": 176,
+        "present": 176,
+        "total": 177
+      },
+      "avg30_foil": {
+        "absent": 128,
+        "max": "205.81",
+        "median": "2.92",
+        "min": "0.09",
+        "n": 49,
+        "present": 49,
+        "total": 177
+      },
+      "avg7": {
+        "absent": 1,
+        "max": "1081.99",
+        "median": "14.105",
+        "min": "0.15",
+        "n": 176,
+        "present": 176,
+        "total": 177
+      },
+      "avg7_foil": {
+        "absent": 128,
+        "max": "289.28",
+        "median": "2.72",
+        "min": "0.06",
+        "n": 49,
+        "present": 49,
+        "total": 177
+      },
+      "avg_foil": {
+        "absent": 177,
+        "max": null,
+        "median": null,
+        "min": null,
+        "n": 0,
+        "present": 0,
+        "skipped_reason": "foil metric not sufficiently populated",
+        "total": 177
+      },
+      "low": {
+        "absent": 2,
+        "max": "1999.99",
+        "median": "5",
+        "min": "0.02",
+        "n": 175,
+        "present": 175,
+        "total": 177
+      },
+      "low_foil": {
+        "absent": 177,
+        "max": null,
+        "median": null,
+        "min": null,
+        "n": 0,
+        "present": 0,
+        "skipped_reason": "foil metric not sufficiently populated",
+        "total": 177
+      },
+      "trend": {
+        "absent": 1,
+        "max": "994.38",
+        "median": "14.07",
+        "min": "0.02",
+        "n": 176,
+        "present": 176,
+        "total": 177
+      },
+      "trend_foil": {
+        "absent": 1,
+        "max": "421.64",
+        "median": "0",
+        "min": "0",
+        "n": 176,
+        "present": 176,
+        "total": 177
+      }
+    },
+    "reading_notes": {
+      "avg": "guide average — not interchangeable with temporal avg1/avg7/avg30 windows",
+      "avg1_avg7_avg30": "rolling temporal averages (1 / 7 / 30 day windows)",
+      "edition_attribution": "Official productList/priceGuide rows expose idExpansion but not expansion name, public URL, rarity, or set code. Official prices cannot be attributed to HTML edition slugs without a verified URL↔idProduct mapping.",
+      "low": "current offer floor (plancher courant) at price-guide snapshot time",
+      "trend": "Cardmarket trend indicator — distinct from avg / avg1 / avg7 / avg30"
+    },
+    "row_count": 177,
+    "serialization": "Decimal strings via format_official_decimal; no float",
+    "top_5_by_trend": {
+      "fields": [
+        "idProduct",
+        "idExpansion",
+        "avg",
+        "low",
+        "trend",
+        "avg1",
+        "avg7",
+        "avg30",
+        "avg_foil",
+        "low_foil",
+        "trend_foil",
+        "avg1_foil",
+        "avg7_foil",
+        "avg30_foil"
+      ],
+      "order": "trend descending, then idProduct ascending",
+      "rows": [
+        {
+          "avg": "1249.98",
+          "avg1": "1250",
+          "avg1_foil": "460",
+          "avg30": "1314.96",
+          "avg30_foil": "205.81",
+          "avg7": "1081.99",
+          "avg7_foil": "289.28",
+          "avg_foil": "",
+          "idExpansion": "1039",
+          "idProduct": "102244",
+          "low": "290",
+          "low_foil": "",
+          "trend": "994.38",
+          "trend_foil": "421.64"
+        },
+        {
+          "avg": "1016.33",
+          "avg1": "1000",
+          "avg1_foil": "",
+          "avg30": "694.33",
+          "avg30_foil": "",
+          "avg7": "1064.14",
+          "avg7_foil": "",
+          "avg_foil": "",
+          "idExpansion": "4919",
+          "idProduct": "735806",
+          "low": "1250",
+          "low_foil": "",
+          "trend": "878.39",
+          "trend_foil": "0"
+        },
+        {
+          "avg": "550",
+          "avg1": "550",
+          "avg1_foil": "",
+          "avg30": "375",
+          "avg30_foil": "",
+          "avg7": "375",
+          "avg7_foil": "",
+          "avg_foil": "",
+          "idExpansion": "1064",
+          "idProduct": "578088",
+          "low": "50",
+          "low_foil": "",
+          "trend": "550",
+          "trend_foil": "0"
+        },
+        {
+          "avg": "499.99",
+          "avg1": "499.99",
+          "avg1_foil": "299.99",
+          "avg30": "251.95",
+          "avg30_foil": "95.41",
+          "avg7": "393",
+          "avg7_foil": "95.41",
+          "avg_foil": "",
+          "idExpansion": "1379",
+          "idProduct": "255541",
+          "low": "1999.99",
+          "low_foil": "",
+          "trend": "549.25",
+          "trend_foil": "179.24"
+        },
+        {
+          "avg": "600",
+          "avg1": "600",
+          "avg1_foil": "",
+          "avg30": "759.22",
+          "avg30_foil": "",
+          "avg7": "532",
+          "avg7_foil": "",
+          "avg_foil": "",
+          "idExpansion": "2622",
+          "idProduct": "393872",
+          "low": "999",
+          "low_foil": "",
+          "trend": "504.14",
+          "trend_foil": "0"
+        }
+      ],
+      "seller_fields": "never included"
+    }
+  },
   "official_sources": {
     "price_guide": {
       "bytes": 17202224,

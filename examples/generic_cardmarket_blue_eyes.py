@@ -83,6 +83,45 @@ OFFICIAL_PRICE_NUMERIC_FIELDS: tuple[str, ...] = (
     "avg7-foil",
     "avg30-foil",
 )
+# CSV / manifest metric names (hyphens from the official guide become underscores).
+OFFICIAL_MARKET_METRIC_FIELDS: tuple[str, ...] = (
+    "avg",
+    "low",
+    "trend",
+    "avg1",
+    "avg7",
+    "avg30",
+    "avg_foil",
+    "low_foil",
+    "trend_foil",
+    "avg1_foil",
+    "avg7_foil",
+    "avg30_foil",
+)
+# Foil fields are summarized only when at least this many rows carry a value.
+OFFICIAL_FOIL_STATS_MIN_PRESENT = 1
+OFFICIAL_EVEN_MEDIAN_RULE = (
+    "Even-n Decimal median: sort ascending, take the arithmetic mean of the two "
+    "central values as (a + b) / Decimal('2') with Decimal division only (no float). "
+    "Odd-n median: the single middle value. Serialize with format_official_decimal "
+    "(format(value, 'f')), never float()."
+)
+OFFICIAL_TOP5_PUBLIC_FIELDS: tuple[str, ...] = (
+    "idProduct",
+    "idExpansion",
+    "avg",
+    "low",
+    "trend",
+    "avg1",
+    "avg7",
+    "avg30",
+    "avg_foil",
+    "low_foil",
+    "trend_foil",
+    "avg1_foil",
+    "avg7_foil",
+    "avg30_foil",
+)
 OFFICIAL_JOIN_CSV_COLUMNS: tuple[str, ...] = (
     "idProduct",
     "idExpansion",
@@ -2437,6 +2476,16 @@ def build_deep_enrichment_manifest(
                 field_presence[metric] = field_presence.get(metric, 0) + 1
     budget = ledger.get("budget") if isinstance(ledger.get("budget"), dict) else {}
     pages = ledger.get("pages") or []
+    succeeded = int(counts.get("succeeded", 0) or 0)
+    product_queue_challenges = int(counts.get("challenge", 0) or 0)
+    # Search hard-challenges are page/nav events, never product-queue statuses.
+    search_challenge_navigations = sum(
+        1
+        for page in pages
+        if isinstance(page, dict)
+        and page.get("challenge")
+        and str(page.get("route") or "").startswith("search")
+    )
     return {
         "title": "Cardmarket Blue-Eyes White Dragon public deep-enrichment manifest",
         "generated_at": utc_now_iso(),
@@ -2451,8 +2500,9 @@ def build_deep_enrichment_manifest(
         },
         "counts": counts,
         "attempted": counts.get("attempted", 0),
-        "succeeded": counts.get("succeeded", 0),
-        "challenges": counts.get("challenge", 0),
+        "succeeded": succeeded,
+        # Product-queue challenge rows only (Search challenges stay out of this counter).
+        "challenges": product_queue_challenges,
         "pending": counts.get("pending", 0),
         "errors": counts.get("error", 0),
         "search_last_site": ledger.get("search_last_site"),
@@ -2464,16 +2514,13 @@ def build_deep_enrichment_manifest(
         "field_presence_counts": dict(sorted(field_presence.items())),
         "scope_qualification": {
             "versions_complete": True,
-            "details_enriched_partially": counts.get("succeeded", 0) < EXPECTED_EXACT_BLUE_EYES_PATHS,
+            # 0 successes is not "partial" enrichment — require at least one live detail ok.
+            "details_enriched_partially": 0 < succeeded < EXPECTED_EXACT_BLUE_EYES_PATHS,
             "offers_non_exhaustive": True,
-            "live_product_details_succeeded": counts.get("succeeded", 0),
-            "live_search_challenge_navigations": sum(
-                1
-                for page in pages
-                if isinstance(page, dict)
-                and page.get("challenge")
-                and str(page.get("route") or "").startswith("search")
-            ),
+            "live_product_details_succeeded": succeeded,
+            "live_product_details_progress": f"{succeeded}/{EXPECTED_EXACT_BLUE_EYES_PATHS}",
+            "product_queue_challenges": product_queue_challenges,
+            "live_search_challenge_navigations": search_challenge_navigations,
         },
         "baseline_reused_fields": {
             "from_cents": field_presence.get("from_cents", 0),
@@ -2482,7 +2529,7 @@ def build_deep_enrichment_manifest(
                 "from_cents / available_count values on pending rows are reused from the prior "
                 "coverage CSV baseline seed; they were not newly extracted by live product-detail "
                 "fetches in this deep-enrichment window "
-                f"(live detail successes={counts.get('succeeded', 0)})."
+                f"(live detail successes={succeeded}/{EXPECTED_EXACT_BLUE_EYES_PATHS})."
             ),
         },
         "model_evidence": model_evidence
@@ -2501,6 +2548,7 @@ def build_deep_enrichment_manifest(
         "limits": [
             "Versions catalog completeness is inherited from the prior 177/177 coverage pass.",
             "Product details may be only partially enriched within the live navigation budget.",
+            "Search challenge navigations are counted separately from product-queue challenge statuses.",
             "Offer tables remain first-page only; language/condition aggregates are in-memory counts without seller rows.",
             "Printed collector numbers are recorded only when HTML exposes an explicit set-code token.",
             "Deep CSV From/availability cells on pending rows are baseline coverage seeds, not live deep-pass extractions.",
@@ -2512,13 +2560,17 @@ def render_deep_enrichment_manifest_markdown(manifest: dict[str, Any]) -> str:
     counts = manifest.get("counts") or {}
     scope = manifest.get("scope_qualification") or {}
     budget = manifest.get("budget") or {}
+    progress = scope.get("live_product_details_progress") or (
+        f"{scope.get('live_product_details_succeeded', manifest.get('succeeded'))}/"
+        f"{EXPECTED_EXACT_BLUE_EYES_PATHS}"
+    )
     lines = [
         "# Cardmarket Blue-Eyes public deep-enrichment manifest",
         "",
         f"- Generated: `{manifest.get('generated_at')}` ({manifest.get('timezone')})",
         f"- Stop reason: **{manifest.get('stop_reason')}**",
         f"- Corpus total: **{manifest.get('corpus', {}).get('total')}**",
-        f"- Attempted / succeeded / challenges / pending / errors: "
+        f"- Attempted / succeeded / product-queue challenges / pending / errors: "
         f"**{manifest.get('attempted')}** / **{manifest.get('succeeded')}** / "
         f"**{manifest.get('challenges')}** / **{manifest.get('pending')}** / "
         f"**{manifest.get('errors')}**",
@@ -2528,9 +2580,13 @@ def render_deep_enrichment_manifest_markdown(manifest: dict[str, Any]) -> str:
         "## Scope qualification",
         "",
         f"- Versions complete: **{scope.get('versions_complete')}** (177/177 prior coverage).",
-        f"- Details enriched partially: **{scope.get('details_enriched_partially')}**.",
-        f"- Live product-detail successes: **{scope.get('live_product_details_succeeded', manifest.get('succeeded'))}**.",
-        f"- Live Search challenge navigations: **{scope.get('live_search_challenge_navigations')}**.",
+        f"- Details enriched partially: **{scope.get('details_enriched_partially')}** "
+        f"(false when live successes are 0).",
+        f"- Live product-detail progress: **{progress}**.",
+        f"- Product-queue challenges (not Search): "
+        f"**{scope.get('product_queue_challenges', manifest.get('challenges'))}**.",
+        f"- Live Search challenge navigations (separate from product queue): "
+        f"**{scope.get('live_search_challenge_navigations')}**.",
         f"- Offers non-exhaustive: **{scope.get('offers_non_exhaustive')}**.",
         "",
         "## Baseline reuse (not live deep extractions)",
@@ -3042,6 +3098,127 @@ def format_official_decimal(value: object) -> str:
     raise ValueError(f"unsupported official numeric type: {type(value).__name__}")
 
 
+def parse_official_decimal_cell(value: object) -> Decimal | None:
+    """Parse a CSV/manifest price cell to Decimal; blank/None → None (never float)."""
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, bool):
+        raise ValueError("boolean is not a price decimal")
+    if isinstance(value, int):
+        return Decimal(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return Decimal(text)
+    except InvalidOperation as exc:
+        raise ValueError(f"invalid official decimal cell: {text!r}") from exc
+
+
+def decimal_min_median_max(values: Sequence[Decimal]) -> dict[str, Any]:
+    """Deterministic min/median/max over Decimal values; serialize as strings (no float).
+
+    Even-n median uses the documented Decimal arithmetic mean of the two central
+    values — see OFFICIAL_EVEN_MEDIAN_RULE.
+    """
+    series = sorted(values)
+    n = len(series)
+    if n == 0:
+        return {
+            "n": 0,
+            "min": None,
+            "median": None,
+            "max": None,
+        }
+    if n % 2 == 1:
+        median = series[n // 2]
+    else:
+        left = series[n // 2 - 1]
+        right = series[n // 2]
+        median = (left + right) / Decimal(2)
+    return {
+        "n": n,
+        "min": format_official_decimal(series[0]),
+        "median": format_official_decimal(median),
+        "max": format_official_decimal(series[-1]),
+    }
+
+
+def _official_metric_is_foil(field: str) -> bool:
+    return field.endswith("_foil") or field.endswith("-foil")
+
+
+def compute_official_market_statistics(rows: Sequence[dict[str, str]]) -> dict[str, Any]:
+    """Market analysis over exact official join rows using Decimal only (no float)."""
+    total = len(rows)
+    metrics: dict[str, Any] = {}
+    for field in OFFICIAL_MARKET_METRIC_FIELDS:
+        present_values: list[Decimal] = []
+        absent = 0
+        for row in rows:
+            parsed = parse_official_decimal_cell(row.get(field))
+            if parsed is None:
+                absent += 1
+            else:
+                present_values.append(parsed)
+        present = len(present_values)
+        entry: dict[str, Any] = {
+            "present": present,
+            "absent": absent,
+            "total": total,
+        }
+        include_stats = present > 0 and (
+            not _official_metric_is_foil(field) or present >= OFFICIAL_FOIL_STATS_MIN_PRESENT
+        )
+        if include_stats:
+            entry.update(decimal_min_median_max(present_values))
+        else:
+            entry.update({"n": 0, "min": None, "median": None, "max": None})
+            if _official_metric_is_foil(field) and present == 0:
+                entry["skipped_reason"] = "foil metric not sufficiently populated"
+        metrics[field] = entry
+
+    trend_ranked: list[tuple[Decimal, int, dict[str, str]]] = []
+    for row in rows:
+        trend = parse_official_decimal_cell(row.get("trend"))
+        if trend is None:
+            continue
+        trend_ranked.append((trend, int(row["idProduct"]), row))
+    trend_ranked.sort(key=lambda item: (-item[0], item[1]))
+    top_5: list[dict[str, str]] = []
+    for _, _, row in trend_ranked[:5]:
+        slim = {field: str(row.get(field) or "") for field in OFFICIAL_TOP5_PUBLIC_FIELDS}
+        # Never publish seller / identity fields from official join.
+        assert "seller" not in slim and "username" not in slim
+        top_5.append(slim)
+
+    return {
+        "row_count": total,
+        "median_rule": OFFICIAL_EVEN_MEDIAN_RULE,
+        "serialization": "Decimal strings via format_official_decimal; no float",
+        "metrics": metrics,
+        "top_5_by_trend": {
+            "order": "trend descending, then idProduct ascending",
+            "fields": list(OFFICIAL_TOP5_PUBLIC_FIELDS),
+            "seller_fields": "never included",
+            "rows": top_5,
+        },
+        "reading_notes": {
+            "low": "current offer floor (plancher courant) at price-guide snapshot time",
+            "trend": "Cardmarket trend indicator — distinct from avg / avg1 / avg7 / avg30",
+            "avg": "guide average — not interchangeable with temporal avg1/avg7/avg30 windows",
+            "avg1_avg7_avg30": "rolling temporal averages (1 / 7 / 30 day windows)",
+            "edition_attribution": (
+                "Official productList/priceGuide rows expose idExpansion but not expansion "
+                "name, public URL, rarity, or set code. Official prices cannot be attributed "
+                "to HTML edition slugs without a verified URL↔idProduct mapping."
+            ),
+        },
+    }
+
+
 def filter_exact_blue_eyes_official_products(
     products: Sequence[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -3191,6 +3368,7 @@ def build_official_join_manifest(
     html_count = len(html_paths)
     # Official downloads do not expose public product URL ↔ idProduct. Keep corpora separate.
     mapping_verified = False
+    market_statistics = compute_official_market_statistics(joined_rows)
     return {
         "title": "Cardmarket Blue-Eyes White Dragon official catalog join manifest",
         "generated_at": utc_now_iso(),
@@ -3257,6 +3435,7 @@ def build_official_join_manifest(
         },
         "field_presence_counts": dict(sorted(field_presence.items())),
         "field_absence_counts": dict(sorted(field_absence.items())),
+        "market_statistics": market_statistics,
         "privacy": {
             "raw_official_json": "not committed; memory or gitignored runs/ only",
             "seller_fields": "never present in official catalog join",
@@ -3268,6 +3447,9 @@ def build_official_join_manifest(
         "limits": [
             "Exactly one GET per official URL when fetching live.",
             "Decimal price fields are preserved as provided (no float coercion).",
+            "Market statistics use Decimal min/median/max with even-n ((a+b)/2) median; serialized as strings.",
+            "Top-5-by-trend rows expose only idProduct, idExpansion, and public price metrics (no seller).",
+            "Official files do not expose expansion name, URL, rarity, or set code — no edition-slug attribution without a verified mapping.",
             "HTML URL corpus and official idProduct corpus stay separate unless a verifiable mapping exists.",
         ],
     }
@@ -3283,6 +3465,10 @@ def render_official_join_manifest_markdown(manifest: dict[str, Any]) -> str:
     official = corpus.get("official_by_idProduct") or {}
     html = corpus.get("html_by_url") or {}
     mapping = corpus.get("url_to_idProduct_mapping") or {}
+    stats = manifest.get("market_statistics") or {}
+    metrics = stats.get("metrics") or {}
+    top5 = (stats.get("top_5_by_trend") or {}).get("rows") or []
+    notes = stats.get("reading_notes") or {}
     lines = [
         "# Cardmarket Blue-Eyes official catalog join manifest",
         "",
@@ -3318,9 +3504,50 @@ def render_official_join_manifest_markdown(manifest: dict[str, Any]) -> str:
         f"- HTML corpus by URL/path: **{html.get('count')}**",
         f"- Mapping verified: **{mapping.get('verified')}** — {mapping.get('note')}",
         "",
-        "## Field presence",
+        "## Market statistics (Decimal, no float)",
         "",
+        f"- Rows: **{stats.get('row_count')}**",
+        f"- Median rule: {stats.get('median_rule')}",
+        f"- Serialization: {stats.get('serialization')}",
+        "",
+        "| Metric | present | absent | min | median | max |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
     ]
+    for field in OFFICIAL_MARKET_METRIC_FIELDS:
+        entry = metrics.get(field) or {}
+        lines.append(
+            f"| `{field}` | {entry.get('present')} | {entry.get('absent')} | "
+            f"{entry.get('min')} | {entry.get('median')} | {entry.get('max')} |"
+        )
+    lines.extend(
+        [
+            "",
+            "### Reading notes",
+            "",
+            f"- `low`: {notes.get('low')}",
+            f"- `trend`: {notes.get('trend')}",
+            f"- `avg`: {notes.get('avg')}",
+            f"- `avg1` / `avg7` / `avg30`: {notes.get('avg1_avg7_avg30')}",
+            f"- Edition attribution: {notes.get('edition_attribution')}",
+            "",
+            "### Top 5 by trend (idProduct / idExpansion / public metrics only)",
+            "",
+        ]
+    )
+    if not top5:
+        lines.append("_No trend values available._")
+    else:
+        lines.append(
+            "| idProduct | idExpansion | trend | avg | low | avg1 | avg7 | avg30 |"
+        )
+        lines.append("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |")
+        for row in top5:
+            lines.append(
+                f"| {row.get('idProduct')} | {row.get('idExpansion')} | {row.get('trend')} | "
+                f"{row.get('avg')} | {row.get('low')} | {row.get('avg1')} | "
+                f"{row.get('avg7')} | {row.get('avg30')} |"
+            )
+    lines.extend(["", "## Field presence", ""])
     for name, count in sorted((manifest.get("field_presence_counts") or {}).items()):
         lines.append(f"- `{name}`: **{count}**")
     if manifest.get("field_absence_counts"):
