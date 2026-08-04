@@ -143,3 +143,22 @@ block when offer or version markup is present.
 - Do not commit `runs/` artifacts, fetched HTML, or seller-bearing dumps.
 - Do not invent official printed set numbers when they are absent from the
   ledger.
+
+## Public coverage crawl
+
+```bash
+python examples/generic_cardmarket_blue_eyes.py \
+  --coverage-crawl \
+  --coverage-budget 230 \
+  --delay-seconds 2.5 \
+  --export-coverage-csv docs/data/cardmarket-blue-eyes-coverage-2026-08-04.csv \
+  --export-coverage-manifest docs/data/cardmarket-blue-eyes-coverage-manifest-2026-08-04.json \
+  --write-private-ledger runs/cardmarket-blue-eyes-coverage/ledger.json \
+  --quiet-json
+```
+
+Walks EN/FR Versions, Search `site=N`, then product-detail identity fields only
+when HTML exposes them. Stops on empty/repeated search pages, announced totals,
+budget exhaustion, or three consecutive hard challenges. Never logs in, solves
+CAPTCHA, or uses private APIs. Published outputs stay sanitized under
+`docs/data/`; raw ledgers stay gitignored under `runs/`.

@@ -40,6 +40,35 @@ optional Vn + rarity), not a global quartile across 175 incompatible tiles.
   `https://www.cardmarket.com/fr/YuGiOh/Cards/BlueEyes-White-Dragon` — that URL
   was **not** fetched in this run.
 
+## Y a-t-il vraiment tout Cardmarket ?
+
+**Short answer:** for the public **Versions catalog** of Blue-Eyes White Dragon,
+this coverage pass reached the site-announced counter (**177/177** unique public
+product paths). That is **not** the same as “all of Cardmarket”, “all offers”,
+or “the official Konami historical print list”.
+
+Distinguish three layers:
+
+| Layer | What “complete” would mean | What this task observed |
+| --- | --- | --- |
+| **A. Public Versions / Search product paths** | Every Cardmarket product path listed for this card on public Versions (+ Search cross-check), up to a reproducible stop proof | **Yes for Versions:** announced **177 Versions**, **177** unique exact `Blue-Eyes-White-Dragon` paths after dedupe (includes **2** public `From N/A` tiles absent from the prior priced 175). Search `site=` pagination worked for pages **1–7**; pages **8+** hit hard challenges (stop after 3 consecutive). Search added **no** extra exact BEWD path beyond Versions after filtering related cards. |
+| **B. Live offers / offer pagination** | Every seller row across every product and every offer page | **No.** Offer tables remain first-page only (≤50 rows) when fetched; product-detail pass aborted on hard challenges. |
+| **C. Official historical catalog** | Every Konami print with collector number across all languages/regions | **No claim.** Printed codes were **not** exposed on Versions tiles; product-detail HTML did not yield collector numbers in the samples that rendered before challenges. Never invent `LOB-001`-style codes. |
+
+Public artifacts for the coverage pass:
+
+- [`docs/data/cardmarket-blue-eyes-coverage-2026-08-04.csv`](data/cardmarket-blue-eyes-coverage-2026-08-04.csv) — sanitized paths + identity fields
+- [`docs/data/cardmarket-blue-eyes-coverage-manifest-2026-08-04.json`](data/cardmarket-blue-eyes-coverage-manifest-2026-08-04.json) / [`.md`](data/cardmarket-blue-eyes-coverage-manifest-2026-08-04.md)
+
+Compared to the prior priced corpus (**175** paths / **102** expansions): overlap **175**,
+**2** new public refs (`Duel-Royale-Deck-Set-EX` V1 Common + `Promos-OCG` bare),
+**0** missing, still **102** expansions (both new paths sit in expansions already
+present via other variants).
+
+Stop proof recorded: Versions unique count reached the announced counter, then
+**hard_challenges_x3** during Search tail / product-detail attempts. No login,
+CAPTCHA solve, proxy rotation, or private API.
+
 ## Why Blue-Eyes has no single price
 
 Blue-Eyes White Dragon is many products at once: different expansions, rarities,
@@ -639,12 +668,16 @@ fetch succeeded.
 - stop-on-challenge collection behaviour
 - URL count bounds
 - `--from-json` offline export path
+- coverage helpers: Versions refs including `From N/A`, Search `site=` stop
+  proofs, path dedupe/resume, coverage CSV sanitization
 
 Fixtures are synthetic HTML only.
 
 ## Biases and limits
 
-1. **First page only** per URL (≤50 offers). Deeper pagination was not crawled.
+1. **First page only** per URL (≤50 offers). Deeper offer pagination was not
+   crawled. Versions catalog coverage is separate (see
+   [Y a-t-il vraiment tout Cardmarket ?](#y-a-t-il-vraiment-tout-cardmarket)).
 2. **Cloudflare 403/429** on browser responses — content was present, but the
    edge is hostile; repeats may fail.
 3. **Attribute gaps** — language/rarity/edition come from tooltips; missing
@@ -653,11 +686,14 @@ Fixtures are synthetic HTML only.
 4. **No graded cards** in this sample.
 5. **Sorting / filters** on Cardmarket affect which 50 offers appear.
 6. **Not the site’s full inventory** — private, deleted, or unpriced listings
-   are out of scope.
+   are out of scope. Public Versions can still list `From N/A` product refs.
 7. **No printed collector numbers** in the floor ledger.
 8. **Legal/ToS** — operator must stay within Cardmarket terms, robots/rate
    expectations, and local law. This repository ships a scraper pattern, not a
    bypass service.
+9. **Coverage crawl challenges** — Search `site≥8` and product-detail bursts
+   can trip hard challenges; the pipeline stops after three consecutive hard
+   blocks and must not be extended with CAPTCHA/login/bypass tooling.
 
 ## Reproduction and polite troubleshooting
 

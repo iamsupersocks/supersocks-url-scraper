@@ -325,3 +325,289 @@ def test_from_json_cli_exports_csv_without_live_fetch(
     assert code == 0
     lines = out_csv.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == 1 + len(floors)
+
+
+SYNTHETIC_NA_VERSIONS_HTML = """
+<html><body>
+<a href="/en/YuGiOh/Products/Singles/Rarity-Collection-5/Blue-Eyes-White-Dragon-V1-Ultra-Rare">
+  <p class="card-text text-muted">Version 1 100 Available</p>
+  <p class="card-text text-muted">From <b>0,99 €</b></p>
+</a>
+<a href="/en/YuGiOh/Products/Singles/Promos-OCG/Blue-Eyes-White-Dragon">
+  <p class="card-text text-muted">0 Available</p>
+  <p class="card-text text-muted">From N/A</p>
+</a>
+<a href="/en/YuGiOh/Products/Singles/Other/Blue-Eyes-Alternative-White-Dragon">
+  <p class="card-text text-muted">From <b>1,00 €</b></p>
+</a>
+</body></html>
+"""
+
+SYNTHETIC_SEARCH_PAGE_HTML = """
+<html><body>
+<p>Page 1 of 2</p>
+<a href="/en/YuGiOh/Products/Search?searchString=Blue-Eyes+White+Dragon&amp;site=2">next</a>
+<a href="/en/YuGiOh/Products/Singles/Rarity-Collection-5/Blue-Eyes-White-Dragon-V1-Ultra-Rare">BEWD</a>
+<a href="/en/YuGiOh/Products/Singles/Promos-OCG/Blue-Eyes-White-Dragon">BEWD promo</a>
+<a href="/en/YuGiOh/Products/Singles/Other/Blue-Eyes-Alternative-White-Dragon">alt</a>
+</body></html>
+"""
+
+SYNTHETIC_SEARCH_PAGE2_HTML = """
+<html><body>
+<p>Page 2 of 2</p>
+<a href="/en/YuGiOh/Products/Singles/Structure-Deck-Blue-Eyes-White-Destiny/Blue-Eyes-White-Dragon-V1-Common">common</a>
+</body></html>
+"""
+
+SYNTHETIC_PRODUCT_DETAIL_HTML = """
+<html><body>
+<h1>Blue-Eyes White Dragon (V.1 - Ultra Rare) Rarity Collection 5 - Singles</h1>
+<div class="product-attributes">meta zone</div>
+<div id="articleRow1" class="row g-0 article-row">
+  <div class="col-seller"><a href="/en/YuGiOh/Users/seller-hidden">seller-hidden</a></div>
+  <div class="col-product">
+    <span data-bs-original-title="English" aria-label="English"></span>
+    <span data-bs-original-title="First Edition" aria-label="First Edition"></span>
+    <div class="price-container"><span>1,99 €</span></div>
+  </div>
+</div>
+</body></html>
+"""
+
+
+def test_version_refs_include_na_and_exclude_related_cards(cm_example: ModuleType) -> None:
+    refs = cm_example.parse_version_product_refs(
+        SYNTHETIC_NA_VERSIONS_HTML,
+        source_url="https://www.cardmarket.com/en/YuGiOh/Cards/Blue-Eyes-White-Dragon/Versions",
+    )
+    assert len(refs) == 2
+    by_path = {row["product_path"]: row for row in refs}
+    assert by_path["/en/YuGiOh/Products/Singles/Promos-OCG/Blue-Eyes-White-Dragon"]["from_status"] == "na"
+    assert by_path["/en/YuGiOh/Products/Singles/Rarity-Collection-5/Blue-Eyes-White-Dragon-V1-Ultra-Rare"]["from_status"] == "priced"
+    assert cm_example.is_exact_blue_eyes_white_dragon_path(
+        "/en/YuGiOh/Products/Singles/Other/Blue-Eyes-Alternative-White-Dragon"
+    ) is False
+    assert cm_example.is_exact_blue_eyes_white_dragon_path(
+        "/en/YuGiOh/Products/Singles/Limit-Over-Collection-The-Rivals/"
+        "Blue-Eyes-White-Dragon-the-White-Phantom-Beast-V1-Ultra-Rare"
+    ) is False
+    assert cm_example.is_exact_blue_eyes_white_dragon_path(
+        "/en/YuGiOh/Products/Singles/Rarity-Collection-5/Blue-Eyes-White-Dragon-V1-Ultra-Rare"
+    ) is True
+
+
+def test_search_pagination_helpers_and_stop_conditions(cm_example: ModuleType) -> None:
+    url = cm_example.build_search_page_url("Blue-Eyes White Dragon", 3)
+    assert "site=3" in url
+    assert "searchString=Blue-Eyes" in url
+    page1 = cm_example.parse_search_results_page(
+        SYNTHETIC_SEARCH_PAGE_HTML,
+        source_url=cm_example.build_search_page_url("Blue-Eyes White Dragon", 1),
+    )
+    assert page1["page_of"] == {"current": 1, "total": 2}
+    assert len(page1["product_paths_exact"]) == 2
+    assert page1["related_non_exact"]
+    assert cm_example.should_stop_search_pagination(
+        parsed=page1, previous_paths=None, site=1
+    ) is None
+    page1_repeat = dict(page1)
+    assert (
+        cm_example.should_stop_search_pagination(
+            parsed=page1_repeat,
+            previous_paths=set(page1["product_paths_all"]),
+            site=1,
+        )
+        == "search_page_repeated"
+    )
+    empty = cm_example.parse_search_results_page(
+        "<html><body>Page 3 of 2</body></html>",
+        source_url=cm_example.build_search_page_url("Blue-Eyes White Dragon", 3),
+    )
+    assert empty["empty"] is True
+    assert (
+        cm_example.should_stop_search_pagination(parsed=empty, previous_paths=set(), site=3)
+        == "search_page_empty"
+    )
+
+
+def test_dedupe_by_product_path_and_compare_prior_corpus(cm_example: ModuleType) -> None:
+    rows = [
+        {"product_path": "/en/YuGiOh/Products/Singles/A/Blue-Eyes-White-Dragon", "id": "1"},
+        {"product_path": "/fr/YuGiOh/Products/Singles/A/Blue-Eyes-White-Dragon", "id": "2"},
+        {"product_path": "/en/YuGiOh/Products/Singles/B/Blue-Eyes-White-Dragon-V1-Common", "id": "3"},
+    ]
+    deduped = cm_example.dedupe_by_product_path(rows)
+    assert len(deduped) == 2
+    unique, dupes = cm_example.count_path_duplicates(
+        [
+            "/en/YuGiOh/Products/Singles/A/Blue-Eyes-White-Dragon",
+            "/en/YuGiOh/Products/Singles/A/Blue-Eyes-White-Dragon",
+            "/en/YuGiOh/Products/Singles/B/Blue-Eyes-White-Dragon-V1-Common",
+        ]
+    )
+    assert unique == [
+        "/en/YuGiOh/Products/Singles/A/Blue-Eyes-White-Dragon",
+        "/en/YuGiOh/Products/Singles/B/Blue-Eyes-White-Dragon-V1-Common",
+    ]
+    assert dupes == 1
+    comparison = cm_example.compare_coverage_to_prior_corpus(
+        unique,
+        prior_paths=["/en/YuGiOh/Products/Singles/A/Blue-Eyes-White-Dragon"],
+        prior_expansion_count=1,
+    )
+    assert comparison["prior_unique_paths"] == 1
+    assert comparison["current_unique_paths"] == 2
+    assert comparison["overlap"] == 1
+    assert comparison["new_vs_prior"] == [
+        "/en/YuGiOh/Products/Singles/B/Blue-Eyes-White-Dragon-V1-Common"
+    ]
+
+
+def test_product_public_details_ignore_seller_and_offer_language(
+    cm_example: ModuleType,
+) -> None:
+    detail = cm_example.parse_product_public_details(
+        SYNTHETIC_PRODUCT_DETAIL_HTML,
+        product_path="/en/YuGiOh/Products/Singles/Rarity-Collection-5/Blue-Eyes-White-Dragon-V1-Ultra-Rare",
+        source_url="https://www.cardmarket.com/en/YuGiOh/Products/Singles/Rarity-Collection-5/Blue-Eyes-White-Dragon-V1-Ultra-Rare",
+    )
+    assert detail["version"] == "V1"
+    assert detail["rarity"] == "Ultra Rare"
+    assert detail["expansion"] == "Rarity Collection 5"
+    assert detail["printed_code"] is None
+    # Offer-row English must not become a product-level language claim.
+    assert detail["language"] is None
+    blob = json_dumps(detail)
+    assert "seller-hidden" not in blob
+
+
+def test_coverage_csv_sanitization_and_manifest(cm_example: ModuleType, tmp_path: Path) -> None:
+    refs = cm_example.parse_version_product_refs(
+        SYNTHETIC_NA_VERSIONS_HTML,
+        source_url="https://www.cardmarket.com/en/YuGiOh/Cards/Blue-Eyes-White-Dragon/Versions",
+    )
+    details = [
+        cm_example.parse_product_public_details(
+            SYNTHETIC_PRODUCT_DETAIL_HTML,
+            product_path="/en/YuGiOh/Products/Singles/Rarity-Collection-5/Blue-Eyes-White-Dragon-V1-Ultra-Rare",
+            source_url="https://www.cardmarket.com/en/YuGiOh/Products/Singles/Rarity-Collection-5/Blue-Eyes-White-Dragon-V1-Ultra-Rare",
+        )
+    ]
+    rows = cm_example.build_coverage_rows(
+        version_refs=refs,
+        search_paths=["/en/YuGiOh/Products/Singles/Promos-OCG/Blue-Eyes-White-Dragon"],
+        product_details=details,
+        source_date="2026-08-04",
+    )
+    csv_text = cm_example.export_coverage_csv(rows, destination=tmp_path / "coverage.csv")
+    assert "seller" not in csv_text.lower()
+    assert "cookie" not in csv_text.lower()
+    assert "article_id" not in csv_text.lower()
+    assert csv_text.splitlines()[0] == ",".join(cm_example.COVERAGE_CSV_COLUMNS)
+    comparison = cm_example.compare_coverage_to_prior_corpus(
+        [row["public_product_path"] for row in rows],
+        prior_paths=["/en/YuGiOh/Products/Singles/Rarity-Collection-5/Blue-Eyes-White-Dragon-V1-Ultra-Rare"],
+        prior_expansion_count=1,
+    )
+    manifest = cm_example.build_coverage_manifest(
+        ledger={
+            "started_at": "2026-08-04T00:00:00+00:00",
+            "timezone": "UTC",
+            "pages": [{"url": "u", "status": "ok"}],
+            "stop_reason": "search_announced_total_reached",
+            "announced_versions": 2,
+            "errors": [],
+        },
+        coverage_rows=rows,
+        comparison=comparison,
+    )
+    assert manifest["unique_public_product_paths"] == 2
+    manifest_blob = json_dumps(manifest).lower()
+    assert "seller-hidden" not in manifest_blob
+    assert "username" not in manifest_blob
+    assert manifest["privacy"]["seller_fields"] == "never collected/published"
+    md = cm_example.render_coverage_manifest_markdown(manifest)
+    assert "Stop reason" in md
+
+
+def test_coverage_crawl_pagination_stop_resume_and_challenge(
+    monkeypatch: pytest.MonkeyPatch, cm_example: ModuleType
+) -> None:
+    calls: list[str] = []
+
+    def fake_fetch(url: str, **kwargs: object) -> tuple[FetchedResource | None, list[str]]:
+        calls.append(url)
+        if "/Versions" in url and "/fr/" not in url:
+            html = (
+                "<html><body><h1>177 Versions</h1>" + SYNTHETIC_NA_VERSIONS_HTML + "</body></html>"
+            ).encode()
+        elif "/fr/" in url and "/Versions" in url:
+            html = (
+                "<html><body><h1>177 Versions</h1>" + SYNTHETIC_NA_VERSIONS_HTML + "</body></html>"
+            ).encode()
+        elif "site=1" in url:
+            html = SYNTHETIC_SEARCH_PAGE_HTML.encode()
+        elif "site=2" in url:
+            html = SYNTHETIC_SEARCH_PAGE2_HTML.encode()
+        elif "Products/Singles" in url:
+            html = SYNTHETIC_PRODUCT_DETAIL_HTML.encode()
+        else:
+            html = b"<html><body>empty</body></html>"
+        return (
+            FetchedResource(url, url, 200, html, "text/html; charset=utf-8", {"x-fetch-method": "cloak"}),
+            [],
+        )
+
+    monkeypatch.setattr(cm_example, "fetch_listing_markup", fake_fetch)
+    monkeypatch.setattr(cm_example.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(cm_example.random, "uniform", lambda _a, _b: 0.0)
+
+    result = cm_example.crawl_public_blue_eyes_coverage(
+        delay_seconds=2.0,
+        max_navigations=20,
+        include_fr_versions=False,
+        fetch_product_details=True,
+    )
+    assert result["announced_versions"] == 177
+    assert len(result["version_refs"]) == 2
+    assert "search_announced_total_reached" in (result["stop_reason"] or "") or result[
+        "stop_reason"
+    ].startswith("announced_versions") or "search_pagination_complete" in (result["stop_reason"] or "")
+    assert result["unique_product_paths"]
+    # Resume should skip already attempted URLs.
+    resumed_calls_before = len(calls)
+    resumed = cm_example.crawl_public_blue_eyes_coverage(
+        delay_seconds=2.0,
+        max_navigations=20,
+        include_fr_versions=False,
+        fetch_product_details=False,
+        resume_from=result,
+    )
+    assert "resuming from prior coverage ledger" in resumed["warnings"]
+    assert len(calls) == resumed_calls_before  # no new navigations when details disabled and routes done
+
+    # Hard challenge stop after 3 consecutive blocks.
+    challenge_calls: list[str] = []
+
+    def always_challenge(url: str, **kwargs: object) -> tuple[FetchedResource | None, list[str]]:
+        challenge_calls.append(url)
+        html = b"<html><body>Please verify you are a human captcha</body></html>"
+        return FetchedResource(url, url, 403, html, "text/html; charset=utf-8", {"x-fetch-method": "cloak"}), []
+
+    monkeypatch.setattr(cm_example, "fetch_listing_markup", always_challenge)
+    blocked = cm_example.crawl_public_blue_eyes_coverage(
+        delay_seconds=2.0,
+        max_navigations=10,
+        include_fr_versions=True,
+        fetch_product_details=False,
+    )
+    assert blocked["stop_reason"] == "hard_challenges_x3"
+    assert len(challenge_calls) == 3
+
+
+def test_coverage_budget_and_min_delay_guards(cm_example: ModuleType) -> None:
+    with pytest.raises(ValueError, match="delay_seconds"):
+        cm_example.crawl_public_blue_eyes_coverage(delay_seconds=1.0, max_navigations=5)
+    with pytest.raises(ValueError, match="max_navigations"):
+        cm_example.crawl_public_blue_eyes_coverage(delay_seconds=2.0, max_navigations=999)
