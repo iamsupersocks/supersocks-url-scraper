@@ -1,5 +1,10 @@
 {
   "attempted": 0,
+  "baseline_reused_fields": {
+    "available_count": 175,
+    "from_cents": 175,
+    "note": "from_cents / available_count values on pending rows are reused from the prior coverage CSV baseline seed; they were not newly extracted by live product-detail fetches in this deep-enrichment window (live detail successes=0)."
+  },
   "budget": {
     "consecutive_hard_challenges_at_stop": 2,
     "max_navigations": 40,
@@ -33,7 +38,8 @@
     "Versions catalog completeness is inherited from the prior 177/177 coverage pass.",
     "Product details may be only partially enriched within the live navigation budget.",
     "Offer tables remain first-page only; language/condition aggregates are in-memory counts without seller rows.",
-    "Printed collector numbers are recorded only when HTML exposes an explicit set-code token."
+    "Printed collector numbers are recorded only when HTML exposes an explicit set-code token.",
+    "Deep CSV From/availability cells on pending rows are baseline coverage seeds, not live deep-pass extractions."
   ],
   "model_evidence": {
     "live_navigations": 2,
@@ -57,6 +63,8 @@
   },
   "scope_qualification": {
     "details_enriched_partially": true,
+    "live_product_details_succeeded": 0,
+    "live_search_challenge_navigations": 2,
     "offers_non_exhaustive": true,
     "versions_complete": true
   },

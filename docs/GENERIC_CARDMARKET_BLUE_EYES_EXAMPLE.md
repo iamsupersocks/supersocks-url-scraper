@@ -186,3 +186,31 @@ each attempt; statuses `pending`/`ok`/`challenge`/`error`; `ok` rows are never
 retried. Delay ≥ 8 s + jitter; stop after 2 consecutive hard challenges; if the
 first access is challenged, one bounded cooldown then a second try, then stop.
 No parallelism, login, CAPTCHA solve, proxy, or private API.
+
+The 2026-08-04 deep window recorded **0** live product-detail successes and
+**2** Search challenge navigations. CSV `from_cents` / `available_count` values
+on still-pending rows are **baseline coverage seeds**, not newly extracted deep
+metrics.
+
+## Official catalog join (products_singles_3 + price_guide_3)
+
+```bash
+python examples/generic_cardmarket_blue_eyes.py \
+  --official-catalog-join \
+  --html-coverage-csv docs/data/cardmarket-blue-eyes-coverage-2026-08-04.csv \
+  --export-official-csv docs/data/cardmarket-blue-eyes-official-join-2026-08-04.csv \
+  --export-official-manifest docs/data/cardmarket-blue-eyes-official-join-manifest-2026-08-04.json \
+  --source-date 2026-08-04 \
+  --quiet-json
+```
+
+Performs exactly one HTTPS GET to each canonical official URL (host
+`downloads.s3.cardmarket.com`), validates schema/`createdAt`/unique `idProduct`,
+filters by strict name equality `Blue-Eyes White Dragon`, joins the price guide
+by `idProduct`, and publishes only the derived CSV + manifest. Raw catalogs are
+never committed (optional offline paths under gitignored `runs/`).
+
+Observed 2026-08-04: **86 255** singles → **177** exact / **15** contains-excluded;
+**177/177** guide joins; **102** expansions; metacard **102062**. Decimal price
+fields stay as provided. The manifest keeps the official `idProduct` corpus
+separate from the HTML URL corpus when no verifiable mapping exists.

@@ -77,12 +77,13 @@ CAPTCHA solve, proxy rotation, or private API.
 A second, budget-capped deep pass (`--deep-enrichment`) seeds a deterministic
 queue of the exact **177** coverage paths (White-Phantom-Beast excluded), with
 atomic checkpoints (`pending` / `ok` / `challenge` / `error`) and no retry of
-`ok` rows.
+`ok` rows. Seeded `from_cents` / `available_count` cells are **reused from the
+prior coverage CSV baseline**, not newly scraped in this window.
 
 | Scope claim | Status after deep pass |
 | --- | --- |
 | **Versions complete** | **Yes** — inherited **177/177** from the coverage corpus; Versions pages were not re-fetched. |
-| **Details enriched** | **Partial / blocked** — live Search resume at `site=8` hit a hard challenge on first access; one bounded cooldown + second try still challenged → stop (`first_access_hard_challenge_after_cooldown`). **0/177** product-detail successes in this window; **2** navigations used of budget **40**. |
+| **Details enriched** | **No live successes** — **0/177** product-detail fetches succeeded. Search resume at `site=8` hit a hard challenge on first access; one bounded cooldown + second try still challenged → stop (`first_access_hard_challenge_after_cooldown`). **2** Search challenge navigations used of budget **40**. |
 | **Offers exhaustive** | **No** — offer tables remain non-exhaustive (first page only when a detail page renders); language/condition aggregates are in-memory counts without seller rows. |
 
 Published deep artifacts:
@@ -90,9 +91,39 @@ Published deep artifacts:
 - [`docs/data/cardmarket-blue-eyes-deep-enrichment-2026-08-04.csv`](data/cardmarket-blue-eyes-deep-enrichment-2026-08-04.csv)
 - [`docs/data/cardmarket-blue-eyes-deep-enrichment-manifest-2026-08-04.json`](data/cardmarket-blue-eyes-deep-enrichment-manifest-2026-08-04.json) / [`.md`](data/cardmarket-blue-eyes-deep-enrichment-manifest-2026-08-04.md)
 
-Evidence posture unchanged: delay ≥ **8 s** + jitter, no parallelism, no login /
-CAPTCHA / proxy / fingerprint spoof / private API. Private ledger under
-gitignored `runs/` is sanitized on every atomic write.
+Do **not** read the deep CSV `from_cents` / `available_count` columns (175 priced /
+2 `From N/A`) as live deep-pass extractions — they are baseline coverage seeds on
+still-`pending` rows.
+
+### Official Cardmarket catalog join (products + price guide)
+
+A third, non-HTML path joins the public official Yu-Gi-Oh downloads (exactly one
+GET per URL when live):
+
+- `https://downloads.s3.cardmarket.com/productCatalog/productList/products_singles_3.json`
+- `https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_3.json`
+
+Observed on **2026-08-04**: **86 255** singles → strict name equality
+`Blue-Eyes White Dragon` → **177** products; **192** `contains` matches of which
+**15** excluded (Malefic / Token / White Phantom Beast); **177/177** price-guide
+joins by `idProduct`; **102** `idExpansion`; single `idMetacard` **102062**.
+Decimals are preserved as provided (no float coercion). Raw JSON is **not**
+committed.
+
+Published official artifacts:
+
+- [`docs/data/cardmarket-blue-eyes-official-join-2026-08-04.csv`](data/cardmarket-blue-eyes-official-join-2026-08-04.csv)
+- [`docs/data/cardmarket-blue-eyes-official-join-manifest-2026-08-04.json`](data/cardmarket-blue-eyes-official-join-manifest-2026-08-04.json) / [`.md`](data/cardmarket-blue-eyes-official-join-manifest-2026-08-04.md)
+
+The HTML coverage corpus remains keyed by **public URL/path**; the official
+corpus is keyed by **`idProduct`**. Official downloads do not expose a verifiable
+URL↔`idProduct` mapping, so the manifest keeps two concordant **177** corpora
+and **does not invent** rank-to-rank links.
+
+Evidence posture unchanged: delay ≥ **8 s** + jitter for HTML deep pass, no
+parallelism, no login / CAPTCHA / proxy / fingerprint spoof / private API.
+Private ledger under gitignored `runs/` is sanitized on every atomic write.
+Official raw catalogs, when cached offline, stay under gitignored `runs/` only.
 
 ## Why Blue-Eyes has no single price
 

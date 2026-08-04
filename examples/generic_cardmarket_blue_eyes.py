@@ -29,6 +29,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urljoin, urlparse
+from urllib.request import Request, urlopen
 
 if __package__ in {None, ""}:
     SRC = Path(__file__).resolve().parents[1] / "src"
@@ -57,6 +58,56 @@ FIRST_ACCESS_COOLDOWN_SECONDS = 45.0
 EXPECTED_EXACT_BLUE_EYES_PATHS = 177
 DEFAULT_SEARCH_QUERY = "Blue-Eyes White Dragon"
 DEEP_ENRICHMENT_STATUSES = frozenset({"pending", "ok", "challenge", "error"})
+EXACT_BLUE_EYES_PRODUCT_NAME = "Blue-Eyes White Dragon"
+OFFICIAL_PRODUCTS_SINGLES_URL = (
+    "https://downloads.s3.cardmarket.com/productCatalog/productList/products_singles_3.json"
+)
+OFFICIAL_PRICE_GUIDE_URL = (
+    "https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_3.json"
+)
+OFFICIAL_CATALOG_HOST = "downloads.s3.cardmarket.com"
+OFFICIAL_CATALOG_TIMEOUT_SECONDS = 120
+OFFICIAL_CATALOG_MAX_BYTES = MAX_BYTES
+OFFICIAL_CATALOG_CHUNK_SIZE = 64 * 1024
+OFFICIAL_PRICE_NUMERIC_FIELDS: tuple[str, ...] = (
+    "avg",
+    "low",
+    "trend",
+    "avg1",
+    "avg7",
+    "avg30",
+    "avg-foil",
+    "low-foil",
+    "trend-foil",
+    "avg1-foil",
+    "avg7-foil",
+    "avg30-foil",
+)
+OFFICIAL_JOIN_CSV_COLUMNS: tuple[str, ...] = (
+    "idProduct",
+    "idExpansion",
+    "idMetacard",
+    "dateAdded",
+    "category",
+    "name",
+    "avg",
+    "low",
+    "trend",
+    "avg1",
+    "avg7",
+    "avg30",
+    "avg_foil",
+    "low_foil",
+    "trend_foil",
+    "avg1_foil",
+    "avg7_foil",
+    "avg30_foil",
+    "fields_present",
+    "fields_absent",
+    "products_created_at",
+    "price_guide_created_at",
+    "source_date",
+)
 SELLER_LIKE_KEYS = frozenset(
     {
         "seller",
@@ -2415,6 +2466,24 @@ def build_deep_enrichment_manifest(
             "versions_complete": True,
             "details_enriched_partially": counts.get("succeeded", 0) < EXPECTED_EXACT_BLUE_EYES_PATHS,
             "offers_non_exhaustive": True,
+            "live_product_details_succeeded": counts.get("succeeded", 0),
+            "live_search_challenge_navigations": sum(
+                1
+                for page in pages
+                if isinstance(page, dict)
+                and page.get("challenge")
+                and str(page.get("route") or "").startswith("search")
+            ),
+        },
+        "baseline_reused_fields": {
+            "from_cents": field_presence.get("from_cents", 0),
+            "available_count": field_presence.get("available_count", 0),
+            "note": (
+                "from_cents / available_count values on pending rows are reused from the prior "
+                "coverage CSV baseline seed; they were not newly extracted by live product-detail "
+                "fetches in this deep-enrichment window "
+                f"(live detail successes={counts.get('succeeded', 0)})."
+            ),
         },
         "model_evidence": model_evidence
         or {
@@ -2434,6 +2503,7 @@ def build_deep_enrichment_manifest(
             "Product details may be only partially enriched within the live navigation budget.",
             "Offer tables remain first-page only; language/condition aggregates are in-memory counts without seller rows.",
             "Printed collector numbers are recorded only when HTML exposes an explicit set-code token.",
+            "Deep CSV From/availability cells on pending rows are baseline coverage seeds, not live deep-pass extractions.",
         ],
     }
 
@@ -2459,11 +2529,20 @@ def render_deep_enrichment_manifest_markdown(manifest: dict[str, Any]) -> str:
         "",
         f"- Versions complete: **{scope.get('versions_complete')}** (177/177 prior coverage).",
         f"- Details enriched partially: **{scope.get('details_enriched_partially')}**.",
+        f"- Live product-detail successes: **{scope.get('live_product_details_succeeded', manifest.get('succeeded'))}**.",
+        f"- Live Search challenge navigations: **{scope.get('live_search_challenge_navigations')}**.",
         f"- Offers non-exhaustive: **{scope.get('offers_non_exhaustive')}**.",
         "",
-        "## Field presence",
+        "## Baseline reuse (not live deep extractions)",
         "",
     ]
+    baseline = manifest.get("baseline_reused_fields") or {}
+    lines.append(
+        f"- `from_cents` / `available_count` on seeded pending rows: "
+        f"**{baseline.get('from_cents')}** / **{baseline.get('available_count')}** "
+        f"— {baseline.get('note')}"
+    )
+    lines.extend(["", "## Field presence", ""])
     for name, count in sorted((manifest.get("field_presence_counts") or {}).items()):
         lines.append(f"- `{name}`: **{count}**")
     lines.append("")
@@ -2817,6 +2896,528 @@ def crawl_deep_enrichment(
     return payload
 
 
+def validate_official_catalog_url(url: str, *, expected_url: str) -> str:
+    """Refuse any URL that is not the exact canonical HTTPS Cardmarket S3 download."""
+    if url != expected_url:
+        raise ValueError("refusing non-canonical official Cardmarket catalog URL")
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise ValueError("official catalog URL must use https")
+    if parsed.netloc != OFFICIAL_CATALOG_HOST:
+        raise ValueError("official catalog URL host is not allowed")
+    if parsed.query or parsed.fragment:
+        raise ValueError("official catalog URL must not carry query or fragment")
+    if parsed.username or parsed.password:
+        raise ValueError("official catalog URL must not embed credentials")
+    return url
+
+
+def sha256_hex(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+
+def download_official_catalog_bytes(
+    url: str,
+    *,
+    expected_url: str,
+    timeout: int = OFFICIAL_CATALOG_TIMEOUT_SECONDS,
+    max_bytes: int = OFFICIAL_CATALOG_MAX_BYTES,
+) -> tuple[bytes, str]:
+    """Single GET with bounded streaming read, SHA-256, and safe error messages."""
+    validate_official_catalog_url(url, expected_url=expected_url)
+    request = Request(
+        url,
+        headers={
+            "User-Agent": DESKTOP_UA,
+            "Accept": "application/json",
+        },
+    )
+    digest = hashlib.sha256()
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            final_url = response.geturl()
+            validate_official_catalog_url(final_url, expected_url=expected_url)
+            while True:
+                chunk = response.read(OFFICIAL_CATALOG_CHUNK_SIZE)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    raise FetchError(f"response exceeds max_bytes={max_bytes}")
+                digest.update(chunk)
+                chunks.append(chunk)
+    except FetchError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — map to safe FetchError without body/URL secrets
+        raise FetchError(f"official catalog fetch failed: {type(exc).__name__}") from exc
+    raw = b"".join(chunks)
+    return raw, digest.hexdigest()
+
+
+def parse_official_catalog_json(raw: bytes) -> dict[str, Any]:
+    """Parse official JSON while preserving decimal literals via Decimal."""
+    try:
+        payload = json.loads(raw.decode("utf-8"), parse_float=Decimal)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("official catalog JSON is invalid") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("official catalog JSON root must be an object")
+    return payload
+
+
+def validate_products_catalog_schema(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    if "version" not in payload:
+        raise ValueError("products catalog missing version")
+    if not payload.get("createdAt"):
+        raise ValueError("products catalog missing createdAt")
+    products = payload.get("products")
+    if not isinstance(products, list):
+        raise ValueError("products catalog missing products list")
+    required = {
+        "idProduct",
+        "name",
+        "idCategory",
+        "categoryName",
+        "idExpansion",
+        "idMetacard",
+        "dateAdded",
+    }
+    for index, row in enumerate(products):
+        if not isinstance(row, dict):
+            raise ValueError(f"products[{index}] is not an object")
+        missing = required - set(row)
+        if missing:
+            raise ValueError(f"products[{index}] missing fields: {sorted(missing)}")
+    return products
+
+
+def validate_price_guide_schema(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    if "version" not in payload:
+        raise ValueError("price guide missing version")
+    if not payload.get("createdAt"):
+        raise ValueError("price guide missing createdAt")
+    guides = payload.get("priceGuides")
+    if not isinstance(guides, list):
+        raise ValueError("price guide missing priceGuides list")
+    required = {"idProduct", "idCategory", "avg", "low", "trend", "avg1", "avg7", "avg30"}
+    optional_foil = {
+        "avg-foil",
+        "low-foil",
+        "trend-foil",
+        "avg1-foil",
+        "avg7-foil",
+        "avg30-foil",
+    }
+    for index, row in enumerate(guides):
+        if not isinstance(row, dict):
+            raise ValueError(f"priceGuides[{index}] is not an object")
+        missing = required - set(row)
+        if missing:
+            raise ValueError(f"priceGuides[{index}] missing fields: {sorted(missing)}")
+        for field in optional_foil:
+            row.setdefault(field, None)
+    return guides
+
+
+def assert_unique_id_products(rows: Sequence[dict[str, Any]], *, label: str) -> None:
+    ids = [int(row["idProduct"]) for row in rows]
+    if len(ids) != len(set(ids)):
+        raise ValueError(f"{label} contains duplicate idProduct values")
+
+
+def format_official_decimal(value: object) -> str:
+    """Serialize Decimal/number cells without float coercion or trailing-zero loss."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        raise ValueError("boolean is not a price decimal")
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str):
+        return value
+    raise ValueError(f"unsupported official numeric type: {type(value).__name__}")
+
+
+def filter_exact_blue_eyes_official_products(
+    products: Sequence[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    exact: list[dict[str, Any]] = []
+    contains_excluded: list[dict[str, Any]] = []
+    for row in products:
+        name = row.get("name")
+        if name == EXACT_BLUE_EYES_PRODUCT_NAME:
+            exact.append(row)
+        elif isinstance(name, str) and EXACT_BLUE_EYES_PRODUCT_NAME in name:
+            contains_excluded.append(row)
+    exact_sorted = sorted(exact, key=lambda row: int(row["idProduct"]))
+    assert_unique_id_products(exact_sorted, label="exact Blue-Eyes official products")
+    return exact_sorted, contains_excluded
+
+
+def join_official_blue_eyes_price_rows(
+    exact_products: Sequence[dict[str, Any]],
+    price_guides: Sequence[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[int]]:
+    by_id = {int(row["idProduct"]): row for row in price_guides}
+    if len(by_id) != len(price_guides):
+        raise ValueError("priceGuides contains duplicate idProduct values")
+    joined: list[dict[str, Any]] = []
+    missing: list[int] = []
+    for product in exact_products:
+        product_id = int(product["idProduct"])
+        guide = by_id.get(product_id)
+        if guide is None:
+            missing.append(product_id)
+            continue
+        joined.append({"product": product, "price": guide})
+    return joined, missing
+
+
+def _official_field_presence(product: dict[str, Any], price: dict[str, Any]) -> tuple[str, str]:
+    checks: list[tuple[str, object]] = [
+        ("idProduct", product.get("idProduct")),
+        ("idExpansion", product.get("idExpansion")),
+        ("idMetacard", product.get("idMetacard")),
+        ("dateAdded", product.get("dateAdded")),
+        ("category", product.get("categoryName")),
+        ("name", product.get("name")),
+    ]
+    for field in OFFICIAL_PRICE_NUMERIC_FIELDS:
+        checks.append((field.replace("-", "_"), price.get(field)))
+    present: list[str] = []
+    absent: list[str] = []
+    for name, value in checks:
+        if value is None or value == "":
+            absent.append(name)
+        else:
+            present.append(name)
+    return "|".join(present), "|".join(absent)
+
+
+def build_official_join_rows(
+    joined: Sequence[dict[str, Any]],
+    *,
+    products_created_at: str,
+    price_guide_created_at: str,
+    source_date: str,
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for item in joined:
+        product = item["product"]
+        price = item["price"]
+        present, absent = _official_field_presence(product, price)
+        rows.append(
+            {
+                "idProduct": str(int(product["idProduct"])),
+                "idExpansion": str(int(product["idExpansion"])),
+                "idMetacard": str(int(product["idMetacard"])),
+                "dateAdded": str(product.get("dateAdded") or ""),
+                "category": str(product.get("categoryName") or ""),
+                "name": str(product.get("name") or ""),
+                "avg": format_official_decimal(price.get("avg")),
+                "low": format_official_decimal(price.get("low")),
+                "trend": format_official_decimal(price.get("trend")),
+                "avg1": format_official_decimal(price.get("avg1")),
+                "avg7": format_official_decimal(price.get("avg7")),
+                "avg30": format_official_decimal(price.get("avg30")),
+                "avg_foil": format_official_decimal(price.get("avg-foil")),
+                "low_foil": format_official_decimal(price.get("low-foil")),
+                "trend_foil": format_official_decimal(price.get("trend-foil")),
+                "avg1_foil": format_official_decimal(price.get("avg1-foil")),
+                "avg7_foil": format_official_decimal(price.get("avg7-foil")),
+                "avg30_foil": format_official_decimal(price.get("avg30-foil")),
+                "fields_present": present,
+                "fields_absent": absent,
+                "products_created_at": products_created_at,
+                "price_guide_created_at": price_guide_created_at,
+                "source_date": source_date,
+            }
+        )
+    return rows
+
+
+def export_official_join_csv(rows: Sequence[dict[str, str]], *, destination: Path | None = None) -> str:
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=list(OFFICIAL_JOIN_CSV_COLUMNS), lineterminator="\n")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({column: row.get(column, "") for column in OFFICIAL_JOIN_CSV_COLUMNS})
+    text = buffer.getvalue()
+    if destination is not None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(text, encoding="utf-8")
+    return text
+
+
+def load_html_corpus_paths(coverage_csv: Path | None) -> list[str]:
+    if coverage_csv is None or not coverage_csv.exists():
+        return []
+    return load_exact_blue_eyes_paths_from_coverage_csv(coverage_csv)
+
+
+def build_official_join_manifest(
+    *,
+    products_payload: dict[str, Any],
+    price_payload: dict[str, Any],
+    products_sha256: str,
+    price_sha256: str,
+    products_bytes: int,
+    price_bytes: int,
+    singles_before: int,
+    exact_products: Sequence[dict[str, Any]],
+    contains_excluded: Sequence[dict[str, Any]],
+    joined_rows: Sequence[dict[str, str]],
+    missing_price_ids: Sequence[int],
+    html_paths: Sequence[str],
+    source_date: str,
+    fetched_live: bool,
+) -> dict[str, Any]:
+    expansion_ids = sorted({int(row["idExpansion"]) for row in exact_products})
+    metacard_ids = sorted({int(row["idMetacard"]) for row in exact_products})
+    field_presence: dict[str, int] = Counter()
+    field_absence: dict[str, int] = Counter()
+    for row in joined_rows:
+        for name in (row.get("fields_present") or "").split("|"):
+            if name:
+                field_presence[name] += 1
+        for name in (row.get("fields_absent") or "").split("|"):
+            if name:
+                field_absence[name] += 1
+    official_ids = [int(row["idProduct"]) for row in joined_rows]
+    html_count = len(html_paths)
+    # Official downloads do not expose public product URL ↔ idProduct. Keep corpora separate.
+    mapping_verified = False
+    return {
+        "title": "Cardmarket Blue-Eyes White Dragon official catalog join manifest",
+        "generated_at": utc_now_iso(),
+        "timezone": "UTC",
+        "source_date": source_date,
+        "fetched_live": fetched_live,
+        "official_sources": {
+            "products_singles_url": OFFICIAL_PRODUCTS_SINGLES_URL,
+            "price_guide_url": OFFICIAL_PRICE_GUIDE_URL,
+            "products": {
+                "version": products_payload.get("version"),
+                "createdAt": products_payload.get("createdAt"),
+                "sha256": products_sha256,
+                "bytes": products_bytes,
+                "singles_before_filter": singles_before,
+            },
+            "price_guide": {
+                "version": price_payload.get("version"),
+                "createdAt": price_payload.get("createdAt"),
+                "sha256": price_sha256,
+                "bytes": price_bytes,
+                "rows_before_filter": len(price_payload.get("priceGuides") or []),
+            },
+        },
+        "filter": {
+            "name_equality": EXACT_BLUE_EYES_PRODUCT_NAME,
+            "exact_matches": len(exact_products),
+            "contains_matches": len(exact_products) + len(contains_excluded),
+            "contains_excluded": len(contains_excluded),
+            "excluded_names": sorted({str(row.get("name")) for row in contains_excluded}),
+        },
+        "join": {
+            "key": "idProduct",
+            "matched": len(joined_rows),
+            "missing_price_guide_ids": list(missing_price_ids),
+            "expected_exact": EXPECTED_EXACT_BLUE_EYES_PATHS,
+        },
+        "corpus": {
+            "official_by_idProduct": {
+                "count": len(official_ids),
+                "unique_idProduct": len(set(official_ids)),
+                "idExpansion_count": len(expansion_ids),
+                "idMetacard": metacard_ids,
+            },
+            "html_by_url": {
+                "count": html_count,
+                "unique_paths": html_count,
+                "source": "docs/data coverage CSV public_product_path when provided",
+            },
+            "url_to_idProduct_mapping": {
+                "verified": mapping_verified,
+                "note": (
+                    "Official productList/priceGuide payloads do not expose public product URLs. "
+                    "HTML coverage corpus is keyed by URL/path; official corpus is keyed by idProduct. "
+                    "Do not invent rank-to-rank or lexical URL↔idProduct mappings."
+                ),
+            },
+            "concordant_counts_without_row_mapping": {
+                "official_exact": len(official_ids),
+                "html_exact_paths": html_count,
+                "both_177": len(official_ids) == EXPECTED_EXACT_BLUE_EYES_PATHS
+                and html_count == EXPECTED_EXACT_BLUE_EYES_PATHS,
+            },
+        },
+        "field_presence_counts": dict(sorted(field_presence.items())),
+        "field_absence_counts": dict(sorted(field_absence.items())),
+        "privacy": {
+            "raw_official_json": "not committed; memory or gitignored runs/ only",
+            "seller_fields": "never present in official catalog join",
+            "published_artifacts": [
+                "sanitized official join CSV",
+                "official join manifest JSON/Markdown",
+            ],
+        },
+        "limits": [
+            "Exactly one GET per official URL when fetching live.",
+            "Decimal price fields are preserved as provided (no float coercion).",
+            "HTML URL corpus and official idProduct corpus stay separate unless a verifiable mapping exists.",
+        ],
+    }
+
+
+def render_official_join_manifest_markdown(manifest: dict[str, Any]) -> str:
+    sources = manifest.get("official_sources") or {}
+    products = sources.get("products") or {}
+    prices = sources.get("price_guide") or {}
+    filt = manifest.get("filter") or {}
+    join = manifest.get("join") or {}
+    corpus = manifest.get("corpus") or {}
+    official = corpus.get("official_by_idProduct") or {}
+    html = corpus.get("html_by_url") or {}
+    mapping = corpus.get("url_to_idProduct_mapping") or {}
+    lines = [
+        "# Cardmarket Blue-Eyes official catalog join manifest",
+        "",
+        f"- Generated: `{manifest.get('generated_at')}` ({manifest.get('timezone')})",
+        f"- Source date: **{manifest.get('source_date')}**",
+        f"- Fetched live: **{manifest.get('fetched_live')}**",
+        "",
+        "## Official sources",
+        "",
+        f"- Products URL: `{sources.get('products_singles_url')}`",
+        f"- Price guide URL: `{sources.get('price_guide_url')}`",
+        f"- Products `createdAt` / version / SHA-256: "
+        f"**{products.get('createdAt')}** / **{products.get('version')}** / `{products.get('sha256')}`",
+        f"- Price guide `createdAt` / version / SHA-256: "
+        f"**{prices.get('createdAt')}** / **{prices.get('version')}** / `{prices.get('sha256')}`",
+        f"- Singles before filter: **{products.get('singles_before_filter')}**",
+        f"- Price guide rows before filter: **{prices.get('rows_before_filter')}**",
+        "",
+        "## Filter and join",
+        "",
+        f"- Exact name equality: `{filt.get('name_equality')}`",
+        f"- Exact / contains / excluded: "
+        f"**{filt.get('exact_matches')}** / **{filt.get('contains_matches')}** / "
+        f"**{filt.get('contains_excluded')}**",
+        f"- Join matched by `idProduct`: **{join.get('matched')}** "
+        f"(missing: **{len(join.get('missing_price_guide_ids') or [])}**)",
+        "",
+        "## Corpora (no invented URL↔idProduct mapping)",
+        "",
+        f"- Official corpus by `idProduct`: **{official.get('count')}** "
+        f"(expansions **{official.get('idExpansion_count')}**, metacard "
+        f"**{official.get('idMetacard')}**)",
+        f"- HTML corpus by URL/path: **{html.get('count')}**",
+        f"- Mapping verified: **{mapping.get('verified')}** — {mapping.get('note')}",
+        "",
+        "## Field presence",
+        "",
+    ]
+    for name, count in sorted((manifest.get("field_presence_counts") or {}).items()):
+        lines.append(f"- `{name}`: **{count}**")
+    if manifest.get("field_absence_counts"):
+        lines.append("")
+        lines.append("## Field absence")
+        lines.append("")
+        for name, count in sorted((manifest.get("field_absence_counts") or {}).items()):
+            lines.append(f"- `{name}`: **{count}**")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def build_official_blue_eyes_join(
+    *,
+    products_raw: bytes,
+    price_raw: bytes,
+    products_sha256: str | None = None,
+    price_sha256: str | None = None,
+    html_coverage_csv: Path | None = None,
+    source_date: str = "",
+    fetched_live: bool = False,
+) -> dict[str, Any]:
+    products_payload = parse_official_catalog_json(products_raw)
+    price_payload = parse_official_catalog_json(price_raw)
+    products = validate_products_catalog_schema(products_payload)
+    price_guides = validate_price_guide_schema(price_payload)
+    assert_unique_id_products(products, label="products catalog")
+    assert_unique_id_products(price_guides, label="priceGuides")
+    exact, excluded = filter_exact_blue_eyes_official_products(products)
+    joined, missing = join_official_blue_eyes_price_rows(exact, price_guides)
+    if missing:
+        raise ValueError(f"price guide missing {len(missing)} exact Blue-Eyes idProduct rows")
+    stamped = (source_date or "").strip() or str(products_payload.get("createdAt") or "")[:10]
+    rows = build_official_join_rows(
+        joined,
+        products_created_at=str(products_payload.get("createdAt") or ""),
+        price_guide_created_at=str(price_payload.get("createdAt") or ""),
+        source_date=stamped,
+    )
+    html_paths = load_html_corpus_paths(html_coverage_csv)
+    products_digest = products_sha256 or sha256_hex(products_raw)
+    price_digest = price_sha256 or sha256_hex(price_raw)
+    manifest = build_official_join_manifest(
+        products_payload=products_payload,
+        price_payload=price_payload,
+        products_sha256=products_digest,
+        price_sha256=price_digest,
+        products_bytes=len(products_raw),
+        price_bytes=len(price_raw),
+        singles_before=len(products),
+        exact_products=exact,
+        contains_excluded=excluded,
+        joined_rows=rows,
+        missing_price_ids=missing,
+        html_paths=html_paths,
+        source_date=stamped,
+        fetched_live=fetched_live,
+    )
+    return {
+        "status": "ok",
+        "rows": rows,
+        "manifest": manifest,
+        "exact_count": len(exact),
+        "excluded_count": len(excluded),
+        "products_sha256": products_digest,
+        "price_sha256": price_digest,
+    }
+
+
+def fetch_official_blue_eyes_join(
+    *,
+    html_coverage_csv: Path | None = None,
+    source_date: str = "",
+    timeout: int = OFFICIAL_CATALOG_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    """Download each official URL once, join exact Blue-Eyes rows, return derived payload."""
+    products_raw, products_sha = download_official_catalog_bytes(
+        OFFICIAL_PRODUCTS_SINGLES_URL,
+        expected_url=OFFICIAL_PRODUCTS_SINGLES_URL,
+        timeout=timeout,
+    )
+    price_raw, price_sha = download_official_catalog_bytes(
+        OFFICIAL_PRICE_GUIDE_URL,
+        expected_url=OFFICIAL_PRICE_GUIDE_URL,
+        timeout=timeout,
+    )
+    return build_official_blue_eyes_join(
+        products_raw=products_raw,
+        price_raw=price_raw,
+        products_sha256=products_sha,
+        price_sha256=price_sha,
+        html_coverage_csv=html_coverage_csv,
+        source_date=source_date,
+        fetched_live=True,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Cardmarket Blue-Eyes public market extraction example (no seller identities, no HTML dumps)"
@@ -2946,6 +3547,42 @@ def main(argv: list[str] | None = None) -> int:
         help="With --deep-enrichment, only resume Search pagination (skip product details)",
     )
     parser.add_argument(
+        "--official-catalog-join",
+        action="store_true",
+        help=(
+            "Join official Cardmarket products_singles_3 + price_guide_3 for exact "
+            "Blue-Eyes White Dragon rows (one GET per URL unless offline JSON paths are set)."
+        ),
+    )
+    parser.add_argument(
+        "--official-products-json",
+        type=Path,
+        help="Offline products_singles_3.json (gitignored). Skips the products GET.",
+    )
+    parser.add_argument(
+        "--official-price-guide-json",
+        type=Path,
+        help="Offline price_guide_3.json (gitignored). Skips the price-guide GET.",
+    )
+    parser.add_argument(
+        "--export-official-csv",
+        type=Path,
+        help="Write sanitized official join CSV (177 exact rows; never the raw catalogs).",
+    )
+    parser.add_argument(
+        "--export-official-manifest",
+        type=Path,
+        help="Write official join manifest JSON (Markdown sibling when suffix is .json).",
+    )
+    parser.add_argument(
+        "--html-coverage-csv",
+        type=Path,
+        help=(
+            "HTML corpus coverage CSV for concordant 177-path comparison in the official "
+            "manifest (no invented URL↔idProduct mapping)."
+        ),
+    )
+    parser.add_argument(
         "--source-date",
         default="",
         help="ISO date stamped on CSV rows (default: today UTC, or value from payload when present).",
@@ -2959,6 +3596,77 @@ def main(argv: list[str] | None = None) -> int:
 
     payload: dict[str, Any]
     budget_obj: CoverageBudget | None = None
+
+    if args.official_catalog_join:
+        repo_root = Path(__file__).resolve().parents[1]
+        html_csv = args.html_coverage_csv or (
+            repo_root / "docs" / "data" / "cardmarket-blue-eyes-coverage-2026-08-04.csv"
+        )
+        offline_products = args.official_products_json
+        offline_prices = args.official_price_guide_json
+        if (offline_products is None) ^ (offline_prices is None):
+            parser.error(
+                "--official-products-json and --official-price-guide-json must be provided together"
+            )
+        if offline_products is not None and offline_prices is not None:
+            products_raw = offline_products.read_bytes()
+            price_raw = offline_prices.read_bytes()
+            join_payload = build_official_blue_eyes_join(
+                products_raw=products_raw,
+                price_raw=price_raw,
+                html_coverage_csv=html_csv if html_csv.exists() else None,
+                source_date=args.source_date,
+                fetched_live=False,
+            )
+        else:
+            join_payload = fetch_official_blue_eyes_join(
+                html_coverage_csv=html_csv if html_csv.exists() else None,
+                source_date=args.source_date,
+            )
+        if args.export_official_csv is not None:
+            export_official_join_csv(join_payload["rows"], destination=args.export_official_csv)
+        if args.export_official_manifest is not None:
+            manifest = join_payload["manifest"]
+            args.export_official_manifest.parent.mkdir(parents=True, exist_ok=True)
+            args.export_official_manifest.write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True, default=str)
+                + "\n",
+                encoding="utf-8",
+            )
+            md_path = args.export_official_manifest.with_suffix(".md")
+            md_path.write_text(render_official_join_manifest_markdown(manifest), encoding="utf-8")
+            join_payload["official_manifest"] = str(args.export_official_manifest)
+            join_payload["official_manifest_markdown"] = str(md_path)
+        serializable = {
+            "status": join_payload.get("status"),
+            "exact_count": join_payload.get("exact_count"),
+            "excluded_count": join_payload.get("excluded_count"),
+            "products_sha256": join_payload.get("products_sha256"),
+            "price_sha256": join_payload.get("price_sha256"),
+            "official_csv": str(args.export_official_csv) if args.export_official_csv else None,
+            "official_manifest": join_payload.get("official_manifest"),
+            "manifest": join_payload.get("manifest"),
+        }
+        if not args.quiet_json:
+            print(json.dumps(serializable, ensure_ascii=False, indent=2, sort_keys=True, default=str))
+        else:
+            print(
+                json.dumps(
+                    {
+                        "status": serializable["status"],
+                        "exact_count": serializable["exact_count"],
+                        "excluded_count": serializable["excluded_count"],
+                        "products_sha256": serializable["products_sha256"],
+                        "price_sha256": serializable["price_sha256"],
+                        "official_csv": serializable["official_csv"],
+                        "official_manifest": serializable["official_manifest"],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        return 0 if join_payload.get("status") == "ok" else 1
 
     if args.deep_enrichment:
         repo_root = Path(__file__).resolve().parents[1]
@@ -3022,7 +3730,8 @@ def main(argv: list[str] | None = None) -> int:
         urls = list(args.url)
         if not urls:
             parser.error(
-                "provide at least one --url, or use --from-json / --coverage-crawl / --deep-enrichment"
+                "provide at least one --url, or use --from-json / --coverage-crawl / "
+                "--deep-enrichment / --official-catalog-join"
             )
         payload = collect_cardmarket_blue_eyes(
             urls,

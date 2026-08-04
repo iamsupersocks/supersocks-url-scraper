@@ -989,3 +989,380 @@ def test_sanitize_deep_ledger_strips_seller_and_html(cm_example: ModuleType) -> 
     assert "offers" not in clean
     assert clean["ok"] is True
     assert clean["queue"][0]["from_cents"] == 10
+
+
+def _synthetic_official_catalogs() -> tuple[bytes, bytes]:
+    products = {
+        "version": 1,
+        "createdAt": "2026-08-04T11:20:15+0200",
+        "products": [
+            {
+                "idProduct": 1001,
+                "name": "Blue-Eyes White Dragon",
+                "idCategory": 5,
+                "categoryName": "Yugioh Single",
+                "idExpansion": 10,
+                "idMetacard": 102062,
+                "dateAdded": "2007-01-01 00:00:00",
+            },
+            {
+                "idProduct": 1002,
+                "name": "Blue-Eyes White Dragon",
+                "idCategory": 5,
+                "categoryName": "Yugioh Single",
+                "idExpansion": 11,
+                "idMetacard": 102062,
+                "dateAdded": "2008-01-01 00:00:00",
+            },
+            {
+                "idProduct": 2001,
+                "name": "Malefic Blue-Eyes White Dragon",
+                "idCategory": 5,
+                "categoryName": "Yugioh Single",
+                "idExpansion": 12,
+                "idMetacard": 999,
+                "dateAdded": "2010-01-01 00:00:00",
+            },
+            {
+                "idProduct": 2002,
+                "name": "Blue-Eyes White Dragon, the White Phantom Beast",
+                "idCategory": 5,
+                "categoryName": "Yugioh Single",
+                "idExpansion": 13,
+                "idMetacard": 888,
+                "dateAdded": "2024-01-01 00:00:00",
+            },
+            {
+                "idProduct": 3001,
+                "name": "Dark Magician",
+                "idCategory": 5,
+                "categoryName": "Yugioh Single",
+                "idExpansion": 14,
+                "idMetacard": 1,
+                "dateAdded": "2007-01-01 00:00:00",
+            },
+        ],
+    }
+    prices = {
+        "version": 1,
+        "createdAt": "2026-08-04T02:47:19+0200",
+        "priceGuides": [
+            {
+                "idProduct": 1001,
+                "idCategory": 5,
+                "avg": 5.78,
+                "low": 0.05,
+                "trend": 6.41,
+                "avg1": 0.41,
+                "avg7": 9.02,
+                "avg30": 8.47,
+                "avg-foil": None,
+                "low-foil": None,
+                "trend-foil": 5.12,
+                "avg1-foil": 7.89,
+                "avg7-foil": 3.6,
+                "avg30-foil": 5.54,
+            },
+            {
+                "idProduct": 1002,
+                "idCategory": 5,
+                "avg": 1.20,
+                "low": 0.10,
+                "trend": 1.15,
+                "avg1": 1.1,
+                "avg7": 1.2,
+                "avg30": 1.25,
+                "avg-foil": 2.5,
+                "low-foil": 1.0,
+                "trend-foil": 2.4,
+                "avg1-foil": 2.3,
+                "avg7-foil": 2.2,
+                "avg30-foil": 2.1,
+            },
+            {
+                "idProduct": 2001,
+                "idCategory": 5,
+                "avg": 0.5,
+                "low": 0.1,
+                "trend": 0.4,
+                "avg1": 0.4,
+                "avg7": 0.4,
+                "avg30": 0.4,
+            },
+            {
+                "idProduct": 3001,
+                "idCategory": 5,
+                "avg": 3.0,
+                "low": 1.0,
+                "trend": 2.5,
+                "avg1": 2.5,
+                "avg7": 2.5,
+                "avg30": 2.5,
+            },
+        ],
+    }
+    # Keep decimal literals exact in the fixture bytes (avoid float re-dump drift).
+    products_raw = json.dumps(products, ensure_ascii=False, separators=(",", ":")).encode()
+    prices_raw = (
+        b'{"version":1,"createdAt":"2026-08-04T02:47:19+0200","priceGuides":['
+        b'{"idProduct":1001,"idCategory":5,"avg":5.78,"low":0.05,"trend":6.41,'
+        b'"avg1":0.41,"avg7":9.02,"avg30":8.47,"avg-foil":null,"low-foil":null,'
+        b'"trend-foil":5.12,"avg1-foil":7.89,"avg7-foil":3.6,"avg30-foil":5.54},'
+        b'{"idProduct":1002,"idCategory":5,"avg":1.20,"low":0.10,"trend":1.15,'
+        b'"avg1":1.1,"avg7":1.2,"avg30":1.25,"avg-foil":2.5,"low-foil":1.0,'
+        b'"trend-foil":2.4,"avg1-foil":2.3,"avg7-foil":2.2,"avg30-foil":2.1},'
+        b'{"idProduct":2001,"idCategory":5,"avg":0.5,"low":0.1,"trend":0.4,'
+        b'"avg1":0.4,"avg7":0.4,"avg30":0.4},'
+        b'{"idProduct":3001,"idCategory":5,"avg":3.0,"low":1.0,"trend":2.5,'
+        b'"avg1":2.5,"avg7":2.5,"avg30":2.5}'
+        b"]}"
+    )
+    return products_raw, prices_raw
+
+
+def test_official_catalog_url_protections(cm_example: ModuleType) -> None:
+    good = cm_example.OFFICIAL_PRODUCTS_SINGLES_URL
+    assert cm_example.validate_official_catalog_url(good, expected_url=good) == good
+    with pytest.raises(ValueError, match="non-canonical"):
+        cm_example.validate_official_catalog_url(
+            good + "?x=1", expected_url=good
+        )
+    with pytest.raises(ValueError, match="non-canonical|https|host|query"):
+        cm_example.validate_official_catalog_url(
+            "http://downloads.s3.cardmarket.com/productCatalog/productList/products_singles_3.json",
+            expected_url=good,
+        )
+    with pytest.raises(ValueError, match="non-canonical"):
+        cm_example.validate_official_catalog_url(
+            "https://evil.example/products_singles_3.json",
+            expected_url=good,
+        )
+    with pytest.raises(ValueError, match="non-canonical"):
+        cm_example.validate_official_catalog_url(
+            "https://downloads.s3.cardmarket.com/productCatalog/productList/products_singles_99.json",
+            expected_url=good,
+        )
+
+
+def test_official_join_schema_filter_join_decimals_hashes_determinism(
+    cm_example: ModuleType, tmp_path: Path
+) -> None:
+    products_raw, prices_raw = _synthetic_official_catalogs()
+    html_csv = tmp_path / "html.csv"
+    html_csv.write_text(
+        "public_product_path,from_status\n"
+        "/en/YuGiOh/Products/Singles/A/Blue-Eyes-White-Dragon,priced\n"
+        "/en/YuGiOh/Products/Singles/B/Blue-Eyes-White-Dragon-V1-Common,priced\n",
+        encoding="utf-8",
+    )
+    # Bypass the 177-path guard for this tiny fixture by patching expectation briefly.
+    original = cm_example.EXPECTED_EXACT_BLUE_EYES_PATHS
+    cm_example.EXPECTED_EXACT_BLUE_EYES_PATHS = 2
+    try:
+        # load_exact_blue_eyes_paths_from_coverage_csv enforces 177 — build html paths manually.
+        join = cm_example.build_official_blue_eyes_join(
+            products_raw=products_raw,
+            price_raw=prices_raw,
+            html_coverage_csv=None,
+            source_date="2026-08-04",
+            fetched_live=False,
+        )
+    finally:
+        cm_example.EXPECTED_EXACT_BLUE_EYES_PATHS = original
+
+    assert join["exact_count"] == 2
+    assert join["excluded_count"] == 2
+    rows = join["rows"]
+    assert [row["idProduct"] for row in rows] == ["1001", "1002"]
+    assert rows[0]["avg"] == "5.78"
+    assert rows[0]["low"] == "0.05"
+    assert rows[1]["avg"] == "1.20"
+    assert rows[1]["low"] == "0.10"
+    assert join["products_sha256"] == cm_example.sha256_hex(products_raw)
+    assert join["price_sha256"] == cm_example.sha256_hex(prices_raw)
+    manifest = join["manifest"]
+    assert manifest["filter"]["contains_excluded"] == 2
+    assert manifest["join"]["matched"] == 2
+    assert manifest["corpus"]["url_to_idProduct_mapping"]["verified"] is False
+    assert "102062" in {str(x) for x in manifest["corpus"]["official_by_idProduct"]["idMetacard"]}
+
+    csv_a = cm_example.export_official_join_csv(rows)
+    csv_b = cm_example.export_official_join_csv(rows)
+    assert csv_a == csv_b
+    again = cm_example.build_official_blue_eyes_join(
+        products_raw=products_raw,
+        price_raw=prices_raw,
+        source_date="2026-08-04",
+        fetched_live=False,
+    )
+    assert cm_example.export_official_join_csv(again["rows"]) == csv_a
+    assert again["products_sha256"] == join["products_sha256"]
+    assert again["price_sha256"] == join["price_sha256"]
+
+
+def test_official_join_rejects_duplicate_id_product(cm_example: ModuleType) -> None:
+    products_raw, prices_raw = _synthetic_official_catalogs()
+    products = json.loads(products_raw.decode())
+    products["products"].append(dict(products["products"][0]))
+    with pytest.raises(ValueError, match="duplicate idProduct"):
+        cm_example.build_official_blue_eyes_join(
+            products_raw=json.dumps(products).encode(),
+            price_raw=prices_raw,
+            source_date="2026-08-04",
+        )
+
+
+def test_official_join_rejects_missing_price_rows(cm_example: ModuleType) -> None:
+    products_raw, prices_raw = _synthetic_official_catalogs()
+    prices = json.loads(prices_raw.decode(), parse_float=__import__("decimal").Decimal)
+    # Drop exact product 1002 from guide.
+    prices["priceGuides"] = [row for row in prices["priceGuides"] if int(row["idProduct"]) != 1002]
+    # Re-serialize carefully
+    rebuilt = json.dumps(prices, default=str).encode()
+    with pytest.raises(ValueError, match="price guide missing"):
+        cm_example.build_official_blue_eyes_join(
+            products_raw=products_raw,
+            price_raw=rebuilt,
+            source_date="2026-08-04",
+        )
+
+
+def test_official_join_rejects_non_exact_name_as_exact(cm_example: ModuleType) -> None:
+    products_raw, prices_raw = _synthetic_official_catalogs()
+    exact, excluded = cm_example.filter_exact_blue_eyes_official_products(
+        cm_example.validate_products_catalog_schema(
+            cm_example.parse_official_catalog_json(products_raw)
+        )
+    )
+    assert all(row["name"] == "Blue-Eyes White Dragon" for row in exact)
+    assert all("Blue-Eyes White Dragon" in row["name"] for row in excluded)
+    assert all(row["name"] != "Blue-Eyes White Dragon" for row in excluded)
+
+
+def test_official_download_single_get_and_bound(
+    cm_example: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+    payload = b'{"version":1,"createdAt":"x","products":[]}'
+
+    class FakeResp:
+        def geturl(self) -> str:
+            return cm_example.OFFICIAL_PRODUCTS_SINGLES_URL
+
+        def read(self, n: int = -1) -> bytes:
+            if not hasattr(self, "_sent"):
+                self._sent = False
+            if self._sent:
+                return b""
+            self._sent = True
+            return payload
+
+        def __enter__(self) -> "FakeResp":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    def fake_urlopen(request: object, timeout: int = 0) -> FakeResp:
+        calls.append(getattr(request, "full_url", None) or request.get_full_url())
+        return FakeResp()
+
+    monkeypatch.setattr(cm_example, "urlopen", fake_urlopen)
+    raw, digest = cm_example.download_official_catalog_bytes(
+        cm_example.OFFICIAL_PRODUCTS_SINGLES_URL,
+        expected_url=cm_example.OFFICIAL_PRODUCTS_SINGLES_URL,
+    )
+    assert raw == payload
+    assert digest == cm_example.sha256_hex(payload)
+    assert calls == [cm_example.OFFICIAL_PRODUCTS_SINGLES_URL]
+
+    # Oversized response
+    class FatResp(FakeResp):
+        def read(self, n: int = -1) -> bytes:
+            if getattr(self, "_n", 0) > 2:
+                return b""
+            self._n = getattr(self, "_n", 0) + 1
+            return b"x" * 100
+
+    def fat_urlopen(request: object, timeout: int = 0) -> FatResp:
+        return FatResp()
+
+    monkeypatch.setattr(cm_example, "urlopen", fat_urlopen)
+    with pytest.raises(cm_example.FetchError, match="max_bytes"):
+        cm_example.download_official_catalog_bytes(
+            cm_example.OFFICIAL_PRODUCTS_SINGLES_URL,
+            expected_url=cm_example.OFFICIAL_PRODUCTS_SINGLES_URL,
+            max_bytes=50,
+        )
+
+
+def test_deep_enrichment_manifest_marks_baseline_reuse(cm_example: ModuleType) -> None:
+    rows = [
+        {
+            "public_product_path": "/en/YuGiOh/Products/Singles/A/Blue-Eyes-White-Dragon",
+            "from_cents": "100",
+            "available_count": "3",
+            "fields_present": "",
+            "detail_ok": "no",
+        }
+    ]
+    ledger = {
+        "timezone": "UTC",
+        "started_at": "2026-08-04T00:00:00+00:00",
+        "stop_reason": "first_access_hard_challenge_after_cooldown",
+        "search_last_site": 8,
+        "budget": {"navigations_used": 2, "max_navigations": 40},
+        "pages": [
+            {"route": "search", "challenge": True},
+            {"route": "search", "challenge": True},
+        ],
+        "queue": [{"status": "pending", "attempts": 0}],
+    }
+    manifest = cm_example.build_deep_enrichment_manifest(ledger, rows=rows)
+    assert manifest["scope_qualification"]["live_product_details_succeeded"] == 0
+    assert manifest["scope_qualification"]["live_search_challenge_navigations"] == 2
+    assert "baseline" in manifest["baseline_reused_fields"]["note"].lower()
+    md = cm_example.render_deep_enrichment_manifest_markdown(manifest)
+    assert "Baseline reuse" in md
+    assert "Live Search challenge navigations" in md
+
+
+def test_published_official_join_snapshot_shape() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    csv_path = repo / "docs/data/cardmarket-blue-eyes-official-join-2026-08-04.csv"
+    manifest_path = repo / "docs/data/cardmarket-blue-eyes-official-join-manifest-2026-08-04.json"
+    assert csv_path.exists()
+    assert manifest_path.exists()
+    rows = list(csv.DictReader(csv_path.open(encoding="utf-8")))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert len(rows) == 177
+    assert manifest["filter"]["exact_matches"] == 177
+    assert manifest["filter"]["contains_excluded"] == 15
+    assert manifest["official_sources"]["products"]["singles_before_filter"] == 86255
+    assert manifest["corpus"]["official_by_idProduct"]["idExpansion_count"] == 102
+    assert manifest["corpus"]["official_by_idProduct"]["idMetacard"] == [102062]
+    assert manifest["join"]["matched"] == 177
+    assert manifest["corpus"]["url_to_idProduct_mapping"]["verified"] is False
+    assert manifest["corpus"]["html_by_url"]["count"] == 177
+    # Deterministic idProduct order
+    ids = [int(row["idProduct"]) for row in rows]
+    assert ids == sorted(ids)
+    assert len(ids) == len(set(ids))
+    # No raw catalog committed
+    assert not (repo / "docs/data/products_singles_3.json").exists()
+    assert not (repo / "docs/data/price_guide_3.json").exists()
+
+
+def test_published_deep_manifest_does_not_claim_live_from_extraction() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    manifest = json.loads(
+        (
+            repo / "docs/data/cardmarket-blue-eyes-deep-enrichment-manifest-2026-08-04.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert manifest["succeeded"] == 0
+    assert manifest["scope_qualification"]["live_product_details_succeeded"] == 0
+    assert manifest["scope_qualification"]["live_search_challenge_navigations"] == 2
+    note = manifest["baseline_reused_fields"]["note"].lower()
+    assert "reused" in note or "baseline" in note
+    assert "not newly extracted" in note

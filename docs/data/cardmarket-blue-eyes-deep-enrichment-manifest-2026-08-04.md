@@ -11,7 +11,13 @@
 
 - Versions complete: **True** (177/177 prior coverage).
 - Details enriched partially: **True**.
+- Live product-detail successes: **0**.
+- Live Search challenge navigations: **2**.
 - Offers non-exhaustive: **True**.
+
+## Baseline reuse (not live deep extractions)
+
+- `from_cents` / `available_count` on seeded pending rows: **175** / **175** — from_cents / available_count values on pending rows are reused from the prior coverage CSV baseline seed; they were not newly extracted by live product-detail fetches in this deep-enrichment window (live detail successes=0).
 
 ## Field presence
 

@@ -1,0 +1,111 @@
+{
+  "corpus": {
+    "concordant_counts_without_row_mapping": {
+      "both_177": true,
+      "html_exact_paths": 177,
+      "official_exact": 177
+    },
+    "html_by_url": {
+      "count": 177,
+      "source": "docs/data coverage CSV public_product_path when provided",
+      "unique_paths": 177
+    },
+    "official_by_idProduct": {
+      "count": 177,
+      "idExpansion_count": 102,
+      "idMetacard": [
+        102062
+      ],
+      "unique_idProduct": 177
+    },
+    "url_to_idProduct_mapping": {
+      "note": "Official productList/priceGuide payloads do not expose public product URLs. HTML coverage corpus is keyed by URL/path; official corpus is keyed by idProduct. Do not invent rank-to-rank or lexical URL↔idProduct mappings.",
+      "verified": false
+    }
+  },
+  "fetched_live": false,
+  "field_absence_counts": {
+    "avg": 2,
+    "avg1": 1,
+    "avg1_foil": 128,
+    "avg30": 1,
+    "avg30_foil": 128,
+    "avg7": 1,
+    "avg7_foil": 128,
+    "avg_foil": 177,
+    "low": 2,
+    "low_foil": 177,
+    "trend": 1,
+    "trend_foil": 1
+  },
+  "field_presence_counts": {
+    "avg": 175,
+    "avg1": 176,
+    "avg1_foil": 49,
+    "avg30": 176,
+    "avg30_foil": 49,
+    "avg7": 176,
+    "avg7_foil": 49,
+    "category": 177,
+    "dateAdded": 177,
+    "idExpansion": 177,
+    "idMetacard": 177,
+    "idProduct": 177,
+    "low": 175,
+    "name": 177,
+    "trend": 176,
+    "trend_foil": 176
+  },
+  "filter": {
+    "contains_excluded": 15,
+    "contains_matches": 192,
+    "exact_matches": 177,
+    "excluded_names": [
+      "Blue-Eyes White Dragon, the White Phantom Beast",
+      "Kaiba & Blue-Eyes White Dragon Token",
+      "Malefic Blue-Eyes White Dragon"
+    ],
+    "name_equality": "Blue-Eyes White Dragon"
+  },
+  "generated_at": "2026-08-04T21:50:59.886585+00:00",
+  "join": {
+    "expected_exact": 177,
+    "key": "idProduct",
+    "matched": 177,
+    "missing_price_guide_ids": []
+  },
+  "limits": [
+    "Exactly one GET per official URL when fetching live.",
+    "Decimal price fields are preserved as provided (no float coercion).",
+    "HTML URL corpus and official idProduct corpus stay separate unless a verifiable mapping exists."
+  ],
+  "official_sources": {
+    "price_guide": {
+      "bytes": 17202224,
+      "createdAt": "2026-08-04T02:47:19+0200",
+      "rows_before_filter": 88626,
+      "sha256": "3ad971694838ed8cd9f02a9392ed9bb7acb125adcce6d1174f47edcb0580f524",
+      "version": 1
+    },
+    "price_guide_url": "https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_3.json",
+    "products": {
+      "bytes": 14565177,
+      "createdAt": "2026-08-04T11:20:15+0200",
+      "sha256": "c854a01148559e596fb89eb0df9c6538174b43296123e672f3d1207bd88f58a9",
+      "singles_before_filter": 86255,
+      "version": 1
+    },
+    "products_singles_url": "https://downloads.s3.cardmarket.com/productCatalog/productList/products_singles_3.json"
+  },
+  "privacy": {
+    "published_artifacts": [
+      "sanitized official join CSV",
+      "official join manifest JSON/Markdown"
+    ],
+    "raw_official_json": "not committed; memory or gitignored runs/ only",
+    "seller_fields": "never present in official catalog join"
+  },
+  "source_date": "2026-08-04",
+  "timezone": "UTC",
+  "title": "Cardmarket Blue-Eyes White Dragon official catalog join manifest"
+}
