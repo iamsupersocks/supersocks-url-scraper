@@ -403,23 +403,6 @@ An aggregate model-level snapshot is available in
 contains only counts and medians; live listing data and target details remain
 outside the repository.
 
-## Cardmarket Blue-Eyes market example
-
-For a public Cardmarket analysis of Blue-Eyes White Dragon / Dragon Blanc aux
-Yeux Bleus, see
-[`docs/GENERIC_CARDMARKET_BLUE_EYES_EXAMPLE.md`](docs/GENERIC_CARDMARKET_BLUE_EYES_EXAMPLE.md)
-and [`examples/generic_cardmarket_blue_eyes.py`](examples/generic_cardmarket_blue_eyes.py).
-The example uses the same HTTP → SEO → browser primitives, redacts seller
-identities, keeps version-floor prices separate from live offers, segments by
-condition/language/rarity/edition/graded when exposed, and stops on hard access
-challenges instead of bypassing them.
-
-A dated aggregate snapshot is available in
-[`docs/CARDMARKET_BLUE_EYES_ANALYSIS_REPORT.md`](docs/CARDMARKET_BLUE_EYES_ANALYSIS_REPORT.md)
-with the accessible SVG
-[`docs/assets/cardmarket-blue-eyes-breakdown.svg`](docs/assets/cardmarket-blue-eyes-breakdown.svg).
-Raw HTML and seller-bearing dumps stay out of the repository.
-
 ## HTTP service
 
 Start the service:
