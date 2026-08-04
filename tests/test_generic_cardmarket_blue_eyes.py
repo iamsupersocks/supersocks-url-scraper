@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import csv
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 from types import ModuleType
+from urllib.parse import urlparse
 
 import pytest
 
@@ -683,3 +686,306 @@ def test_coverage_budget_and_min_delay_guards(cm_example: ModuleType) -> None:
         cm_example.crawl_public_blue_eyes_coverage(delay_seconds=1.0, max_navigations=5)
     with pytest.raises(ValueError, match="max_navigations"):
         cm_example.crawl_public_blue_eyes_coverage(delay_seconds=2.0, max_navigations=999)
+
+
+SYNTHETIC_PRODUCT_METRICS_HTML = """
+<html><body>
+<h1>Blue-Eyes White Dragon (V.1 - Ultra Rare) Legend of Blue Eyes White Dragon - Singles</h1>
+<div class="info">
+  Number LOB-001
+  Available items 42
+  From 1,99 €
+  Price Trend 2,50 €
+  30-days average price 2,40 €
+  7-days average price 2,55 €
+  1-day average price 2,60 €
+</div>
+<div id="articleRow1" class="row g-0 article-row">
+  <div class="col-seller"><a href="/en/YuGiOh/Users/seller-hidden">seller-hidden</a></div>
+  <div class="col-product">
+    <span data-bs-original-title="English" aria-label="English"></span>
+    <span data-bs-original-title="Near Mint" aria-label="Near Mint"></span>
+    <div class="price-container"><span>1,99 €</span></div>
+  </div>
+</div>
+<div id="articleRow2" class="row g-0 article-row">
+  <div class="col-seller"><a href="/en/YuGiOh/Users/seller-two">seller-two</a></div>
+  <div class="col-product">
+    <span data-bs-original-title="French" aria-label="French"></span>
+    <span data-bs-original-title="Near Mint" aria-label="Near Mint"></span>
+    <div class="price-container"><span>2,10 €</span></div>
+  </div>
+</div>
+</body></html>
+"""
+
+
+def _write_corpus_csv(cm_example: ModuleType, path: Path, paths: list[str]) -> None:
+    rows = [
+        {
+            "public_product_path": p,
+            "canonical_url": cm_example.canonical_product_url(p),
+            "expansion": p.strip("/").split("/")[4].replace("-", " "),
+            "product_label": "Blue Eyes White Dragon",
+            "version": "",
+            "rarity": "",
+            "edition": "",
+            "language": "",
+            "finish": "",
+            "printed_code": "",
+            "from_status": "priced",
+            "from_cents": "100",
+            "from_eur": "1.00",
+            "available_count": "10",
+            "discovered_via": "versions",
+            "detail_attempted": "no",
+            "detail_ok": "",
+            "fields_present": "",
+            "fields_absent": "",
+            "source_date": "2026-08-04",
+        }
+        for p in paths
+    ]
+    cm_example.export_coverage_csv(rows, destination=path)
+
+
+def test_parse_product_public_metrics_and_no_invented_collector(
+    cm_example: ModuleType,
+) -> None:
+    detail = cm_example.parse_product_public_details(
+        SYNTHETIC_PRODUCT_METRICS_HTML,
+        product_path="/en/YuGiOh/Products/Singles/Legend-of-Blue-Eyes-White-Dragon/Blue-Eyes-White-Dragon",
+        source_url="https://www.cardmarket.com/en/YuGiOh/Products/Singles/Legend-of-Blue-Eyes-White-Dragon/Blue-Eyes-White-Dragon",
+    )
+    assert detail["printed_code"] == "LOB-001"
+    assert detail["from_cents"] == 199
+    assert detail["available_count"] == 42
+    assert detail["price_trend_cents"] == 250
+    assert detail["avg_30d_cents"] == 240
+    assert detail["avg_7d_cents"] == 255
+    assert detail["avg_1d_cents"] == 260
+    assert detail["language_counts"] == {"English": 1, "French": 1}
+    assert detail["condition_counts"] == {"Near Mint": 2}
+    blob = json_dumps(detail)
+    assert "seller-hidden" not in blob
+    assert "seller-two" not in blob
+    assert "offers" not in detail
+
+    # Expansion abbreviation alone must not invent a collector code.
+    bare = cm_example.parse_product_public_details(
+        "<html><body><h1>Blue-Eyes White Dragon Ultra Rare</h1></body></html>",
+        product_path="/en/YuGiOh/Products/Singles/Legend-of-Blue-Eyes-White-Dragon/Blue-Eyes-White-Dragon",
+        source_url="https://www.cardmarket.com/en/YuGiOh/Products/Singles/Legend-of-Blue-Eyes-White-Dragon/Blue-Eyes-White-Dragon",
+    )
+    assert bare["printed_code"] is None
+
+
+def test_deep_queue_order_overcount_checkpoint_resume_and_challenge_stop(
+    monkeypatch: pytest.MonkeyPatch, cm_example: ModuleType, tmp_path: Path
+) -> None:
+    repo_csv = (
+        Path(__file__).resolve().parents[1]
+        / "docs/data/cardmarket-blue-eyes-coverage-2026-08-04.csv"
+    )
+    paths = cm_example.load_exact_blue_eyes_paths_from_coverage_csv(repo_csv)
+    assert len(paths) == 177
+    assert paths == sorted(paths, key=str.lower)
+    assert all(cm_example.is_exact_blue_eyes_white_dragon_path(p) for p in paths)
+    assert not any("Phantom-Beast" in p for p in paths)
+
+    with pytest.raises(ValueError, match="177"):
+        cm_example.seed_deep_enrichment_queue(paths + [paths[0] + "-extra"])
+
+    over_csv = tmp_path / "over.csv"
+    _write_corpus_csv(cm_example, over_csv, paths + [
+        "/en/YuGiOh/Products/Singles/Extra-Set/Blue-Eyes-White-Dragon-V9-Common"
+    ])
+    with pytest.raises(ValueError, match="177"):
+        cm_example.load_exact_blue_eyes_paths_from_coverage_csv(over_csv)
+
+    wpb_csv = tmp_path / "wpb.csv"
+    bad_paths = paths[:-1] + [
+        "/en/YuGiOh/Products/Singles/Limit-Over-Collection-The-Rivals/"
+        "Blue-Eyes-White-Dragon-the-White-Phantom-Beast-V1-Ultra-Rare"
+    ]
+    # Bypass export helper validation by writing raw CSV with coverage columns.
+    with wpb_csv.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(cm_example.COVERAGE_CSV_COLUMNS))
+        writer.writeheader()
+        for p in bad_paths:
+            writer.writerow({col: "" for col in cm_example.COVERAGE_CSV_COLUMNS} | {
+                "public_product_path": p,
+                "canonical_url": cm_example.canonical_product_url(p),
+                "source_date": "2026-08-04",
+            })
+    with pytest.raises(ValueError, match="non-exact"):
+        cm_example.load_exact_blue_eyes_paths_from_coverage_csv(wpb_csv)
+
+    corpus_csv = tmp_path / "corpus.csv"
+    _write_corpus_csv(cm_example, corpus_csv, paths)
+    checkpoint = tmp_path / "ledger.json"
+
+    calls: list[str] = []
+
+    def fake_fetch(url: str, **kwargs: object) -> tuple[FetchedResource, list[str]]:
+        calls.append(url)
+        if "site=" in url:
+            site = int(re.search(r"site=(\d+)", url).group(1))  # type: ignore[union-attr]
+            html = (
+                f"<html><body><p>Page {site} of 10</p>"
+                f'<a href="/en/YuGiOh/Products/Singles/Rarity-Collection-5/'
+                f'Blue-Eyes-White-Dragon-V1-Ultra-Rare">x</a></body></html>'
+            ).encode()
+        else:
+            html = SYNTHETIC_PRODUCT_METRICS_HTML.encode()
+        return (
+            FetchedResource(url, url, 200, html, "text/html; charset=utf-8", {"x-fetch-method": "cloak"}),
+            [],
+        )
+
+    monkeypatch.setattr(cm_example, "fetch_listing_markup", fake_fetch)
+    monkeypatch.setattr(cm_example.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(cm_example.random, "uniform", lambda _a, _b: 0.0)
+
+    result = cm_example.crawl_deep_enrichment(
+        coverage_csv=corpus_csv,
+        checkpoint_path=checkpoint,
+        delay_seconds=8.0,
+        max_navigations=5,
+        search_start_site=8,
+        fetch_product_details=True,
+    )
+    assert checkpoint.exists()
+    assert result["budget"]["navigations_used"] == 5
+    assert result["search_last_site"] >= 8
+    # First search URL must be site=8.
+    assert any("site=8" in url for url in calls)
+    assert calls[0].endswith("site=8") or "site=8" in calls[0]
+    # Deterministic product order after search pages consume part of budget.
+    ok_paths = [item["product_path"] for item in result["queue"] if item["status"] == "ok"]
+    assert ok_paths == sorted(ok_paths, key=str.lower)
+    assert all(item["status"] in {"pending", "ok", "challenge", "error"} for item in result["queue"])
+
+    # Resume must not re-attempt ok items.
+    calls_before = len(calls)
+    ok_before = {item["product_path"] for item in result["queue"] if item["status"] == "ok"}
+    resumed = cm_example.crawl_deep_enrichment(
+        coverage_csv=corpus_csv,
+        checkpoint_path=checkpoint,
+        delay_seconds=8.0,
+        max_navigations=3,
+        search_start_site=8,
+        fetch_product_details=True,
+        resume_from=result,
+    )
+    assert "resuming deep enrichment ledger" in " ".join(resumed.get("warnings") or [])
+    # Previously ok paths remain ok and were not refetched as product URLs.
+    ok_after = {item["product_path"] for item in resumed["queue"] if item["status"] == "ok"}
+    assert ok_before <= ok_after
+    product_calls = [url for url in calls[calls_before:] if "/Products/Singles/" in url]
+    assert not any(
+        cm_example.normalize_public_path(urlparse(url).path) in ok_before for url in product_calls
+    )
+
+    rows = cm_example.build_deep_enrichment_rows(resumed["queue"], source_date="2026-08-04")
+    csv_text = cm_example.export_deep_enrichment_csv(rows, destination=tmp_path / "deep.csv")
+    assert "seller" not in csv_text.lower()
+    assert "username" not in csv_text.lower()
+    assert csv_text.splitlines()[0] == ",".join(cm_example.DEEP_ENRICHMENT_CSV_COLUMNS)
+    assert len(rows) == 177
+    manifest = cm_example.build_deep_enrichment_manifest(resumed, rows=rows)
+    assert manifest["corpus"]["total"] == 177
+    assert manifest["scope_qualification"]["versions_complete"] is True
+    assert manifest["scope_qualification"]["offers_non_exhaustive"] is True
+    assert "seller" not in json_dumps(manifest).lower() or manifest["privacy"]["seller_fields"].startswith("never")
+
+    # Hard challenge stop after exactly 2 consecutive challenges.
+    challenge_calls: list[str] = []
+
+    def always_challenge(url: str, **kwargs: object) -> tuple[FetchedResource, list[str]]:
+        challenge_calls.append(url)
+        html = b"<html><body>Please verify you are a human captcha</body></html>"
+        return FetchedResource(url, url, 403, html, "text/html; charset=utf-8", {"x-fetch-method": "cloak"}), []
+
+    monkeypatch.setattr(cm_example, "fetch_listing_markup", always_challenge)
+    blocked_checkpoint = tmp_path / "blocked.json"
+    blocked = cm_example.crawl_deep_enrichment(
+        coverage_csv=corpus_csv,
+        checkpoint_path=blocked_checkpoint,
+        delay_seconds=8.0,
+        max_navigations=10,
+        search_start_site=8,
+        fetch_product_details=True,
+        first_access_cooldown_seconds=0.0,
+    )
+    # First access challenge triggers one cooldown retry, then stop.
+    assert blocked["stop_reason"] == "first_access_hard_challenge_after_cooldown"
+    assert len(challenge_calls) == 2
+
+    # Non-first-access: stop after 2 consecutive hard challenges on product details.
+    challenge_calls.clear()
+    monkeypatch.setattr(cm_example, "fetch_listing_markup", fake_fetch)
+    mid = cm_example.crawl_deep_enrichment(
+        coverage_csv=corpus_csv,
+        checkpoint_path=tmp_path / "mid.json",
+        delay_seconds=8.0,
+        max_navigations=1,
+        search_start_site=8,
+        fetch_product_details=False,
+        resume_from=None,
+    )
+    assert mid["pages"]
+    monkeypatch.setattr(cm_example, "fetch_listing_markup", always_challenge)
+    # Mark first_access already consumed so normal stop=2 applies.
+    mid["first_access_retry_consumed"] = True
+    mid["search_pagination_complete"] = True
+    mid["search_last_site"] = 10
+    stopped = cm_example.crawl_deep_enrichment(
+        coverage_csv=corpus_csv,
+        checkpoint_path=tmp_path / "stopped.json",
+        delay_seconds=8.0,
+        max_navigations=5,
+        search_start_site=8,
+        fetch_product_details=True,
+        resume_from=mid,
+        first_access_cooldown_seconds=0.0,
+    )
+    assert stopped["stop_reason"] == "hard_challenges_x2"
+    assert len(challenge_calls) == 2
+
+
+def test_deep_enrichment_delay_and_budget_guards(cm_example: ModuleType, tmp_path: Path) -> None:
+    repo_csv = (
+        Path(__file__).resolve().parents[1]
+        / "docs/data/cardmarket-blue-eyes-coverage-2026-08-04.csv"
+    )
+    with pytest.raises(ValueError, match="delay_seconds"):
+        cm_example.crawl_deep_enrichment(
+            coverage_csv=repo_csv,
+            checkpoint_path=tmp_path / "x.json",
+            delay_seconds=2.0,
+            max_navigations=5,
+        )
+    with pytest.raises(ValueError, match="max_navigations"):
+        cm_example.crawl_deep_enrichment(
+            coverage_csv=repo_csv,
+            checkpoint_path=tmp_path / "x.json",
+            delay_seconds=8.0,
+            max_navigations=99,
+        )
+
+
+def test_sanitize_deep_ledger_strips_seller_and_html(cm_example: ModuleType) -> None:
+    dirty = {
+        "queue": [{"product_path": "/x", "seller_name": "bad", "from_cents": 10}],
+        "raw_html": "<html>secret</html>",
+        "offers": [{"seller": "nope"}],
+        "ok": True,
+    }
+    clean = cm_example.sanitize_deep_ledger(dirty)
+    blob = json_dumps(clean)
+    assert "seller" not in blob
+    assert "raw_html" not in clean
+    assert "offers" not in clean
+    assert clean["ok"] is True
+    assert clean["queue"][0]["from_cents"] == 10

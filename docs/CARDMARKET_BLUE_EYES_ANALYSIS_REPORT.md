@@ -72,6 +72,28 @@ Stop proof recorded: Versions unique count reached the announced counter, then
 **hard_challenges_x3** during Search tail / product-detail attempts. No login,
 CAPTCHA solve, proxy rotation, or private API.
 
+### Deep-enrichment follow-up (Search site=8+, product metrics)
+
+A second, budget-capped deep pass (`--deep-enrichment`) seeds a deterministic
+queue of the exact **177** coverage paths (White-Phantom-Beast excluded), with
+atomic checkpoints (`pending` / `ok` / `challenge` / `error`) and no retry of
+`ok` rows.
+
+| Scope claim | Status after deep pass |
+| --- | --- |
+| **Versions complete** | **Yes** — inherited **177/177** from the coverage corpus; Versions pages were not re-fetched. |
+| **Details enriched** | **Partial / blocked** — live Search resume at `site=8` hit a hard challenge on first access; one bounded cooldown + second try still challenged → stop (`first_access_hard_challenge_after_cooldown`). **0/177** product-detail successes in this window; **2** navigations used of budget **40**. |
+| **Offers exhaustive** | **No** — offer tables remain non-exhaustive (first page only when a detail page renders); language/condition aggregates are in-memory counts without seller rows. |
+
+Published deep artifacts:
+
+- [`docs/data/cardmarket-blue-eyes-deep-enrichment-2026-08-04.csv`](data/cardmarket-blue-eyes-deep-enrichment-2026-08-04.csv)
+- [`docs/data/cardmarket-blue-eyes-deep-enrichment-manifest-2026-08-04.json`](data/cardmarket-blue-eyes-deep-enrichment-manifest-2026-08-04.json) / [`.md`](data/cardmarket-blue-eyes-deep-enrichment-manifest-2026-08-04.md)
+
+Evidence posture unchanged: delay ≥ **8 s** + jitter, no parallelism, no login /
+CAPTCHA / proxy / fingerprint spoof / private API. Private ledger under
+gitignored `runs/` is sanitized on every atomic write.
+
 ## Why Blue-Eyes has no single price
 
 Blue-Eyes White Dragon is many products at once: different expansions, rarities,

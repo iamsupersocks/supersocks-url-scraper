@@ -50,7 +50,34 @@ MAX_URL_LIMIT = 20
 MAX_COVERAGE_NAVIGATIONS = 230
 MIN_PRODUCT_DELAY_SECONDS = 2.0
 HARD_CHALLENGE_STOP = 3
+MAX_DEEP_ENRICHMENT_NAVIGATIONS = 40
+MIN_DEEP_DELAY_SECONDS = 8.0
+DEEP_HARD_CHALLENGE_STOP = 2
+FIRST_ACCESS_COOLDOWN_SECONDS = 45.0
+EXPECTED_EXACT_BLUE_EYES_PATHS = 177
 DEFAULT_SEARCH_QUERY = "Blue-Eyes White Dragon"
+DEEP_ENRICHMENT_STATUSES = frozenset({"pending", "ok", "challenge", "error"})
+SELLER_LIKE_KEYS = frozenset(
+    {
+        "seller",
+        "seller_name",
+        "username",
+        "user",
+        "location",
+        "country",
+        "cookie",
+        "cookies",
+        "account",
+        "email",
+        "html",
+        "raw_html",
+        "markup",
+        "offers",
+        "offer_rows",
+        "article_id",
+        "seller_url",
+    }
+)
 VERSIONS_EN_URL = "https://www.cardmarket.com/en/YuGiOh/Cards/Blue-Eyes-White-Dragon/Versions"
 VERSIONS_FR_URL = "https://www.cardmarket.com/fr/YuGiOh/Cards/BlueEyes-White-Dragon/Versions"
 SEARCH_EN_URL = "https://www.cardmarket.com/en/YuGiOh/Products/Search"
@@ -1108,7 +1135,8 @@ def parse_product_public_details(markup: str, *, product_path: str, source_url: 
             finish = token
             break
     printed_code = None
-    # Explicit collector-number style tokens near the H1 only.
+    # Explicit collector-number style tokens near the H1 / product info only.
+    # Never invent codes from expansion abbreviations alone.
     search_zone = f"{h1} {header_text[:800]}"
     code_match = re.search(
         r"\b((?:LOB|SDK|SDP|SDJ|TP[0-9]|MRD|SKE|DL[0-9]|LC[0-9]|RA[0-9]{2}|BLMR|TN[0-9]{2})-[A-Z]{0,2}\d{1,3}[A-Z]?)\b",
@@ -1117,6 +1145,35 @@ def parse_product_public_details(markup: str, *, product_path: str, source_url: 
     )
     if code_match:
         printed_code = code_match.group(1).upper()
+    # Number field on product info (e.g. "Number" + "LOB-001") — still requires an
+    # explicit set-code pattern; bare digits are ignored.
+    if printed_code is None:
+        number_label = re.search(
+            r"(?:Collector'?s?\s*Number|Number)\s*[:\s]*"
+            r"((?:LOB|SDK|SDP|SDJ|TP[0-9]|MRD|SKE|DL[0-9]|LC[0-9]|RA[0-9]{2}|BLMR|TN[0-9]{2})"
+            r"-[A-Z]{0,2}\d{1,3}[A-Z]?)",
+            header_text[:2000],
+            re.I,
+        )
+        if number_label:
+            printed_code = number_label.group(1).upper()
+
+    public_metrics = parse_product_public_metrics(header_zone)
+    # Language/condition aggregates: computed in memory from redacted offer rows only.
+    # Individual seller lines are never retained or returned.
+    language_counts: dict[str, int] = {}
+    condition_counts: dict[str, int] = {}
+    offer_rows = parse_offer_rows(markup or "", source_url=source_url)
+    for row in offer_rows:
+        lang = row.get("language")
+        if isinstance(lang, str) and lang:
+            language_counts[lang] = language_counts.get(lang, 0) + 1
+        cond = row.get("condition")
+        if isinstance(cond, str) and cond:
+            condition_counts[cond] = condition_counts.get(cond, 0) + 1
+    # Drop offer_rows immediately; only keep aggregate counters.
+    del offer_rows
+
     article_rows = len(re.findall(r'id="articleRow\d+"', markup or "", re.I))
     fields_present = {
         "printed_code": printed_code is not None,
@@ -1126,6 +1183,13 @@ def parse_product_public_details(markup: str, *, product_path: str, source_url: 
         "edition": edition is not None,
         "language": language is not None,
         "finish": finish is not None,
+        "from_price": public_metrics.get("from_cents") is not None
+        or public_metrics.get("from_status") == "na",
+        "available_count": public_metrics.get("available_count") is not None,
+        "price_trend": public_metrics.get("price_trend_cents") is not None,
+        "avg_1d": public_metrics.get("avg_1d_cents") is not None,
+        "avg_7d": public_metrics.get("avg_7d_cents") is not None,
+        "avg_30d": public_metrics.get("avg_30d_cents") is not None,
     }
     return {
         "record_kind": "product_detail",
@@ -1139,9 +1203,62 @@ def parse_product_public_details(markup: str, *, product_path: str, source_url: 
         "language": language,
         "finish": finish,
         "printed_code": printed_code,
+        "from_status": public_metrics.get("from_status"),
+        "from_cents": public_metrics.get("from_cents"),
+        "available_count": public_metrics.get("available_count"),
+        "price_trend_cents": public_metrics.get("price_trend_cents"),
+        "avg_1d_cents": public_metrics.get("avg_1d_cents"),
+        "avg_7d_cents": public_metrics.get("avg_7d_cents"),
+        "avg_30d_cents": public_metrics.get("avg_30d_cents"),
+        "language_counts": language_counts or None,
+        "condition_counts": condition_counts or None,
         "article_row_count_first_page": article_rows,
         "fields_present": fields_present,
         "fields_absent": sorted(name for name, present in fields_present.items() if not present),
+    }
+
+
+def parse_product_public_metrics(header_zone: str) -> dict[str, Any]:
+    """Parse product-level public price metrics from the non-offer header zone."""
+    text = strip_tags(header_zone or "")
+    compact = re.sub(r"\s+", " ", text)
+
+    def _labeled_euro(label: str) -> int | None:
+        match = re.search(
+            rf"{label}\s*([0-9][0-9.,\s\u00a0]*)\s*€",
+            compact,
+            re.I,
+        )
+        if not match:
+            return None
+        return parse_euro_to_cents(match.group(1))
+
+    from_status: str | None = None
+    from_cents: int | None = None
+    if re.search(r"\bFrom\s+N\s*/\s*A\b", compact, re.I):
+        from_status = "na"
+    else:
+        from_cents = _labeled_euro(r"From")
+        if from_cents is not None:
+            from_status = "priced"
+
+    available = None
+    avail_match = re.search(r"Available items\s*([0-9][0-9.,\s]*)", compact, re.I)
+    if not avail_match:
+        avail_match = re.search(r"\b([0-9][0-9.,\s]*)\s*Available\b", compact, re.I)
+    if avail_match:
+        digits = re.sub(r"[^\d]", "", avail_match.group(1))
+        if digits:
+            available = int(digits)
+
+    return {
+        "from_status": from_status,
+        "from_cents": from_cents,
+        "available_count": available,
+        "price_trend_cents": _labeled_euro(r"Price Trend"),
+        "avg_30d_cents": _labeled_euro(r"30-days? average price"),
+        "avg_7d_cents": _labeled_euro(r"7-days? average price"),
+        "avg_1d_cents": _labeled_euro(r"1-day average price"),
     }
 
 
@@ -1966,6 +2083,740 @@ def crawl_public_blue_eyes_coverage(
     return payload
 
 
+def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    """Write JSON via temp+rename so a crash cannot leave a half-written ledger."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    tmp.replace(path)
+
+
+def _strip_seller_like(value: Any) -> Any:
+    if isinstance(value, dict):
+        cleaned: dict[str, Any] = {}
+        for key, item in value.items():
+            key_l = str(key).lower()
+            if key_l in SELLER_LIKE_KEYS or any(tok in key_l for tok in ("seller", "username", "cookie")):
+                continue
+            cleaned[str(key)] = _strip_seller_like(item)
+        return cleaned
+    if isinstance(value, list):
+        return [_strip_seller_like(item) for item in value]
+    if isinstance(value, str) and len(value) > 5000 and ("<html" in value.lower() or "articleRow" in value):
+        return "[redacted-markup]"
+    return value
+
+
+def sanitize_deep_ledger(payload: dict[str, Any]) -> dict[str, Any]:
+    """Drop seller/HTML fields before any private ledger write or public export."""
+    cleaned = _strip_seller_like(
+        {key: value for key, value in payload.items() if not str(key).startswith("_")}
+    )
+    if not isinstance(cleaned, dict):
+        raise ValueError("deep ledger must sanitize to a JSON object")
+    # Defense in depth: never persist raw page bodies or helper objects.
+    cleaned.pop("html", None)
+    cleaned.pop("raw_html", None)
+    cleaned.pop("markup", None)
+    cleaned.pop("_budget_obj", None)
+    return cleaned
+
+
+def load_exact_blue_eyes_paths_from_coverage_csv(path: Path) -> list[str]:
+    """Load the exact 177 BEWD corpus; refuse overcount and White-Phantom-Beast paths."""
+    with path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    paths: list[str] = []
+    for row in rows:
+        raw = normalize_public_path(row.get("public_product_path") or "")
+        if not raw:
+            continue
+        if not is_exact_blue_eyes_white_dragon_path(raw):
+            raise ValueError(f"non-exact Blue-Eyes path refused: {raw}")
+        paths.append(raw)
+    unique, dupes = count_path_duplicates(paths)
+    if dupes:
+        raise ValueError(f"coverage CSV contains {dupes} duplicate path(s)")
+    if len(unique) != EXPECTED_EXACT_BLUE_EYES_PATHS:
+        raise ValueError(
+            f"exact Blue-Eyes corpus must be {EXPECTED_EXACT_BLUE_EYES_PATHS}, got {len(unique)}"
+        )
+    # Deterministic order for the enrichment queue.
+    return sorted(unique, key=lambda item: item.lower())
+
+
+def seed_deep_enrichment_queue(
+    paths: Sequence[str],
+    *,
+    coverage_rows: Sequence[dict[str, str]] | None = None,
+) -> list[dict[str, Any]]:
+    if len(paths) != EXPECTED_EXACT_BLUE_EYES_PATHS:
+        raise ValueError(
+            f"deep enrichment queue requires exactly {EXPECTED_EXACT_BLUE_EYES_PATHS} paths"
+        )
+    ordered = sorted(
+        {normalize_public_path(path) for path in paths if is_exact_blue_eyes_white_dragon_path(path)},
+        key=lambda item: item.lower(),
+    )
+    if len(ordered) != EXPECTED_EXACT_BLUE_EYES_PATHS:
+        raise ValueError(
+            f"after exact-path filter expected {EXPECTED_EXACT_BLUE_EYES_PATHS}, got {len(ordered)}"
+        )
+    by_path = {
+        normalize_public_path(row.get("public_product_path") or ""): row
+        for row in (coverage_rows or [])
+        if isinstance(row, dict)
+    }
+    queue: list[dict[str, Any]] = []
+    for path in ordered:
+        prior = by_path.get(path) or {}
+        from_cents = prior.get("from_cents")
+        available = prior.get("available_count")
+        queue.append(
+            {
+                "product_path": path,
+                "canonical_url": canonical_product_url(path),
+                "status": "pending",
+                "attempts": 0,
+                "last_error": None,
+                "expanded_at": None,
+                "expansion": prior.get("expansion") or None,
+                "version": prior.get("version") or None,
+                "rarity": prior.get("rarity") or None,
+                "printed_code": prior.get("printed_code") or None,
+                "from_status": prior.get("from_status") or None,
+                "from_cents": int(from_cents) if str(from_cents).isdigit() else None,
+                "available_count": int(available) if str(available).isdigit() else None,
+                "price_trend_cents": None,
+                "avg_1d_cents": None,
+                "avg_7d_cents": None,
+                "avg_30d_cents": None,
+                "fields_present": {},
+                "fields_absent": [],
+                "language_counts": None,
+                "condition_counts": None,
+                "detail_ok": False,
+            }
+        )
+    return queue
+
+
+def deep_queue_status_counts(queue: Sequence[dict[str, Any]]) -> dict[str, int]:
+    counts = {status: 0 for status in sorted(DEEP_ENRICHMENT_STATUSES)}
+    for item in queue:
+        status = str(item.get("status") or "pending")
+        if status not in counts:
+            counts[status] = 0
+        counts[status] += 1
+    counts["total"] = len(queue)
+    counts["attempted"] = sum(1 for item in queue if int(item.get("attempts") or 0) > 0)
+    counts["succeeded"] = counts.get("ok", 0)
+    return counts
+
+
+def merge_detail_into_queue_item(item: dict[str, Any], detail: dict[str, Any], *, status: str) -> None:
+    item["status"] = status
+    item["attempts"] = int(item.get("attempts") or 0) + 1
+    item["expanded_at"] = utc_now_iso()
+    item["last_error"] = detail.get("error")
+    for key in (
+        "expansion",
+        "version",
+        "rarity",
+        "edition",
+        "language",
+        "finish",
+        "printed_code",
+        "title",
+        "from_status",
+        "from_cents",
+        "available_count",
+        "price_trend_cents",
+        "avg_1d_cents",
+        "avg_7d_cents",
+        "avg_30d_cents",
+        "fields_present",
+        "fields_absent",
+        "language_counts",
+        "condition_counts",
+        "article_row_count_first_page",
+    ):
+        if key in detail and detail[key] is not None:
+            item[key] = detail[key]
+    item["detail_ok"] = status == "ok" and not detail.get("error")
+
+
+DEEP_ENRICHMENT_CSV_COLUMNS: tuple[str, ...] = (
+    "public_product_path",
+    "canonical_url",
+    "enrichment_status",
+    "attempts",
+    "expansion",
+    "product_label",
+    "version",
+    "rarity",
+    "edition",
+    "printed_code",
+    "from_status",
+    "from_cents",
+    "from_eur",
+    "available_count",
+    "price_trend_cents",
+    "price_trend_eur",
+    "avg_1d_cents",
+    "avg_1d_eur",
+    "avg_7d_cents",
+    "avg_7d_eur",
+    "avg_30d_cents",
+    "avg_30d_eur",
+    "detail_ok",
+    "fields_present",
+    "fields_absent",
+    "source_date",
+)
+
+FORBIDDEN_DEEP_CSV_COLUMNS: frozenset[str] = frozenset(
+    FORBIDDEN_COVERAGE_CSV_COLUMNS
+    | {"seller_name", "username", "location", "country", "cookie", "account", "offer_rows"}
+)
+
+
+def _cents_cell(value: object) -> str:
+    if value is None or value == "":
+        return ""
+    return str(int(value))
+
+
+def _eur_cell(value: object) -> str:
+    if value is None or value == "":
+        return ""
+    return format(cents_to_eur(int(value)), "f")
+
+
+def build_deep_enrichment_rows(
+    queue: Sequence[dict[str, Any]],
+    *,
+    source_date: str,
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for item in sorted(queue, key=lambda row: str(row.get("product_path") or "").lower()):
+        path = normalize_public_path(str(item.get("product_path") or ""))
+        present = item.get("fields_present") if isinstance(item.get("fields_present"), dict) else {}
+        present_names = sorted(name for name, ok in present.items() if ok) if present else []
+        absent = item.get("fields_absent") if isinstance(item.get("fields_absent"), list) else []
+        rows.append(
+            {
+                "public_product_path": path,
+                "canonical_url": canonical_product_url(path),
+                "enrichment_status": _blank(item.get("status")),
+                "attempts": str(int(item.get("attempts") or 0)),
+                "expansion": _blank(item.get("expansion")),
+                "product_label": _blank(item.get("title")),
+                "version": _blank(item.get("version")),
+                "rarity": _blank(item.get("rarity")),
+                "edition": _blank(item.get("edition")),
+                "printed_code": _blank(item.get("printed_code")),
+                "from_status": _blank(item.get("from_status")),
+                "from_cents": _cents_cell(item.get("from_cents")),
+                "from_eur": _eur_cell(item.get("from_cents")),
+                "available_count": _cents_cell(item.get("available_count")),
+                "price_trend_cents": _cents_cell(item.get("price_trend_cents")),
+                "price_trend_eur": _eur_cell(item.get("price_trend_cents")),
+                "avg_1d_cents": _cents_cell(item.get("avg_1d_cents")),
+                "avg_1d_eur": _eur_cell(item.get("avg_1d_cents")),
+                "avg_7d_cents": _cents_cell(item.get("avg_7d_cents")),
+                "avg_7d_eur": _eur_cell(item.get("avg_7d_cents")),
+                "avg_30d_cents": _cents_cell(item.get("avg_30d_cents")),
+                "avg_30d_eur": _eur_cell(item.get("avg_30d_cents")),
+                "detail_ok": "yes" if item.get("detail_ok") else "no",
+                "fields_present": "|".join(present_names),
+                "fields_absent": "|".join(str(x) for x in absent),
+                "source_date": source_date,
+            }
+        )
+    return rows
+
+
+def export_deep_enrichment_csv(
+    rows: Sequence[dict[str, str]],
+    *,
+    destination: Path | None = None,
+) -> str:
+    if any(col in FORBIDDEN_DEEP_CSV_COLUMNS for col in DEEP_ENRICHMENT_CSV_COLUMNS):
+        raise ValueError("deep enrichment CSV column contract includes a forbidden field")
+    if any(col.lower() in {"seller", "username", "cookie"} for col in DEEP_ENRICHMENT_CSV_COLUMNS):
+        raise ValueError("seller-like column refused")
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=list(DEEP_ENRICHMENT_CSV_COLUMNS), lineterminator="\n")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({column: row.get(column, "") for column in DEEP_ENRICHMENT_CSV_COLUMNS})
+    text = buffer.getvalue()
+    if destination is not None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(text, encoding="utf-8")
+    return text
+
+
+def build_deep_enrichment_manifest(
+    ledger: dict[str, Any],
+    *,
+    rows: Sequence[dict[str, str]],
+    model_evidence: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    counts = deep_queue_status_counts(ledger.get("queue") or [])
+    field_presence: dict[str, int] = Counter()
+    for row in rows:
+        for name in (row.get("fields_present") or "").split("|"):
+            if name:
+                field_presence[name] += 1
+        for metric in (
+            "from_cents",
+            "available_count",
+            "price_trend_cents",
+            "avg_1d_cents",
+            "avg_7d_cents",
+            "avg_30d_cents",
+            "printed_code",
+        ):
+            if (row.get(metric) or "").strip():
+                field_presence[metric] = field_presence.get(metric, 0) + 1
+    budget = ledger.get("budget") if isinstance(ledger.get("budget"), dict) else {}
+    pages = ledger.get("pages") or []
+    return {
+        "title": "Cardmarket Blue-Eyes White Dragon public deep-enrichment manifest",
+        "generated_at": utc_now_iso(),
+        "timezone": ledger.get("timezone") or "UTC",
+        "started_at": ledger.get("started_at"),
+        "finished_at": ledger.get("finished_at") or utc_now_iso(),
+        "corpus": {
+            "total": EXPECTED_EXACT_BLUE_EYES_PATHS,
+            "unique_paths": len(rows),
+            "white_phantom_beast_excluded": True,
+            "versions_panel": "complete 177/177 (prior coverage; not re-fetched in deep pass)",
+        },
+        "counts": counts,
+        "attempted": counts.get("attempted", 0),
+        "succeeded": counts.get("succeeded", 0),
+        "challenges": counts.get("challenge", 0),
+        "pending": counts.get("pending", 0),
+        "errors": counts.get("error", 0),
+        "search_last_site": ledger.get("search_last_site"),
+        "search_pagination_complete": bool(ledger.get("search_pagination_complete")),
+        "stop_reason": ledger.get("stop_reason"),
+        "pages_attempted": len(pages),
+        "navigations_used": budget.get("navigations_used"),
+        "budget": budget,
+        "field_presence_counts": dict(sorted(field_presence.items())),
+        "scope_qualification": {
+            "versions_complete": True,
+            "details_enriched_partially": counts.get("succeeded", 0) < EXPECTED_EXACT_BLUE_EYES_PATHS,
+            "offers_non_exhaustive": True,
+        },
+        "model_evidence": model_evidence
+        or {
+            "worker": "cursor-grok",
+            "model": "Cursor Grok 4.5 (grok-4.5-high)",
+            "transport": "direct worktree; CloakBrowser via supersocks-url-scraper fetch_with_browser",
+            "no_login_captcha_proxy_fingerprint_spoof": True,
+            "no_parallelism": True,
+        },
+        "privacy": {
+            "seller_fields": "never collected/published",
+            "raw_html": "memory-only; private ledger sanitized on write under gitignored runs/",
+            "published_artifacts": ["sanitized deep-enrichment CSV", "manifest JSON/Markdown"],
+        },
+        "limits": [
+            "Versions catalog completeness is inherited from the prior 177/177 coverage pass.",
+            "Product details may be only partially enriched within the live navigation budget.",
+            "Offer tables remain first-page only; language/condition aggregates are in-memory counts without seller rows.",
+            "Printed collector numbers are recorded only when HTML exposes an explicit set-code token.",
+        ],
+    }
+
+
+def render_deep_enrichment_manifest_markdown(manifest: dict[str, Any]) -> str:
+    counts = manifest.get("counts") or {}
+    scope = manifest.get("scope_qualification") or {}
+    budget = manifest.get("budget") or {}
+    lines = [
+        "# Cardmarket Blue-Eyes public deep-enrichment manifest",
+        "",
+        f"- Generated: `{manifest.get('generated_at')}` ({manifest.get('timezone')})",
+        f"- Stop reason: **{manifest.get('stop_reason')}**",
+        f"- Corpus total: **{manifest.get('corpus', {}).get('total')}**",
+        f"- Attempted / succeeded / challenges / pending / errors: "
+        f"**{manifest.get('attempted')}** / **{manifest.get('succeeded')}** / "
+        f"**{manifest.get('challenges')}** / **{manifest.get('pending')}** / "
+        f"**{manifest.get('errors')}**",
+        f"- Navigations used: **{budget.get('navigations_used')}** / **{budget.get('max_navigations')}**",
+        f"- Search last site: **{manifest.get('search_last_site')}**",
+        "",
+        "## Scope qualification",
+        "",
+        f"- Versions complete: **{scope.get('versions_complete')}** (177/177 prior coverage).",
+        f"- Details enriched partially: **{scope.get('details_enriched_partially')}**.",
+        f"- Offers non-exhaustive: **{scope.get('offers_non_exhaustive')}**.",
+        "",
+        "## Field presence",
+        "",
+    ]
+    for name, count in sorted((manifest.get("field_presence_counts") or {}).items()):
+        lines.append(f"- `{name}`: **{count}**")
+    lines.append("")
+    lines.append("Queue status snapshot:")
+    for key in ("pending", "ok", "challenge", "error", "total"):
+        lines.append(f"- `{key}`: **{counts.get(key)}**")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def crawl_deep_enrichment(
+    *,
+    coverage_csv: Path,
+    checkpoint_path: Path,
+    delay_seconds: float = MIN_DEEP_DELAY_SECONDS,
+    browser_fallback: bool = True,
+    browser_post_load_wait_ms: int = 9000,
+    max_navigations: int = MAX_DEEP_ENRICHMENT_NAVIGATIONS,
+    search_start_site: int = 8,
+    max_search_pages: int = 30,
+    search_query: str = DEFAULT_SEARCH_QUERY,
+    fetch_product_details: bool = True,
+    resume_from: dict[str, Any] | None = None,
+    first_access_cooldown_seconds: float = FIRST_ACCESS_COOLDOWN_SECONDS,
+) -> dict[str, Any]:
+    """Resume Search at site=N then enrich product details with atomic checkpoints.
+
+    Safety rails: no parallelism, delay >= 8s + jitter, stop after 2 consecutive
+    hard challenges, and a single bounded cooldown+retry if the first access is
+    challenged.
+    """
+    if delay_seconds < MIN_DEEP_DELAY_SECONDS:
+        raise ValueError(f"delay_seconds must be >= {MIN_DEEP_DELAY_SECONDS}")
+    if max_navigations < 1 or max_navigations > MAX_DEEP_ENRICHMENT_NAVIGATIONS:
+        raise ValueError(
+            f"max_navigations must be between 1 and {MAX_DEEP_ENRICHMENT_NAVIGATIONS}"
+        )
+
+    with coverage_csv.open(encoding="utf-8", newline="") as handle:
+        coverage_rows = list(csv.DictReader(handle))
+    corpus_paths = load_exact_blue_eyes_paths_from_coverage_csv(coverage_csv)
+
+    if resume_from:
+        ledger = sanitize_deep_ledger(dict(resume_from))
+        ledger.setdefault("warnings", [])
+        if isinstance(ledger["warnings"], list):
+            ledger["warnings"] = list(ledger["warnings"]) + ["resuming deep enrichment ledger"]
+        queue = list(ledger.get("queue") or [])
+        if len(queue) != EXPECTED_EXACT_BLUE_EYES_PATHS:
+            raise ValueError("resume ledger queue must contain exactly 177 paths")
+        # Never re-attempt ok items; keep deterministic path order.
+        queue = sorted(queue, key=lambda item: str(item.get("product_path") or "").lower())
+        for item in queue:
+            if not is_exact_blue_eyes_white_dragon_path(str(item.get("product_path") or "")):
+                raise ValueError("resume ledger contains non-exact Blue-Eyes path")
+            if item.get("status") not in DEEP_ENRICHMENT_STATUSES:
+                item["status"] = "pending"
+    else:
+        queue = seed_deep_enrichment_queue(corpus_paths, coverage_rows=coverage_rows)
+        ledger = {
+            "started_at": utc_now_iso(),
+            "timezone": "UTC",
+            "queue": queue,
+            "pages": [],
+            "search_paths": [],
+            "warnings": [],
+            "errors": [],
+            "search_last_site": search_start_site - 1,
+            "search_pagination_complete": False,
+            "announced_versions": EXPECTED_EXACT_BLUE_EYES_PATHS,
+            "corpus_paths": corpus_paths,
+        }
+
+    budget = CoverageBudget(max_navigations=max_navigations)
+    prior_pages = [p for p in (ledger.get("pages") or []) if isinstance(p, dict)]
+    # Fresh budget for this run; prior pages remain for audit but do not consume
+    # the new deep-enrichment navigation allowance.
+    budget.navigations = 0
+    stop_reason: str | None = None
+    first_access_consumed = bool(ledger.get("first_access_retry_consumed"))
+    navigations_this_run = 0
+
+    def checkpoint() -> None:
+        snapshot = sanitize_deep_ledger(
+            {
+                **ledger,
+                "queue": queue,
+                "finished_at": utc_now_iso(),
+                "stop_reason": stop_reason or ledger.get("stop_reason"),
+                "budget": {
+                    "max_navigations": budget.max_navigations,
+                    "navigations_used": budget.navigations,
+                    "rate_limit_events": budget.rate_limit_events,
+                    "consecutive_hard_challenges_at_stop": budget.consecutive_hard_challenges,
+                },
+                "first_access_retry_consumed": first_access_consumed,
+                "status_counts": deep_queue_status_counts(queue),
+            }
+        )
+        atomic_write_json(checkpoint_path, snapshot)
+
+    def stop_for_challenges() -> bool:
+        nonlocal stop_reason
+        if budget.consecutive_hard_challenges >= DEEP_HARD_CHALLENGE_STOP:
+            stop_reason = f"hard_challenges_x{DEEP_HARD_CHALLENGE_STOP}"
+            return True
+        return False
+
+    def stop_for_budget() -> bool:
+        nonlocal stop_reason
+        if budget.remaining() <= 0:
+            stop_reason = "budget_exhausted"
+            return True
+        return False
+
+    def fetch_once(url: str, *, route: str, extra: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any], list[str]]:
+        nonlocal navigations_this_run, first_access_consumed, stop_reason
+        if navigations_this_run > 0 or prior_pages:
+            polite_delay(delay_seconds)
+        resource, page, warnings = fetch_coverage_page(
+            url,
+            budget=budget,
+            browser_fallback=browser_fallback,
+            browser_post_load_wait_ms=browser_post_load_wait_ms,
+        )
+        navigations_this_run += 1
+        page["route"] = route
+        if extra:
+            page.update(extra)
+        ledger.setdefault("pages", []).append(page)
+        ledger.setdefault("warnings", []).extend(warnings)
+
+        # First-access special case: one bounded cooldown then a second try; then stop.
+        if (
+            navigations_this_run == 1
+            and page.get("challenge")
+            and not first_access_consumed
+        ):
+            first_access_consumed = True
+            ledger.setdefault("warnings", []).append(
+                f"first_access_challenge_cooldown_{first_access_cooldown_seconds}s"
+            )
+            checkpoint()
+            polite_delay(first_access_cooldown_seconds, jitter_ratio=0.05)
+            if stop_for_budget():
+                checkpoint()
+                return resource, page, warnings
+            resource2, page2, warnings2 = fetch_coverage_page(
+                url,
+                budget=budget,
+                browser_fallback=browser_fallback,
+                browser_post_load_wait_ms=browser_post_load_wait_ms,
+            )
+            navigations_this_run += 1
+            page2["route"] = route
+            page2["first_access_retry"] = True
+            if extra:
+                page2.update(extra)
+            ledger.setdefault("pages", []).append(page2)
+            ledger.setdefault("warnings", []).extend(warnings2)
+            checkpoint()
+            if page2.get("challenge"):
+                stop_reason = "first_access_hard_challenge_after_cooldown"
+                budget.consecutive_hard_challenges = max(
+                    budget.consecutive_hard_challenges, DEEP_HARD_CHALLENGE_STOP
+                )
+                return resource2, page2, warnings2
+            return resource2, page2, warnings2
+
+        checkpoint()
+        return resource, page, warnings
+
+    # --- Search resume from site=search_start_site ---
+    previous_paths: set[str] | None = None
+    search_stop: str | None = None
+    if ledger.get("search_pagination_complete"):
+        ledger.setdefault("warnings", []).append("search_pagination_already_complete_on_resume")
+    else:
+        start_site = search_start_site
+        if ledger.get("search_last_site") is not None and int(ledger["search_last_site"]) >= search_start_site:
+            # Continue after the last successfully recorded site when resuming mid-search.
+            # Still allow retrying a previously challenged site when the stored last site
+            # equals search_start_site - 1 (fresh deep pass after coverage site=7).
+            last = int(ledger["search_last_site"])
+            if last >= search_start_site and any(
+                isinstance(p, dict)
+                and p.get("route") == "search"
+                and p.get("search_site") == last
+                and p.get("status") == "ok"
+                for p in ledger.get("pages") or []
+            ):
+                start_site = last + 1
+        for site in range(start_site, max_search_pages + 1):
+            if stop_reason or stop_for_budget():
+                break
+            url = build_search_page_url(search_query, site)
+            resource, page, _warnings = fetch_once(url, route="search", extra={"search_site": site})
+            ledger["search_last_site"] = site
+            checkpoint()
+            if page.get("challenge"):
+                search_stop = "search_hard_challenge"
+                if stop_reason or stop_for_challenges():
+                    break
+                continue
+            if resource is None:
+                ledger.setdefault("errors", []).append({"url": url, "error": "fetch_failed"})
+                search_stop = "search_fetch_failed"
+                break
+            parsed = parse_search_results_page(resource.text, source_url=url)
+            page["parsed"] = len(parsed["product_paths_exact"])
+            page["page_of"] = parsed.get("page_of")
+            for path in parsed["product_paths_exact"]:
+                if is_exact_blue_eyes_white_dragon_path(path):
+                    ledger.setdefault("search_paths", []).append(path)
+            page_of = parsed.get("page_of") or {}
+            if isinstance(page_of.get("total"), int):
+                max_search_pages = min(max_search_pages, int(page_of["total"]))
+            early = should_stop_search_pagination(
+                parsed=parsed, previous_paths=previous_paths, site=site
+            )
+            previous_paths = set(parsed.get("product_paths_all") or [])
+            if early:
+                search_stop = early
+                break
+            if isinstance(page_of.get("current"), int) and isinstance(page_of.get("total"), int):
+                if page_of["current"] >= page_of["total"]:
+                    search_stop = "search_announced_total_reached"
+                    break
+        if search_stop in {
+            "search_announced_total_reached",
+            "search_page_empty",
+            "search_page_repeated",
+            "search_site_beyond_announced_total",
+            "search_page_beyond_announced_total",
+        }:
+            ledger["search_pagination_complete"] = True
+        if search_stop:
+            ledger.setdefault("warnings", []).append(f"search_pagination_stop:{search_stop}")
+        checkpoint()
+
+    # --- Product detail enrichment (skip ok) ---
+    if fetch_product_details and stop_reason is None:
+        for item in queue:
+            if stop_reason or stop_for_budget():
+                break
+            if item.get("status") == "ok":
+                continue
+            path = normalize_public_path(str(item.get("product_path") or ""))
+            url = canonical_product_url(path)
+            resource, page, _warnings = fetch_once(
+                url, route="product_detail", extra={"product_path": path}
+            )
+            if page.get("challenge"):
+                merge_detail_into_queue_item(
+                    item,
+                    {
+                        "error": "hard_challenge",
+                        "product_path": path,
+                        "source_url": url,
+                        "fields_present": {},
+                        "fields_absent": [
+                            "printed_code",
+                            "expansion",
+                            "version",
+                            "rarity",
+                            "from_price",
+                            "available_count",
+                            "price_trend",
+                            "avg_1d",
+                            "avg_7d",
+                            "avg_30d",
+                        ],
+                    },
+                    status="challenge",
+                )
+                checkpoint()
+                if stop_reason or stop_for_challenges():
+                    break
+                polite_delay(backoff_seconds(budget.consecutive_hard_challenges + 1))
+                continue
+            if resource is None:
+                merge_detail_into_queue_item(
+                    item,
+                    {
+                        "error": "fetch_failed",
+                        "product_path": path,
+                        "source_url": url,
+                        "fields_present": {},
+                        "fields_absent": ["printed_code", "expansion", "version", "rarity"],
+                    },
+                    status="error",
+                )
+                ledger.setdefault("errors", []).append({"url": url, "error": "fetch_failed"})
+                checkpoint()
+                continue
+            detail = parse_product_public_details(
+                resource.text, product_path=path, source_url=url
+            )
+            # Sanitize immediately — never keep offer/seller material on the item.
+            detail = sanitize_deep_ledger(detail)
+            merge_detail_into_queue_item(item, detail, status="ok")
+            page["parsed"] = 1
+            page["fields_present"] = detail.get("fields_present")
+            checkpoint()
+
+    if stop_reason is None:
+        if search_stop and not fetch_product_details:
+            stop_reason = search_stop
+        elif all(item.get("status") == "ok" for item in queue):
+            stop_reason = "all_product_details_ok"
+        elif search_stop == "search_announced_total_reached" and not any(
+            item.get("status") == "pending" for item in queue
+        ):
+            stop_reason = "search_complete_and_details_attempted"
+        elif budget.remaining() <= 0:
+            stop_reason = "budget_exhausted"
+        else:
+            stop_reason = "completed_scheduled_deep_routes"
+
+    ledger["queue"] = queue
+    ledger["stop_reason"] = stop_reason
+    ledger["finished_at"] = utc_now_iso()
+    ledger["budget"] = {
+        "max_navigations": budget.max_navigations,
+        "navigations_used": budget.navigations,
+        "rate_limit_events": budget.rate_limit_events,
+        "consecutive_hard_challenges_at_stop": budget.consecutive_hard_challenges,
+    }
+    ledger["status_counts"] = deep_queue_status_counts(queue)
+    ledger["first_access_retry_consumed"] = first_access_consumed
+    ledger["unique_product_paths"] = [item["product_path"] for item in queue]
+    ledger["status"] = (
+        "blocked"
+        if stop_reason
+        and (
+            str(stop_reason).startswith("hard_challenges")
+            or stop_reason == "first_access_hard_challenge_after_cooldown"
+        )
+        else (
+            "partial"
+            if any(item.get("status") != "ok" for item in queue)
+            else "ok"
+        )
+    )
+    # Drop any non-serializable helpers and sanitize before final write.
+    payload = sanitize_deep_ledger(
+        {key: value for key, value in ledger.items() if not key.startswith("_")}
+    )
+    atomic_write_json(checkpoint_path, payload)
+    payload["_budget_obj"] = budget
+    return payload
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Cardmarket Blue-Eyes public market extraction example (no seller identities, no HTML dumps)"
@@ -2050,6 +2901,51 @@ def main(argv: list[str] | None = None) -> int:
         help="Write full coverage ledger JSON under a gitignored path (e.g. runs/...)",
     )
     parser.add_argument(
+        "--deep-enrichment",
+        action="store_true",
+        help=(
+            "Resume Search at site=8 then enrich the exact 177-path corpus with public "
+            "product metrics (budget-capped, atomic checkpoint, no seller data)."
+        ),
+    )
+    parser.add_argument(
+        "--deep-budget",
+        type=int,
+        default=MAX_DEEP_ENRICHMENT_NAVIGATIONS,
+        help=f"Max navigations for --deep-enrichment (1..{MAX_DEEP_ENRICHMENT_NAVIGATIONS})",
+    )
+    parser.add_argument(
+        "--deep-search-start-site",
+        type=int,
+        default=8,
+        help="Search site=N to resume from during --deep-enrichment (default: 8)",
+    )
+    parser.add_argument(
+        "--coverage-corpus-csv",
+        type=Path,
+        help="Exact 177-path coverage CSV used to seed the deep-enrichment queue",
+    )
+    parser.add_argument(
+        "--deep-checkpoint",
+        type=Path,
+        help="Private atomic checkpoint ledger JSON for --deep-enrichment (gitignored runs/)",
+    )
+    parser.add_argument(
+        "--export-deep-csv",
+        type=Path,
+        help="Write sanitized deep-enrichment CSV",
+    )
+    parser.add_argument(
+        "--export-deep-manifest",
+        type=Path,
+        help="Write deep-enrichment manifest JSON (Markdown sibling when suffix is .json)",
+    )
+    parser.add_argument(
+        "--no-deep-product-details",
+        action="store_true",
+        help="With --deep-enrichment, only resume Search pagination (skip product details)",
+    )
+    parser.add_argument(
         "--source-date",
         default="",
         help="ISO date stamped on CSV rows (default: today UTC, or value from payload when present).",
@@ -2064,7 +2960,32 @@ def main(argv: list[str] | None = None) -> int:
     payload: dict[str, Any]
     budget_obj: CoverageBudget | None = None
 
-    if args.coverage_crawl:
+    if args.deep_enrichment:
+        repo_root = Path(__file__).resolve().parents[1]
+        coverage_csv = args.coverage_corpus_csv or (
+            repo_root / "docs" / "data" / "cardmarket-blue-eyes-coverage-2026-08-04.csv"
+        )
+        checkpoint = args.deep_checkpoint or (
+            repo_root / "runs" / "cardmarket-blue-eyes-deep" / "ledger.json"
+        )
+        resume = None
+        if args.resume_ledger and args.resume_ledger.exists():
+            resume = sanitize_deep_ledger(load_coverage_ledger(args.resume_ledger))
+        elif checkpoint.exists():
+            resume = sanitize_deep_ledger(load_coverage_ledger(checkpoint))
+        payload = crawl_deep_enrichment(
+            coverage_csv=coverage_csv,
+            checkpoint_path=checkpoint,
+            delay_seconds=max(args.delay_seconds, MIN_DEEP_DELAY_SECONDS),
+            browser_fallback=not args.no_browser_fallback,
+            browser_post_load_wait_ms=args.browser_post_load_wait_ms,
+            max_navigations=args.deep_budget,
+            search_start_site=args.deep_search_start_site,
+            fetch_product_details=not args.no_deep_product_details,
+            resume_from=resume,
+        )
+        budget_obj = payload.pop("_budget_obj", None)
+    elif args.coverage_crawl:
         resume = load_coverage_ledger(args.resume_ledger) if args.resume_ledger else None
         payload = crawl_public_blue_eyes_coverage(
             delay_seconds=max(args.delay_seconds, MIN_PRODUCT_DELAY_SECONDS),
@@ -2100,7 +3021,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         urls = list(args.url)
         if not urls:
-            parser.error("provide at least one --url, or use --from-json / --coverage-crawl")
+            parser.error(
+                "provide at least one --url, or use --from-json / --coverage-crawl / --deep-enrichment"
+            )
         payload = collect_cardmarket_blue_eyes(
             urls,
             delay_seconds=args.delay_seconds,
@@ -2201,17 +3124,44 @@ def main(argv: list[str] | None = None) -> int:
         payload["coverage_manifest_markdown"] = str(md_path)
 
     if args.write_private_ledger is not None:
-        # Strip non-serializable helpers if any remain.
-        serializable = {
-            key: value
-            for key, value in payload.items()
-            if not key.startswith("_") and key != "_budget_obj"
-        }
+        # Strip non-serializable helpers if any remain; sanitize seller/HTML fields.
+        serializable = sanitize_deep_ledger(
+            {
+                key: value
+                for key, value in payload.items()
+                if not key.startswith("_") and key != "_budget_obj"
+            }
+        )
         args.write_private_ledger.parent.mkdir(parents=True, exist_ok=True)
-        args.write_private_ledger.write_text(
-            json.dumps(serializable, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        atomic_write_json(args.write_private_ledger, serializable)
+
+    deep_rows: list[dict[str, str]] | None = None
+    if args.export_deep_csv is not None or args.export_deep_manifest is not None or args.deep_enrichment:
+        queue = payload.get("queue") or []
+        deep_rows = build_deep_enrichment_rows(queue, source_date=source_date)
+
+    if args.export_deep_csv is not None:
+        assert deep_rows is not None
+        export_deep_enrichment_csv(deep_rows, destination=args.export_deep_csv)
+        payload.setdefault("warnings", [])
+        if isinstance(payload["warnings"], list):
+            payload["warnings"] = sorted(
+                set(payload["warnings"])
+                | {f"exported {len(deep_rows)} deep-enrichment rows to {args.export_deep_csv}"}
+            )
+
+    if args.export_deep_manifest is not None:
+        assert deep_rows is not None
+        deep_manifest = build_deep_enrichment_manifest(payload, rows=deep_rows)
+        args.export_deep_manifest.parent.mkdir(parents=True, exist_ok=True)
+        args.export_deep_manifest.write_text(
+            json.dumps(deep_manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+        md_path = args.export_deep_manifest.with_suffix(".md")
+        md_path.write_text(render_deep_enrichment_manifest_markdown(deep_manifest), encoding="utf-8")
+        payload["deep_enrichment_manifest"] = str(args.export_deep_manifest)
+        payload["deep_enrichment_manifest_markdown"] = str(md_path)
 
     if not args.quiet_json:
         serializable = {
@@ -2233,6 +3183,26 @@ def main(argv: list[str] | None = None) -> int:
                     else None,
                     "source_date": source_date,
                     "comparison_to_prior_175_102": comparison,
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    elif args.export_deep_csv is not None or args.export_deep_manifest is not None:
+        counts = deep_queue_status_counts(payload.get("queue") or [])
+        print(
+            json.dumps(
+                {
+                    "status": payload.get("status") or "ok",
+                    "stop_reason": payload.get("stop_reason"),
+                    "counts": counts,
+                    "navigations_used": (payload.get("budget") or {}).get("navigations_used"),
+                    "deep_csv": str(args.export_deep_csv) if args.export_deep_csv else None,
+                    "deep_manifest": str(args.export_deep_manifest)
+                    if args.export_deep_manifest
+                    else None,
+                    "source_date": source_date,
                 },
                 ensure_ascii=False,
                 indent=2,

@@ -162,3 +162,27 @@ when HTML exposes them. Stops on empty/repeated search pages, announced totals,
 budget exhaustion, or three consecutive hard challenges. Never logs in, solves
 CAPTCHA, or uses private APIs. Published outputs stay sanitized under
 `docs/data/`; raw ledgers stay gitignored under `runs/`.
+
+## Deep enrichment (Search resume + public product metrics)
+
+```bash
+python examples/generic_cardmarket_blue_eyes.py \
+  --deep-enrichment \
+  --deep-budget 40 \
+  --delay-seconds 8 \
+  --deep-search-start-site 8 \
+  --coverage-corpus-csv docs/data/cardmarket-blue-eyes-coverage-2026-08-04.csv \
+  --deep-checkpoint runs/cardmarket-blue-eyes-deep/ledger.json \
+  --export-deep-csv docs/data/cardmarket-blue-eyes-deep-enrichment-2026-08-04.csv \
+  --export-deep-manifest docs/data/cardmarket-blue-eyes-deep-enrichment-manifest-2026-08-04.json \
+  --quiet-json
+```
+
+Seeds a deterministic queue of the exact **177** coverage paths (refuses
+overcount and White-Phantom-Beast paths), resumes Search at `site=8`, then
+attempts product-detail public metrics (`From`, available count, price trend,
+1/7/30-day averages, explicit collector codes only). Atomic checkpoint after
+each attempt; statuses `pending`/`ok`/`challenge`/`error`; `ok` rows are never
+retried. Delay ≥ 8 s + jitter; stop after 2 consecutive hard challenges; if the
+first access is challenged, one bounded cooldown then a second try, then stop.
+No parallelism, login, CAPTCHA solve, proxy, or private API.
