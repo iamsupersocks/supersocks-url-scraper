@@ -28,11 +28,12 @@ Use only public Cardmarket pages you are allowed to query:
 | --- | --- |
 | Card hub | `https://www.cardmarket.com/en/YuGiOh/Cards/Blue-Eyes-White-Dragon` |
 | All versions | `https://www.cardmarket.com/en/YuGiOh/Cards/Blue-Eyes-White-Dragon/Versions` |
-| FR alias | `https://www.cardmarket.com/fr/YuGiOh/Cards/Dragon-Blanc-aux-Yeux-Bleus` |
+| FR canonical hub | `https://www.cardmarket.com/fr/YuGiOh/Cards/BlueEyes-White-Dragon` |
 | Example product | `https://www.cardmarket.com/en/YuGiOh/Products/Singles/Rarity-Collection-5/Blue-Eyes-White-Dragon-V1-Ultra-Rare` |
 
-French and other locale hubs may 403 more often under plain HTTP. Prefer the
-English Versions page plus explicit product pages, with a polite delay.
+Prefer the English Versions page plus explicit product pages, with a polite
+delay. Locale hubs can differ in anti-bot behaviour; do not infer site behaviour
+from an untested URL.
 
 `robots.txt` for `User-agent: *` currently allows `/` with
 `Content-Signal: search=yes,ai-train=no,use=reference`. This example is for
@@ -79,8 +80,9 @@ JSON on stdout:
 - `count_raw` / `count_net`
 - `failure_rate` over requested pages
 - `version_floors[]` and `offers[]` kept separate
-- `populations` with quartiles **by source URL** and by
-  `condition|language|rarity|edition|graded|raw` segment
+- `populations` with quartiles **by source URL** and by a 5-field segment key
+  `condition|language|rarity|edition|(graded|raw)` (last field is `graded` or
+  `raw`)
 - `pages[]` with fetch method, HTTP status, bytes, parsed count
 - `warnings[]`
 

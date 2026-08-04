@@ -31,9 +31,11 @@ Workflow docs:
 4. `https://www.cardmarket.com/en/YuGiOh/Products/Singles/Legend-of-Blue-Eyes-White-Dragon-25th-Anniversary-Edition/Blue-Eyes-White-Dragon`
 5. `https://www.cardmarket.com/en/YuGiOh/Products/Singles/Structure-Deck-Blue-Eyes-White-Destiny/Blue-Eyes-White-Dragon-V1-Common`
 
-Exploratory probes also attempted FR hub
-`https://www.cardmarket.com/fr/YuGiOh/Cards/Dragon-Blanc-aux-Yeux-Bleus`
-under plain HTTP/SEO and received hard 403 without usable markup.
+An exploratory plain HTTP/SEO probe used the translated non-canonical FR slug
+`/fr/YuGiOh/Cards/Dragon-Blanc-aux-Yeux-Bleus` and got a hard 403 without usable
+markup. That probe is **not** evidence about the canonical FR hub
+`https://www.cardmarket.com/fr/YuGiOh/Cards/BlueEyes-White-Dragon`, which was
+**not** fetched in this run and is excluded from the conclusions below.
 
 ## Volume and failure rate
 
@@ -99,7 +101,7 @@ Seller names were redacted. Stats below are **not** merged across products.
 
 URL: product page (3) above.
 
-| Segment (`condition\|language\|rarity\|edition\|finish`) | n | min | Q1 | median | Q3 | max |
+| Segment (`condition\|language\|rarity\|edition\|(graded\|raw)`) | n | min | Q1 | median | Q3 | max |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | Near Mint \| English \| unknown\* \| First Edition \| raw | 20 | 1.00 | 1.82 | **1.99** | 2.00 | 2.45 |
 | Near Mint \| English \| unknown\* \| unknown \| raw | 9 | 1.40 | 1.50 | 2.00 | 2.00 | 2.41 |
