@@ -9,9 +9,9 @@ separated populations, no seller identities, no raw HTML in git.
 Workflow docs:
 [`GENERIC_CARDMARKET_BLUE_EYES_EXAMPLE.md`](GENERIC_CARDMARKET_BLUE_EYES_EXAMPLE.md).
 
-This report explains **how** the scraper produced the numbers below, not only
-**what** the numbers were. Keep the two questions separate when you reuse the
-figures.
+**Read this report edition-first.** Blue-Eyes is not one SKU. The useful unit is
+a Cardmarket **version / product reference** (set label + product path +
+optional Vn + rarity), not a global quartile across 175 incompatible tiles.
 
 ## What this analysis can and cannot say
 
@@ -19,8 +19,8 @@ figures.
 
 - On a given public page, at a given time, these displayed EUR prices were
   parseable after browser rendering.
-- Version-floor tiles and live offer rows are different populations; each has
-  its own counts and quartiles.
+- Each Versions tile is one product-level **From** floor for one public product
+  path; floors and live offers are different populations.
 - Within one product URL, offers can be grouped by a five-field segment key
   (condition, language, rarity, edition, graded/raw).
 - The pipeline is designed and offline-tested to stop on hard challenges; this
@@ -32,6 +32,8 @@ figures.
 - “The” price of Blue-Eyes White Dragon as a single market number.
 - The full Cardmarket inventory (only the first offer page per URL, ≤50 rows).
 - That HTTP 200 was returned, or that the next run will succeed the same way.
+- Official **printed** card numbers (`LOB-001`, `SDK-001`, …) — those codes are
+  **not** present in the 175 `version_floor` records and are **never inferred**.
 - Seller reputations, private listings, deleted ads, or graded-card markets
   (this sample had **0** graded offers).
 - Behaviour of the canonical FR hub
@@ -42,8 +44,8 @@ figures.
 
 Blue-Eyes White Dragon is many products at once: different expansions, rarities,
 print versions (V1, V2, …), languages, conditions, and editions. A Structure
-Deck common at **0.02 €** and a 25th Anniversary Near Mint German offer around
-**35 €** are both “Blue-Eyes” on Cardmarket, but they are not comparable.
+Deck common at **0.02 €** and a Duel Terminal Preview floor at **1999.99 €**
+are both “Blue-Eyes” on Cardmarket, but they are not comparable.
 
 Two populations must stay separate:
 
@@ -55,6 +57,59 @@ Two populations must stay separate:
 Averaging floors with offers, or merging offers across product URLs into one
 median, silently invents a fake “Blue-Eyes price”. The example refuses that
 merge in `summarize_populations()`.
+
+## Field audit — what identifies a référence / édition
+
+Audited against the private 2026-08-04 anonymized ledger (`version_floors` n=175).
+Only fields that actually appear on floor records are treated as identifiers.
+
+| Field on `version_floor` | Present | Role |
+| --- | ---: | --- |
+| `expansion` | **175/175** | Cardmarket set / expansion label (from public product path) |
+| `product_path` | **175/175** | Public Cardmarket product path — primary référence |
+| `title` / product label | **175/175** | Human label derived from the product slug |
+| `version` (Vn) | **112/175** | Print version when the path/text exposes `V1`, `V2`, … |
+| `rarity` | **93/175** | Parsed from product slug / tile text when mappable |
+| `price_cents` / `price_eur` | **175/175** | Displayed **From** floor (integer cents are authoritative) |
+| `available_count` | **175/175** | Displayed availability on the Versions tile |
+| `edition` (1st/Unlimited) | **0/175** | Not exposed on Versions tiles in this capture |
+| `language` / `condition` | **0/175** | Offer-row attributes only |
+| Printed set code (`LOB-001`…) | **0/175** | **Absent** — do not invent |
+| Seller / offer / article id | n/a | Never stored on floors; never published |
+
+**Cardmarket référence (observable):**
+`expansion` + `public_product_path` (+ `version` / `rarity` when present) +
+**From** + availability.
+
+**Official printed code:** not in this ledger. Offer rows sometimes expose a
+short expansion icon token (`RA05`, …) — that is still a Cardmarket UI code, not
+a printed collector number, and it is **not** on version floors.
+
+Public paths in the CSV are **Cardmarket product URLs/paths**, not Konami
+printed codes.
+
+## How to search / evaluate a precise reference
+
+1. Open the Versions page (source URL 1 below) or jump via a known
+   `public_product_path` from
+   [`docs/data/cardmarket-blue-eyes-version-floors-2026-08-04.csv`](data/cardmarket-blue-eyes-version-floors-2026-08-04.csv).
+2. Match **expansion / set label** first, then **Vn** and **rarity** if the
+   path exposes them.
+3. Read the tile **From** as a product-level floor, not as “what you will pay”
+   for a Near Mint English copy.
+4. For live ask prices, open that product URL and read **segments** on that page
+   only (condition × language × rarity × edition × graded/raw).
+5. Never average a Structure Deck common with a promo or 25th-anniversary tile.
+
+Reproducible offline export from anonymized collector JSON:
+
+```bash
+python examples/generic_cardmarket_blue_eyes.py \
+  --from-json runs/cardmarket-blue-eyes/anonymized-listings.json \
+  --export-references-csv docs/data/cardmarket-blue-eyes-version-floors-2026-08-04.csv \
+  --source-date 2026-08-04 \
+  --quiet-json
+```
 
 ## Run metadata
 
@@ -93,6 +148,7 @@ markup. That probe is **not** evidence about the canonical FR hub
 | Pages `error` / hard `blocked` | 0 |
 | Page failure rate | **0%** (0/5) |
 | Version floor records raw → net | 175 → **175** |
+| Distinct expansions / set labels | **102** |
 | Offer rows raw → net | 200 → **200** |
 | Graded offers detected | 0 |
 
@@ -102,7 +158,169 @@ Versions response was **429**. Plain `fetch_url` without browser was consistentl
 403. No DataDome/captcha interstitial stopped the run under the strict challenge
 detector (passive Cloudflare JSD beacons alone were ignored when offer markup
 was present). Rate limiting and bot scoring remain a real bias: this is a
-short polite sample, not a full inventory crawl.
+short polite sample, not a full inventory crawl. **No new crawl of the 175
+product pages was performed for this edition-first pass** — floors were reused
+from the existing anonymized ledger.
+
+## Edition-first view — floors by set / expansion
+
+Grouped with `aggregate_version_floors_by_expansion()` over the 175 floors.
+Sort: descending `n`, then descending median From (cents), then expansion name.
+When `n > 1`, rarities / Vn labels are listed so incompatible variants stay
+visible.
+
+![Median version floor by expansion](assets/cardmarket-blue-eyes-by-expansion.svg)
+
+| Expansion (Cardmarket label) | n | min From (€) | median (€) | max (€) | Σ Available | Rarities / notes |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Quarter Century Art Collection | 10 | 0.30 | 8.48 | 159.00 | 222 | QC Secret, Secret, Ultra |
+| The Dark Side of Dimensions Movie Pack | 6 | 0.50 | 1.00 | 7.00 | 2886 | Secret, Ultra, unknown |
+| Quarter Century Stampede | 5 | 1.90 | 10.50 | 40.00 | 1055 | Platinum Secret, QC Secret |
+| Quarter Century Chronicle sidePride | 4 | 4.98 | 43.48 | 310.00 | 32 | QC Secret, Secret, Ultimate, Ultra |
+| Shonen Jump Magazine | 4 | 1.54 | 37.45 | 279.99 | 247 | Ultra, unknown |
+| Legend of Blue Eyes White Dragon | 4 | 4.56 | 23.98 | 50.00 | 349 | Secret, Ultra |
+| Duelist League 09 | 4 | 6.00 | 10.00 | 10.00 | 457 | Rare |
+| Legendary Duelists Season 2 | 4 | 0.75 | 0.92 | 1.49 | 863 | Ultra |
+| Legendary Collection Kaiba Mega Pack | 4 | 0.10 | 0.40 | 6.00 | 4191 | unknown |
+| 25th Anniversary Ultimate Kaiba Set | 3 | 4.95 | 119.94 | 279.00 | 53 | QC Secret, Secret, Ultra |
+| Quarter Century Duelist Box | 3 | 0.99 | 9.00 | 69.90 | 35 | QC Secret, Secret, Ultra |
+| Limited Pack Stamp Edition | 3 | 1.90 | 6.75 | 300.00 | 146 | Secret, Starlight, Ultra |
+| Structure Deck Kaiba Japanese | 3 | 1.99 | 5.00 | 9.95 | 27 | Common |
+| Starter Deck Kaiba | 3 | 0.50 | 0.60 | 20.00 | 1150 | Ultra |
+| Structure Deck Advent of the Eyes of Blue | 3 | 0.20 | 0.38 | 0.50 | 22 | Common |
+| Legendary Decks II | 3 | 0.02 | 0.02 | 0.02 | 4300 | unknown |
+| Structure Deck Blue Eyes White Destiny | 3 | 0.02 | 0.02 | 0.02 | 35405 | Common |
+
+The remaining expansions are mostly `n = 1` or `n = 2` (full list: **102**
+groups). Use the CSV annex rather than scanning a 100-row Markdown table.
+
+### Most expensive version floors (sample, n=12)
+
+Product-level **From** only. Thin availability on promos is expected.
+
+| From (€) | Expansion | Product label | Vn | Rarity | Available |
+| ---: | --- | --- | --- | --- | ---: |
+| 1999.99 | Duel Terminal Preview | Blue Eyes White Dragon | — | unknown | 2 |
+| 1250.00 | Spell of Mask | Blue Eyes White Dragon | — | unknown | 6 |
+| 999.00 | World Championship Celebration Promos | Blue Eyes White Dragon | V2 | unknown | 9 |
+| 499.00 | Magnificent Mavens | Blue Eyes White Dragon V2 Secret Parallel Rare | V2 | Rare | 2 |
+| 310.00 | Quarter Century Chronicle sidePride | Blue Eyes White Dragon V3 Quarter Century Secret Rare | V3 | QC Secret Rare | 4 |
+| 300.00 | Limited Pack Stamp Edition | Blue Eyes White Dragon V3 Starlight Rare | V3 | Starlight Rare | 4 |
+| 290.00 | Dark Duel Stories | Blue Eyes White Dragon | — | unknown | 23 |
+| 279.99 | Shonen Jump Magazine | Blue Eyes White Dragon V4 Ultra Rare | V4 | Ultra Rare | 10 |
+| 279.00 | 25th Anniversary Ultimate Kaiba Set | Blue Eyes White Dragon V2 Quarter Century Secret Rare | V2 | QC Secret Rare | 13 |
+| 260.00 | 25th Anniversary Ukiyo e Style Limited OCG Card Set | Blue Eyes White Dragon | — | unknown | 24 |
+| 239.95 | Yu Gi Oh Championship Prize Cards 2025 | Blue Eyes White Dragon V1 Rare | V1 | Rare | 15 |
+| 219.00 | Promos OCG | Blue Eyes White Dragon V1 Quarter Century Secret Rare | V1 | QC Secret Rare | 3 |
+
+### Most accessible version floors (sample, n=12)
+
+| From (€) | Expansion | Product label | Vn | Rarity | Available |
+| ---: | --- | --- | --- | --- | ---: |
+| 0.02 | Legendary Decks II | Blue Eyes White Dragon V 1 | V1 | unknown | 445 |
+| 0.02 | Legendary Decks II | Blue Eyes White Dragon V 2 | V2 | unknown | 2018 |
+| 0.02 | Legendary Decks II | Blue Eyes White Dragon V 3 | V3 | unknown | 1837 |
+| 0.02 | Legendary Duelists White Dragon Abyss | Blue Eyes White Dragon | — | unknown | 846 |
+| 0.02 | Speed Duel Battle City Box | Blue Eyes White Dragon V1 Common | V1 | Common | 462 |
+| 0.02 | Speed Duel Battle City Finals | Blue Eyes White Dragon V1 Common | V1 | Common | 252 |
+| 0.02 | Starter Deck Kaiba Reloaded | Blue Eyes White Dragon V 1 | V1 | unknown | 604 |
+| 0.02 | Structure Deck Blue Eyes White Destiny | Blue Eyes White Dragon V1 Common | V1 | Common | 11995 |
+| 0.02 | Structure Deck Blue Eyes White Destiny | Blue Eyes White Dragon V2 Common | V2 | Common | 11910 |
+| 0.02 | Structure Deck Blue Eyes White Destiny | Blue Eyes White Dragon V3 Common | V3 | Common | 11500 |
+| 0.02 | Structure Deck Dragons Collide | Blue Eyes White Dragon | — | unknown | 375 |
+| 0.02 | Structure Deck Saga of BlueEyes White Dragon | Blue Eyes White Dragon | — | unknown | 1074 |
+
+### Representative mid-market floors (near global median 5.00 €)
+
+These are **illustrative** tiles close to the global median From — they do **not**
+make that median a fair “Blue-Eyes price”. Prefer the matching expansion row.
+
+| From (€) | Expansion | Product label | Vn | Rarity |
+| ---: | --- | --- | --- | --- |
+| 5.00 | Battles of Legend Monster Mayhem | Blue Eyes White Dragon V1 Secret Rare | V1 | Secret Rare |
+| 5.00 | Duelist Legacy Volume 2 | Blue Eyes White Dragon V1 Ultra Rare | V1 | Ultra Rare |
+| 5.00 | Shonen Jump Magazine | Blue Eyes White Dragon V2 Ultra Rare | V2 | Ultra Rare |
+| 5.00 | Structure Deck Kaiba Japanese | Blue Eyes White Dragon V2 Common | V2 | Common |
+| 4.99 | 2016 MegaTins | Blue Eyes White Dragon | — | unknown |
+| 4.95 | 25th Anniversary Ultimate Kaiba Set | Blue Eyes White Dragon V1 Ultra Rare | V1 | Ultra Rare |
+
+Limits of these samples: Versions sort/filters, missing rarity on many tiles
+(82 unknown), no printed codes, and floors ≠ offers.
+
+## Annex — exhaustive 175 references (CSV)
+
+Sanitized public table (header + **175** data rows, deterministic sort):
+
+[`docs/data/cardmarket-blue-eyes-version-floors-2026-08-04.csv`](data/cardmarket-blue-eyes-version-floors-2026-08-04.csv)
+
+| Column | Meaning |
+| --- | --- |
+| `expansion` | Cardmarket set label from the product path |
+| `product_label` | Slug-derived product title |
+| `version` | `Vn` when present |
+| `rarity` | Parsed rarity when present |
+| `from_eur` | From price as Decimal string from integer cents |
+| `from_cents` | Authoritative integer cents |
+| `available_count` | Displayed availability |
+| `public_product_path` | Cardmarket product path (**not** a printed code) |
+| `source_date` | Snapshot date `2026-08-04` |
+
+Excluded on purpose: seller names, offer/article ids, hashes used only for
+dedupe, cookies, raw HTML. Σ `available_count` across the CSV = **78,357**
+(matches the live ledger).
+
+<details>
+<summary>Compact preview (first 8 CSV rows after header)</summary>
+
+| expansion | product_label | version | rarity | from_eur | available |
+| --- | --- | --- | --- | ---: | ---: |
+| 2016 MegaTins | Blue Eyes White Dragon |  |  | 4.99 | 265 |
+| 2017 MegaTins | Blue Eyes White Dragon |  |  | 0.60 | 1026 |
+| 20th Secret Rare Special Pack | Blue Eyes White Dragon |  | Secret Rare | 190.00 | 7 |
+| 2022 Ghosts From the Past | Blue Eyes White Dragon |  |  | 189.90 | 92 |
+| 25th Anniversary Rarity Collection II | Blue Eyes White Dragon V1 Secret Rare | V1 | Secret Rare | 2.00 | 67 |
+| 25th Anniversary Tin Dueling Heroes Mega Pack | Blue Eyes White Dragon |  |  | 2.00 | 462 |
+| 25th Anniversary Ukiyo e Style Limited OCG Card Set | Blue Eyes White Dragon |  |  | 260.00 | 24 |
+| 25th Anniversary Ultimate Kaiba Set | Blue Eyes White Dragon V1 Ultra Rare | V1 | Ultra Rare | 4.95 | 30 |
+
+</details>
+
+## Secondary context — global version-floor quartiles
+
+**Secondary only.** Across all 175 incompatible tiles:
+
+| Stat | EUR |
+| --- | ---: |
+| n | 175 |
+| min | 0.02 |
+| Q1 | 0.99 |
+| median | **5.00** |
+| Q3 | 19.995 |
+| max | 1999.99 |
+| Sum of displayed “Available” counts | 78,357 |
+
+Use this table to describe dispersion of the Versions page, not to price a
+card you intend to buy. Prefer the expansion and reference tables above.
+
+### Median From-price by parsed rarity (still not edition-safe)
+
+Unknown rarity (82 tiles) is excluded from the rarity chart so Common is not
+silently mixed with Starlight. Even with rarity fixed, **set still matters**.
+
+![Median version floor by rarity](assets/cardmarket-blue-eyes-breakdown.svg)
+
+| Rarity | n | Median From (€) |
+| --- | ---: | ---: |
+| Starlight Rare | 3 | 69.99 |
+| Ultimate Rare | 2 | 49.725 |
+| Quarter Century Secret Rare | 13 | 40.00 |
+| Rare | 11 | 12.00 |
+| Secret Rare | 16 | 7.875 |
+| Super Rare | 2 | 6.75 |
+| Ultra Rare | 32 | 4.225 |
+| Platinum Secret Rare | 3 | 2.00 |
+| Common | 11 | 0.20 |
+| unknown (excluded from SVG) | 82 | 3.87 |
 
 ## Real pipeline (how the snapshot was built)
 
@@ -127,14 +345,15 @@ flowchart TD
   J --> L[parse_euro_to_cents<br/>hash id / anonymize]
   K --> L
   L --> M[dedupe_records]
-  M --> N[segment_key + summarize_populations<br/>price_quartiles]
-  N --> O[JSON stdout + optional local<br/>runs/ capture + SVG / this report]
+  M --> N[segment_key + summarize_populations<br/>by_expansion / price_quartiles]
+  N --> O[JSON stdout + optional CSV<br/>runs/ capture + SVG / this report]
 ```
 
 ### Step-by-step walkthrough (tied to real functions)
 
 1. **`main()`** — CLI gathers `--url` list, `--delay-seconds` (default 2.5),
-   `--browser-post-load-wait-ms` (default 9000), optional `--no-browser-fallback`.
+   `--browser-post-load-wait-ms` (default 9000), optional `--no-browser-fallback`,
+   or offline `--from-json` + `--export-references-csv`.
 2. **`collect_cardmarket_blue_eyes(urls, …)`** — bounds URL count to
    `1..MAX_URL_LIMIT` (20). Loops URLs with a polite sleep between pages.
 3. **`fetch_listing_markup(url, …)`** — try order:
@@ -158,11 +377,11 @@ flowchart TD
    `offer|articleRow…`); offers also store `article_id_hash`, never seller names.
 9. **Dedupe** — `dedupe_records()` by anonymized `id` within and across pages.
 10. **Segmentation & stats** — `summarize_populations()` → per-source offer
-    segments via `segment_key()`, rarity groups for floors, all via
-    `price_quartiles()`.
-11. **Publish** — JSON on stdout (status, counts, failure_rate, populations,
-    pages, warnings). This public report and SVG keep **aggregates only**;
-    any local stdout/HTML notes stay under gitignored `runs/`.
+    segments via `segment_key()`, rarity groups, **`by_expansion`**, reference
+    ranks, all via cent-aware helpers where exported.
+11. **Publish** — JSON on stdout; optional sanitized CSV of floors; this public
+    report and SVGs keep **aggregates / public paths only**; any local
+    stdout/HTML notes stay under gitignored `runs/`.
 
 Archive fallback is intentionally unused: stale snapshots must not mix with
 live prices.
@@ -269,6 +488,7 @@ Version floors similarly hash `version_floor|{product_path}|{cents}` and set
 - Reads `From … €` and optional `N Available`.
 - May infer rarity from the product slug (unlike offer rows).
 - Emits one floor record per matching path.
+- Does **not** invent printed collector numbers.
 
 ### Offer rows — `parse_offer_rows()`
 
@@ -283,6 +503,7 @@ Version floors similarly hash `version_floor|{product_path}|{cents}` and set
 
 Accepts common EU/US forms (`1,99 €`, `1.99 €`, spaced thousands, optional EUR).
 Converts to integer cents with half-up rounding, then `price_eur = cents / 100`.
+CSV export formats EUR via `Decimal` from cents (`cents_to_eur()`).
 
 ### Dedupe — `dedupe_records()`
 
@@ -303,50 +524,16 @@ Five fields joined with `|` for tables:
 
 Example: `Near Mint|English|unknown|First Edition|raw`.
 
-### Stats — `price_quartiles()`
+### Stats — `price_quartiles()` / `price_quartiles_cents()`
 
 For a sorted series: **min**, **Q1** (p=0.25), **median** (p=0.5), **Q3**
-(p=0.75), **max**, plus **n**.
+(p=0.75), **max**, plus **n**. Expansion aggregates and CSV prefer integer
+cents.
 
-Why median matters: Blue-Eyes floors run from **0.02 €** to **1999.99 €**. A
-mean would be pulled by a few extreme tiles; the median (**5.00 €** for all
-version floors) better describes the middle of the displayed distribution.
-Page-level offer medians can still mix segments — prefer the segment tables.
-
-## Population A — version floors (Versions page)
-
-These are product-level **From** prices, one per version tile. They are **not**
-offer rows and must not be averaged with live offers.
-
-| Stat | EUR |
-| --- | ---: |
-| n | 175 |
-| min | 0.02 |
-| Q1 | 0.99 |
-| median | **5.00** |
-| Q3 | 19.995 |
-| max | 1999.99 |
-| Sum of displayed “Available” counts | 78,357 |
-
-### Median From-price by parsed rarity
-
-Unknown rarity (82 tiles whose slug/tooltip did not map cleanly) is excluded
-from the chart so Common is not silently mixed with Starlight.
-
-![Median version floor by rarity](assets/cardmarket-blue-eyes-breakdown.svg)
-
-| Rarity | n | Median From (€) |
-| --- | ---: | ---: |
-| Starlight Rare | 3 | 69.99 |
-| Ultimate Rare | 2 | 49.725 |
-| Quarter Century Secret Rare | 13 | 40.00 |
-| Rare | 11 | 12.00 |
-| Secret Rare | 16 | 7.875 |
-| Super Rare | 2 | 6.75 |
-| Ultra Rare | 32 | 4.225 |
-| Platinum Secret Rare | 3 | 2.00 |
-| Common | 11 | 0.20 |
-| unknown (excluded from SVG) | 82 | 3.87 |
+Why median matters globally: floors run from **0.02 €** to **1999.99 €**. A
+mean would be pulled by a few extreme tiles; the median (**5.00 €**) only
+describes the middle of the **Versions** distribution — still not a fair
+single-card price.
 
 ## Population B — live offers (kept per source URL)
 
@@ -408,7 +595,8 @@ stdout. It does not commit cookies, tokens, browser profiles, or page dumps.
 Operators may capture stdout (and any local notes) under the gitignored
 `runs/` tree — this run used `runs/cardmarket-blue-eyes/`. That directory is
 the **private audit ledger**: enough to re-check counts and warnings locally,
-never published in the repository.
+never published in the repository. The public CSV is derived from that ledger
+without seller fields.
 
 Verification layers (keep them distinct):
 
@@ -416,23 +604,26 @@ Verification layers (keep them distinct):
 | --- | --- | --- |
 | Live snapshot in this report | Dated aggregates from the 2026-08-04 CEST run | Tomorrow’s market or HTTP friendliness |
 | Private `runs/` capture | Operator can re-open local JSON/notes | Nothing shareable by itself |
-| `tests/test_generic_cardmarket_blue_eyes.py` | Parsers, redaction, quartiles, challenge stop, URL bounds on **synthetic** HTML | Live Cardmarket behaviour |
+| Public CSV annex | 175 sanitized floor references, deterministic | Printed Konami codes or live offers |
+| `tests/test_generic_cardmarket_blue_eyes.py` | Parsers, redaction, quartiles, expansion grouping, CSV export, challenge stop | Live Cardmarket behaviour |
 
 Offline fixtures are synthetic only. Passing pytest does not mean a live URL
 fetch succeeded.
 
 ## How to read the results (and common mistakes)
 
-1. Start with `status`, `failure_rate`, and per-page `parsed` / `http_status` —
-   not the pretty medians alone.
-2. Compare **segments within one product URL**, not a global Blue-Eyes average.
-3. Treat version-floor medians and offer medians as different instruments.
-4. `unknown` rarity on an Ultra Rare product page means the **row** lacked the
+1. Start with **expansion + product path**, then Vn/rarity — not the global
+   median alone.
+2. Start with `status`, `failure_rate`, and per-page `parsed` / `http_status`.
+3. Compare **segments within one product URL**, not a global Blue-Eyes average.
+4. Treat version-floor medians and offer medians as different instruments.
+5. `unknown` rarity on an Ultra Rare product page means the **row** lacked the
    attribute — do not silently promote it.
-5. Hub page (URL 2) is a cross-check; product URLs own the claim.
-6. First-page bias: Cardmarket sort/filters choose which ≤50 offers you see.
-7. Do not cite the non-canonical FR slug probe as proof about the canonical FR
+6. Hub page (URL 2) is a cross-check; product URLs own the claim.
+7. First-page bias: Cardmarket sort/filters choose which ≤50 offers you see.
+8. Do not cite the non-canonical FR slug probe as proof about the canonical FR
    hub that was never fetched.
+9. Do not invent `LOB-001`-style codes from expansion names.
 
 ## What was verified offline
 
@@ -442,10 +633,12 @@ fetch succeeded.
 - offer parsing with seller redaction
 - version-floor parsing and Blue-Eyes filtering
 - deduplicated population summaries that refuse silent cross-product merges
+- expansion aggregation and deterministic CSV export (no seller/offer columns)
 - quartiles
 - challenge detection (passive CF JSD vs hard interstitial)
 - stop-on-challenge collection behaviour
 - URL count bounds
+- `--from-json` offline export path
 
 Fixtures are synthetic HTML only.
 
@@ -461,7 +654,8 @@ Fixtures are synthetic HTML only.
 5. **Sorting / filters** on Cardmarket affect which 50 offers appear.
 6. **Not the site’s full inventory** — private, deleted, or unpriced listings
    are out of scope.
-7. **Legal/ToS** — operator must stay within Cardmarket terms, robots/rate
+7. **No printed collector numbers** in the floor ledger.
+8. **Legal/ToS** — operator must stay within Cardmarket terms, robots/rate
    expectations, and local law. This repository ships a scraper pattern, not a
    bypass service.
 
@@ -482,8 +676,9 @@ python examples/generic_cardmarket_blue_eyes.py \
 ```
 
 Redirect stdout to a path under gitignored `runs/` if you want a private copy.
-Live totals will drift; compare structure and segment discipline, not exact
-euro values.
+Re-export the public CSV with `--from-json` as shown above — no need to recrawl
+175 product pages. Live totals will drift; compare structure and segment
+discipline, not exact euro values.
 
 | Symptom | Polite response |
 | --- | --- |
@@ -500,6 +695,8 @@ No CAPTCHA solving, no login, no consent acceptance, no challenge bypass.
 | Term | Meaning |
 | --- | --- |
 | Version floor | Product tile **From** price on the Versions overview |
+| Cardmarket référence | Expansion label + public product path (+ Vn/rarity when present) |
+| Printed card code | Official set number like `LOB-001` — **not** in this ledger |
 | Offer row | One live `article-row` listing after seller redaction |
 | Segment key | `condition\|language\|rarity\|edition\|(graded\|raw)` grouping |
 | CloakBrowser | Optional browser fetch path (`fetch_with_browser`) |

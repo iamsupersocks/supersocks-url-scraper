@@ -13,13 +13,15 @@ stops and the result is reported as partial/blocked.
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
+import io
 import json
 import re
 import sys
 import time
 from collections import Counter, defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
@@ -387,6 +389,253 @@ def price_quartiles(values: Iterable[float]) -> dict[str, Any]:
     }
 
 
+def cents_to_eur(cents: int) -> Decimal:
+    """Convert integer cents to EUR with half-up quantize to 0.01."""
+    return (Decimal(int(cents)) / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def price_quartiles_cents(values: Iterable[int]) -> dict[str, Any]:
+    """Quartiles over integer cents, then expose EUR via Decimal (no float series)."""
+    series = sorted(int(value) for value in values)
+    if not series:
+        return {"n": 0}
+
+    def quantile_cents(p: float) -> int:
+        index = (len(series) - 1) * p
+        low = int(index)
+        high = min(low + 1, len(series) - 1)
+        frac = index - low
+        return int(round(series[low] * (1 - frac) + series[high] * frac))
+
+    stats_cents = {
+        "n": len(series),
+        "min_cents": series[0],
+        "q1_cents": quantile_cents(0.25),
+        "median_cents": quantile_cents(0.5),
+        "q3_cents": quantile_cents(0.75),
+        "max_cents": series[-1],
+    }
+    return {
+        **stats_cents,
+        "min": float(cents_to_eur(stats_cents["min_cents"])),
+        "q1": float(cents_to_eur(stats_cents["q1_cents"])),
+        "median": float(cents_to_eur(stats_cents["median_cents"])),
+        "q3": float(cents_to_eur(stats_cents["q3_cents"])),
+        "max": float(cents_to_eur(stats_cents["max_cents"])),
+    }
+
+
+VERSION_FLOOR_CSV_COLUMNS: tuple[str, ...] = (
+    "expansion",
+    "product_label",
+    "version",
+    "rarity",
+    "from_eur",
+    "from_cents",
+    "available_count",
+    "public_product_path",
+    "source_date",
+)
+
+FORBIDDEN_REFERENCE_CSV_COLUMNS: frozenset[str] = frozenset(
+    {
+        "seller",
+        "seller_name",
+        "username",
+        "article_id",
+        "article_id_hash",
+        "offer_id",
+        "id",
+        "cookie",
+        "html",
+        "raw_html",
+    }
+)
+
+
+def _blank(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def version_floor_sort_key(row: dict[str, Any]) -> tuple[str, str, str, str, int]:
+    return (
+        _blank(row.get("expansion")).lower(),
+        _blank(row.get("version")).lower(),
+        _blank(row.get("rarity")).lower(),
+        _blank(row.get("product_path")).lower(),
+        int(row.get("price_cents") or 0),
+    )
+
+
+def extract_version_floors(payload: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Accept collector stdout or anonymized ledger shapes; floors only."""
+    if isinstance(payload, list):
+        rows = payload
+    elif isinstance(payload, dict):
+        if isinstance(payload.get("version_floors"), list):
+            rows = payload["version_floors"]
+        elif isinstance(payload.get("records"), list):
+            rows = payload["records"]
+        else:
+            raise ValueError("JSON payload has no version_floors list")
+    else:
+        raise TypeError("payload must be a dict or list")
+    floors = [row for row in rows if isinstance(row, dict) and row.get("record_kind") == "version_floor"]
+    if not floors and rows and all(isinstance(row, dict) for row in rows):
+        # Ledger already filtered to floors without record_kind in some captures.
+        if all("product_path" in row and "price_cents" in row for row in rows):
+            floors = list(rows)
+    return floors
+
+
+def aggregate_version_floors_by_expansion(
+    version_floors: Sequence[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Group version floors by expansion/set label with min/median/max From.
+
+    Printed card numbers (LOB-001, …) are never inferred — only fields present
+    on the floor records are aggregated.
+    """
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in version_floors:
+        if row.get("record_kind") not in {None, "version_floor"}:
+            continue
+        expansion = _blank(row.get("expansion")) or "unknown"
+        groups[expansion].append(row)
+
+    summaries: list[dict[str, Any]] = []
+    for expansion, rows in groups.items():
+        cents = [int(row["price_cents"]) for row in rows if row.get("price_cents") is not None]
+        stats = price_quartiles_cents(cents)
+        rarities = sorted({_blank(row.get("rarity")) or "unknown" for row in rows})
+        versions = sorted({_blank(row.get("version")) or "unknown" for row in rows})
+        available_total = sum(int(row.get("available_count") or 0) for row in rows)
+        summaries.append(
+            {
+                "expansion": expansion,
+                "n": stats.get("n", 0),
+                "min": stats.get("min"),
+                "median": stats.get("median"),
+                "max": stats.get("max"),
+                "min_cents": stats.get("min_cents"),
+                "median_cents": stats.get("median_cents"),
+                "max_cents": stats.get("max_cents"),
+                "available_total": available_total,
+                "rarities": rarities,
+                "versions": versions,
+                "variants_note": (
+                    f"{len(rarities)} rarity label(s), {len(versions)} version label(s)"
+                    if stats.get("n", 0) > 1
+                    else "single reference in this set"
+                ),
+            }
+        )
+    summaries.sort(
+        key=lambda item: (
+            -int(item.get("n") or 0),
+            -int(item.get("median_cents") or 0),
+            str(item.get("expansion") or "").lower(),
+        )
+    )
+    return summaries
+
+
+def rank_version_floor_references(
+    version_floors: Sequence[dict[str, Any]],
+    *,
+    limit: int = 15,
+) -> dict[str, list[dict[str, Any]]]:
+    """Return dearest / cheapest / mid-priced floor references (floors only)."""
+    floors = [
+        row
+        for row in version_floors
+        if row.get("record_kind") in {None, "version_floor"} and row.get("price_cents") is not None
+    ]
+    by_price_asc = sorted(floors, key=lambda row: (int(row["price_cents"]), version_floor_sort_key(row)))
+    by_price_desc = list(reversed(by_price_asc))
+    median_cents = int(price_quartiles_cents(int(row["price_cents"]) for row in floors).get("median_cents") or 0)
+    mid = sorted(
+        floors,
+        key=lambda row: (abs(int(row["price_cents"]) - median_cents), version_floor_sort_key(row)),
+    )
+
+    def slim(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "expansion": row.get("expansion"),
+            "product_label": row.get("title"),
+            "version": row.get("version"),
+            "rarity": row.get("rarity"),
+            "from_eur": float(cents_to_eur(int(row["price_cents"]))),
+            "from_cents": int(row["price_cents"]),
+            "available_count": row.get("available_count"),
+            "public_product_path": row.get("product_path"),
+        }
+
+    return {
+        "most_expensive": [slim(row) for row in by_price_desc[:limit]],
+        "most_accessible": [slim(row) for row in by_price_asc[:limit]],
+        "near_global_median": [slim(row) for row in mid[:limit]],
+    }
+
+
+def version_floor_reference_rows(
+    version_floors: Sequence[dict[str, Any]],
+    *,
+    source_date: str,
+) -> list[dict[str, str]]:
+    """Build deterministic, sanitized CSV row dicts from version floors only."""
+    floors = [
+        row
+        for row in version_floors
+        if row.get("record_kind") in {None, "version_floor"} and row.get("price_cents") is not None
+    ]
+    ordered = sorted(floors, key=version_floor_sort_key)
+    rows: list[dict[str, str]] = []
+    for row in ordered:
+        cents = int(row["price_cents"])
+        rows.append(
+            {
+                "expansion": _blank(row.get("expansion")),
+                "product_label": _blank(row.get("title")),
+                "version": _blank(row.get("version")),
+                "rarity": _blank(row.get("rarity")),
+                "from_eur": format(cents_to_eur(cents), "f"),
+                "from_cents": str(cents),
+                "available_count": "" if row.get("available_count") is None else str(int(row["available_count"])),
+                "public_product_path": _blank(row.get("product_path")),
+                "source_date": source_date,
+            }
+        )
+    return rows
+
+
+def export_version_floor_references_csv(
+    version_floors: Sequence[dict[str, Any]],
+    *,
+    source_date: str,
+    destination: Path | None = None,
+) -> str:
+    """Serialize sanitized reference CSV; optionally write to disk.
+
+    Columns never include seller names, offer/article ids, cookies, or HTML.
+    """
+    rows = version_floor_reference_rows(version_floors, source_date=source_date)
+    if any(col in FORBIDDEN_REFERENCE_CSV_COLUMNS for col in VERSION_FLOOR_CSV_COLUMNS):
+        raise ValueError("CSV column contract includes a forbidden field")
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=list(VERSION_FLOOR_CSV_COLUMNS), lineterminator="\n")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({column: row[column] for column in VERSION_FLOOR_CSV_COLUMNS})
+    text = buffer.getvalue()
+    if destination is not None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(text, encoding="utf-8")
+    return text
+
+
 def segment_key(row: dict[str, Any]) -> tuple[str, str, str, str, str]:
     return (
         str(row.get("condition") or "unknown"),
@@ -430,6 +679,7 @@ def summarize_populations(version_floors: list[dict[str, Any]], offers: list[dic
     for row in version_floors:
         rarity_groups[str(row.get("rarity") or "unknown")].append(float(row["price_eur"]))
 
+    by_expansion = aggregate_version_floors_by_expansion(version_floors)
     return {
         "version_floors": {
             "n": len(version_floors),
@@ -437,7 +687,16 @@ def summarize_populations(version_floors: list[dict[str, Any]], offers: list[dic
             "by_rarity": {
                 rarity: price_quartiles(values) for rarity, values in sorted(rarity_groups.items())
             },
-            "note": "Version floors are product-level 'From' prices, not offer rows.",
+            "by_expansion": by_expansion,
+            "reference_ranks": rank_version_floor_references(version_floors),
+            "note": (
+                "Version floors are product-level 'From' prices, not offer rows. "
+                "Prefer by_expansion / public_product_path over global quartiles."
+            ),
+            "printed_card_code_note": (
+                "Official printed set codes (LOB-001, SDK-001, …) are absent from "
+                "version_floor records in this pipeline and are never invented."
+            ),
         },
         "offers_by_source": source_summaries,
     }
@@ -596,18 +855,104 @@ def main(argv: list[str] | None = None) -> int:
         help="Extra wait for dynamic pages when browser fallback is used",
     )
     parser.add_argument("--no-browser-fallback", action="store_true", help="Disable browser fallback")
-    args = parser.parse_args(argv)
-    urls = list(args.url)
-    if not urls:
-        parser.error("provide at least one --url")
-    payload = collect_cardmarket_blue_eyes(
-        urls,
-        delay_seconds=args.delay_seconds,
-        browser_fallback=not args.no_browser_fallback,
-        browser_post_load_wait_ms=args.browser_post_load_wait_ms,
+    parser.add_argument(
+        "--from-json",
+        type=Path,
+        help=(
+            "Offline mode: load collector stdout / anonymized ledger JSON and skip live fetch. "
+            "Use with --export-references-csv for reproducible edition/reference export."
+        ),
     )
-    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0 if payload["status"] in {"ok", "partial"} else 1
+    parser.add_argument(
+        "--export-references-csv",
+        type=Path,
+        help=(
+            "Write sanitized version-floor reference CSV (no sellers/offer ids/HTML). "
+            "Works after a live collect or with --from-json."
+        ),
+    )
+    parser.add_argument(
+        "--source-date",
+        default="",
+        help="ISO date stamped on CSV rows (default: today UTC, or value from payload when present).",
+    )
+    parser.add_argument(
+        "--quiet-json",
+        action="store_true",
+        help="With --from-json / CSV export, skip printing the full JSON payload to stdout.",
+    )
+    args = parser.parse_args(argv)
+
+    if args.from_json is not None:
+        payload = json.loads(args.from_json.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            parser.error("--from-json must contain a JSON object")
+        floors = extract_version_floors(payload)
+        offers = [row for row in payload.get("offers", []) if isinstance(row, dict)]
+        if "populations" not in payload:
+            payload = {
+                **payload,
+                "version_floors": floors,
+                "offers": offers,
+                "populations": summarize_populations(floors, offers),
+                "status": payload.get("status") or "ok",
+            }
+        else:
+            payload = {**payload, "version_floors": floors, "offers": offers}
+    else:
+        urls = list(args.url)
+        if not urls:
+            parser.error("provide at least one --url, or use --from-json")
+        payload = collect_cardmarket_blue_eyes(
+            urls,
+            delay_seconds=args.delay_seconds,
+            browser_fallback=not args.no_browser_fallback,
+            browser_post_load_wait_ms=args.browser_post_load_wait_ms,
+        )
+
+    source_date = (args.source_date or "").strip()
+    if not source_date:
+        source_date = str(
+            payload.get("source_date")
+            or payload.get("started_at")
+            or time.strftime("%Y-%m-%d", time.gmtime())
+        )[:10]
+
+    if args.export_references_csv is not None:
+        floors = extract_version_floors(payload)
+        export_version_floor_references_csv(
+            floors,
+            source_date=source_date,
+            destination=args.export_references_csv,
+        )
+        payload.setdefault("warnings", [])
+        if isinstance(payload["warnings"], list):
+            payload["warnings"] = sorted(
+                set(payload["warnings"])
+                | {
+                    f"exported {len(floors)} version_floor references to {args.export_references_csv}",
+                    "public_product_path values are Cardmarket URLs/paths, not printed card codes",
+                }
+            )
+
+    if not args.quiet_json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    elif args.export_references_csv is not None:
+        floors = extract_version_floors(payload)
+        print(
+            json.dumps(
+                {
+                    "status": payload.get("status") or "ok",
+                    "version_floor_count": len(floors),
+                    "references_csv": str(args.export_references_csv),
+                    "source_date": source_date,
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    return 0 if payload.get("status") in {"ok", "partial", None} else 1
 
 
 if __name__ == "__main__":

@@ -11,9 +11,11 @@ It is intentionally narrow:
 - no raw HTML, cookies, tokens, or browser profiles written to the repository
 - no CAPTCHA solving, login, consent acceptance, or access-challenge bypass
 - version floor prices and live offer rows stay in separate populations
+- edition / référence analysis prefers set label + public product path over
+  global quartiles; official printed codes (`LOB-001`, …) are never invented
 
-For a didactic walkthrough of a dated live snapshot (pipeline diagram, 403/429
-caveats, segment tables, and reading guide), see
+For a didactic walkthrough of a dated live snapshot (edition-first tables,
+pipeline diagram, 403/429 caveats, segment tables, and reading guide), see
 [`CARDMARKET_BLUE_EYES_ANALYSIS_REPORT.md`](CARDMARKET_BLUE_EYES_ANALYSIS_REPORT.md).
 Do not duplicate market conclusions here — keep this file as the short operator
 howto.
@@ -59,6 +61,35 @@ python examples/generic_cardmarket_blue_eyes.py \
 Keep `--url` count bounded (`1..20`). Add delay between pages. Do not point the
 script at authenticated or anti-bot challenge flows and expect a bypass.
 
+## Offline edition / référence export
+
+Given anonymized collector stdout (or the gitignored ledger
+`version_floors` + `offers` JSON), regenerate the public CSV without a live
+crawl:
+
+```bash
+python examples/generic_cardmarket_blue_eyes.py \
+  --from-json runs/cardmarket-blue-eyes/anonymized-listings.json \
+  --export-references-csv docs/data/cardmarket-blue-eyes-version-floors-2026-08-04.csv \
+  --source-date 2026-08-04 \
+  --quiet-json
+```
+
+Pure helpers used by that path:
+
+- `aggregate_version_floors_by_expansion()` — min / median / max From by set
+- `rank_version_floor_references()` — dearest / cheapest / near-median samples
+- `export_version_floor_references_csv()` — deterministic sanitized CSV
+
+CSV columns: `expansion`, `product_label`, `version`, `rarity`, `from_eur`,
+`from_cents`, `available_count`, `public_product_path`, `source_date`.
+`public_product_path` values are Cardmarket paths, **not** printed card codes.
+Seller names, offer/article ids, cookies, and HTML are excluded.
+
+Published snapshot for the 2026-08-04 run:
+[`docs/data/cardmarket-blue-eyes-version-floors-2026-08-04.csv`](data/cardmarket-blue-eyes-version-floors-2026-08-04.csv)
+(header + 175 data rows).
+
 ## What is parsed
 
 ### Versions overview → `version_floor`
@@ -86,14 +117,15 @@ JSON on stdout:
 - `count_raw` / `count_net`
 - `failure_rate` over requested pages
 - `version_floors[]` and `offers[]` kept separate
-- `populations` with quartiles **by source URL** and by a 5-field segment key
+- `populations` with quartiles **by source URL**, by a 5-field segment key
   `condition|language|rarity|edition|(graded|raw)` (last field is `graded` or
-  `raw`)
+  `raw`), plus `version_floors.by_expansion` and `reference_ranks`
 - `pages[]` with fetch method, HTTP status, bytes, parsed count
 - `warnings[]`
 
 Never treat a non-empty file alone as complete coverage. Read `status`,
-`failure_rate`, and per-page `parsed` first.
+`failure_rate`, and per-page `parsed` first. Prefer expansion / product-path
+tables over global floor quartiles.
 
 ## Challenge handling
 
@@ -109,3 +141,5 @@ block when offer or version markup is present.
   while reporting a Cloudflare 403/429 status — the report must keep both facts.
 - Card hub pages can mix products; prefer product URLs and segment tables.
 - Do not commit `runs/` artifacts, fetched HTML, or seller-bearing dumps.
+- Do not invent official printed set numbers when they are absent from the
+  ledger.

@@ -209,3 +209,111 @@ def test_collect_stops_on_access_challenge(monkeypatch: pytest.MonkeyPatch, cm_e
 def test_collect_bounds_url_count(cm_example: ModuleType) -> None:
     with pytest.raises(ValueError, match="url count"):
         cm_example.collect_cardmarket_blue_eyes(["https://example.invalid"] * 21)
+
+
+def _synthetic_floors(cm_example: ModuleType) -> list[dict]:
+    return cm_example.parse_version_floor_cards(
+        SYNTHETIC_VERSIONS_HTML
+        + """
+<a href="/en/YuGiOh/Products/Singles/Legend-of-Blue-Eyes-White-Dragon/Blue-Eyes-White-Dragon-V1-Ultra-Rare">
+  <p class="card-text text-muted">Version 1 8 Available</p>
+  <p class="card-text text-muted">From <b>4,56 €</b></p>
+</a>
+<a href="/en/YuGiOh/Products/Singles/Legend-of-Blue-Eyes-White-Dragon/Blue-Eyes-White-Dragon-V2-Secret-Rare">
+  <p class="card-text text-muted">Version 2 3 Available</p>
+  <p class="card-text text-muted">From <b>50,00 €</b></p>
+</a>
+""",
+        source_url="https://www.cardmarket.com/en/YuGiOh/Cards/Blue-Eyes-White-Dragon/Versions",
+    )
+
+
+def test_aggregate_version_floors_by_expansion_groups_sets(cm_example: ModuleType) -> None:
+    floors = _synthetic_floors(cm_example)
+    assert len(floors) == 4
+    groups = cm_example.aggregate_version_floors_by_expansion(floors)
+    by_name = {row["expansion"]: row for row in groups}
+    assert by_name["Rarity Collection 5"]["n"] == 2
+    assert by_name["Rarity Collection 5"]["min"] == 0.99
+    assert by_name["Rarity Collection 5"]["max"] == 69.99
+    assert by_name["Legend of Blue Eyes White Dragon"]["n"] == 2
+    assert "Ultra Rare" in by_name["Legend of Blue Eyes White Dragon"]["rarities"]
+    assert "Secret Rare" in by_name["Legend of Blue Eyes White Dragon"]["rarities"]
+    # Stable sort: higher n first, then higher median, then name.
+    assert [row["expansion"] for row in groups] == sorted(
+        [row["expansion"] for row in groups],
+        key=lambda name: (
+            -by_name[name]["n"],
+            -int(by_name[name]["median_cents"]),
+            name.lower(),
+        ),
+    )
+
+
+def test_export_version_floor_references_csv_is_deterministic_and_sanitized(
+    cm_example: ModuleType, tmp_path: Path
+) -> None:
+    floors = _synthetic_floors(cm_example)
+    shuffled = list(reversed(floors))
+    csv_a = cm_example.export_version_floor_references_csv(floors, source_date="2026-08-04")
+    csv_b = cm_example.export_version_floor_references_csv(shuffled, source_date="2026-08-04")
+    assert csv_a == csv_b
+    lines = csv_a.strip().splitlines()
+    assert lines[0] == ",".join(cm_example.VERSION_FLOOR_CSV_COLUMNS)
+    assert len(lines) == 1 + len(floors)
+    assert "seller" not in csv_a.lower()
+    assert "article_id" not in csv_a.lower()
+    assert "cookie" not in csv_a.lower()
+    assert "<html" not in csv_a.lower()
+    # No offer population mixed into the reference export.
+    assert all(row["record_kind"] == "version_floor" for row in floors)
+    path = tmp_path / "refs.csv"
+    cm_example.export_version_floor_references_csv(
+        floors, source_date="2026-08-04", destination=path
+    )
+    assert path.read_text(encoding="utf-8") == csv_a
+    # EUR comes from integer cents via Decimal, not fragile float formatting.
+    data_line = lines[1]
+    assert ",0.99,99," in data_line or data_line.endswith(",0.99,99,") or ",0.99,99," in csv_a
+
+
+def test_export_does_not_include_forbidden_columns(cm_example: ModuleType) -> None:
+    for column in cm_example.VERSION_FLOOR_CSV_COLUMNS:
+        assert column not in cm_example.FORBIDDEN_REFERENCE_CSV_COLUMNS
+    floors = _synthetic_floors(cm_example)
+    text = cm_example.export_version_floor_references_csv(floors, source_date="2026-08-04")
+    header = text.splitlines()[0].split(",")
+    assert header == list(cm_example.VERSION_FLOOR_CSV_COLUMNS)
+    assert "id" not in header
+    assert "article_id_hash" not in header
+
+
+def test_from_json_cli_exports_csv_without_live_fetch(
+    monkeypatch: pytest.MonkeyPatch, cm_example: ModuleType, tmp_path: Path
+) -> None:
+    floors = _synthetic_floors(cm_example)
+    payload_path = tmp_path / "payload.json"
+    out_csv = tmp_path / "out.csv"
+    payload_path.write_text(
+        json_dumps({"status": "ok", "version_floors": floors, "offers": []}),
+        encoding="utf-8",
+    )
+
+    def boom(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("live collect must not run in --from-json mode")
+
+    monkeypatch.setattr(cm_example, "collect_cardmarket_blue_eyes", boom)
+    code = cm_example.main(
+        [
+            "--from-json",
+            str(payload_path),
+            "--export-references-csv",
+            str(out_csv),
+            "--source-date",
+            "2026-08-04",
+            "--quiet-json",
+        ]
+    )
+    assert code == 0
+    lines = out_csv.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 1 + len(floors)
