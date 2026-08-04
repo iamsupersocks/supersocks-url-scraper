@@ -12,6 +12,12 @@ It is intentionally narrow:
 - no CAPTCHA solving, login, consent acceptance, or access-challenge bypass
 - version floor prices and live offer rows stay in separate populations
 
+For a didactic walkthrough of a dated live snapshot (pipeline diagram, 403/429
+caveats, segment tables, and reading guide), see
+[`CARDMARKET_BLUE_EYES_ANALYSIS_REPORT.md`](CARDMARKET_BLUE_EYES_ANALYSIS_REPORT.md).
+Do not duplicate market conclusions here — keep this file as the short operator
+howto.
+
 ## Install
 
 ```bash
