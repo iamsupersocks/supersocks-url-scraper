@@ -580,6 +580,16 @@ def test_compute_coverage_completion_indicators(cm_example: ModuleType) -> None:
     assert partial["search_pagination_complete"] is False
     assert partial["product_details_complete"] is False
 
+    over_rows = [
+        {"detail_attempted": "yes", "detail_ok": "yes", "printed_code": "LOB-001"}
+        for _ in range(178)
+    ]
+    over = cm_example.compute_coverage_completion_indicators(
+        ledger={"announced_versions": 177, "search_pagination_complete": False},
+        coverage_rows=over_rows,
+    )
+    assert over["versions_counter_reached"] is False
+
     complete_rows = [
         {"detail_attempted": "yes", "detail_ok": "yes", "printed_code": "LOB-001"}
         for _ in range(177)

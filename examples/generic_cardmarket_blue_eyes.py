@@ -1467,7 +1467,7 @@ def compute_coverage_completion_indicators(
     announced = ledger.get("announced_versions")
     unique_path_count = len(coverage_rows)
     versions_counter_reached = (
-        isinstance(announced, int) and unique_path_count >= announced
+        isinstance(announced, int) and unique_path_count == announced
     )
     search_pagination_complete = bool(ledger.get("search_pagination_complete"))
     if not coverage_rows:
