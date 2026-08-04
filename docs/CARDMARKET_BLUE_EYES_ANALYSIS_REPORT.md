@@ -23,8 +23,9 @@ figures.
   its own counts and quartiles.
 - Within one product URL, offers can be grouped by a five-field segment key
   (condition, language, rarity, edition, graded/raw).
-- The pipeline stopped honestly on hard challenges and never logged in,
-  solved CAPTCHA, or accepted tracking consent.
+- The pipeline is designed and offline-tested to stop on hard challenges; this
+  live run detected none. It never logged in, solved CAPTCHA, or accepted
+  tracking consent.
 
 **It cannot say**
 
@@ -500,7 +501,7 @@ No CAPTCHA solving, no login, no consent acceptance, no challenge bypass.
 | --- | --- |
 | Version floor | Product tile **From** price on the Versions overview |
 | Offer row | One live `article-row` listing after seller redaction |
-| Segment key | `condition\|language\|rarity\|edition\|graded\|raw` grouping |
+| Segment key | `condition\|language\|rarity\|edition\|(graded\|raw)` grouping |
 | CloakBrowser | Optional browser fetch path (`fetch_with_browser`) |
 | Passive CF JSD | Cloudflare `…/scripts/jsd/` beacon; not a hard block alone |
 | Hard challenge | Interstitial / delivery markers that stop collection |
