@@ -1458,6 +1458,79 @@ def export_coverage_csv(
     return text
 
 
+def compute_coverage_completion_indicators(
+    *,
+    ledger: dict[str, Any],
+    coverage_rows: Sequence[dict[str, str]],
+) -> dict[str, bool]:
+    """Stable booleans for what the crawl actually proved (not blanket exhaustivity)."""
+    announced = ledger.get("announced_versions")
+    unique_path_count = len(coverage_rows)
+    versions_counter_reached = (
+        isinstance(announced, int) and unique_path_count >= announced
+    )
+    search_pagination_complete = bool(ledger.get("search_pagination_complete"))
+    if not coverage_rows:
+        product_details_complete = False
+    else:
+        all_attempted = all(row.get("detail_attempted") == "yes" for row in coverage_rows)
+        all_ok = all(row.get("detail_ok") == "yes" for row in coverage_rows)
+        printed_complete = all((row.get("printed_code") or "").strip() for row in coverage_rows)
+        product_details_complete = all_attempted and all_ok and printed_complete
+    return {
+        "versions_counter_reached": versions_counter_reached,
+        "search_pagination_complete": search_pagination_complete,
+        "product_details_complete": product_details_complete,
+    }
+
+
+def format_proven_coverage_scope(
+    *,
+    indicators: dict[str, bool],
+    announced_versions: int | None,
+    unique_paths: int,
+    search_last_site: int | None,
+    hard_challenges_at_stop: int | None,
+) -> dict[str, str]:
+    if indicators["versions_counter_reached"] and announced_versions is not None:
+        versions_text = (
+            f"public Versions panel complete at observed counter "
+            f"{unique_paths}/{announced_versions}"
+        )
+    elif announced_versions is not None:
+        versions_text = (
+            f"public Versions panel partial: {unique_paths}/{announced_versions} observed"
+        )
+    else:
+        versions_text = (
+            f"public Versions panel: {unique_paths} unique paths observed "
+            "(no announced counter)"
+        )
+
+    if indicators["search_pagination_complete"]:
+        search_text = "Search site=N pagination reached announced total"
+    elif search_last_site is not None and hard_challenges_at_stop:
+        search_text = (
+            f"Search site=1–{search_last_site} only; interrupted by "
+            f"{hard_challenges_at_stop} consecutive hard challenges"
+        )
+    elif search_last_site is not None:
+        search_text = f"Search site=1–{search_last_site} only; pagination incomplete"
+    else:
+        search_text = "Search pagination incomplete or not attempted"
+
+    if indicators["product_details_complete"]:
+        details_text = "product details and printed codes complete for all paths"
+    else:
+        details_text = "product details and printed codes incomplete"
+
+    return {
+        "versions_panel": versions_text,
+        "search_pagination": search_text,
+        "product_details": details_text,
+    }
+
+
 def build_coverage_manifest(
     *,
     ledger: dict[str, Any],
@@ -1476,6 +1549,25 @@ def build_coverage_manifest(
         for name in (row.get("fields_present") or "").split("|"):
             if name:
                 field_presence[name] += 1
+    announced_versions = ledger.get("announced_versions")
+    unique_path_count = len(unique_paths)
+    completion_indicators = compute_coverage_completion_indicators(
+        ledger=ledger,
+        coverage_rows=coverage_rows,
+    )
+    budget_payload = ledger.get("budget") if isinstance(ledger.get("budget"), dict) else {}
+    hard_challenges_at_stop = (
+        budget.consecutive_hard_challenges
+        if budget is not None
+        else budget_payload.get("consecutive_hard_challenges_at_stop")
+    )
+    proven_coverage_scope = format_proven_coverage_scope(
+        indicators=completion_indicators,
+        announced_versions=announced_versions if isinstance(announced_versions, int) else None,
+        unique_paths=unique_path_count,
+        search_last_site=ledger.get("search_last_site"),
+        hard_challenges_at_stop=hard_challenges_at_stop,
+    )
     return {
         "title": "Cardmarket Blue-Eyes White Dragon public coverage manifest",
         "generated_at": utc_now_iso(),
@@ -1493,8 +1585,11 @@ def build_coverage_manifest(
         "pages_succeeded": len(ok_pages),
         "pages_blocked": len(blocked),
         "pages_error": len(errors),
-        "announced_versions_counter": ledger.get("announced_versions"),
-        "unique_public_product_paths": len(unique_paths),
+        "announced_versions_counter": announced_versions,
+        "unique_public_product_paths": unique_path_count,
+        "completion_indicators": completion_indicators,
+        "proven_coverage_scope": proven_coverage_scope,
+        "search_last_site": ledger.get("search_last_site"),
         "duplicates_skipped": ledger.get("duplicates_skipped"),
         "errors": ledger.get("errors") or errors,
         "stop_reason": ledger.get("stop_reason"),
@@ -1521,7 +1616,7 @@ def build_coverage_manifest(
             "published_artifacts": ["sanitized CSV", "coverage manifest JSON/Markdown"],
         },
         "limits": [
-            "Exhaustivity here means observable public Versions/Search product paths, not the historical Konami catalog.",
+            "Coverage scope is proven per completion_indicators; do not read this as Versions + Search exhaustive.",
             "Offer tables remain first-page only unless a future task paginates offers.",
             "Printed collector numbers are recorded only when HTML exposes them; absence is not inferred.",
         ],
@@ -1531,6 +1626,8 @@ def build_coverage_manifest(
 def render_coverage_manifest_markdown(manifest: dict[str, Any]) -> str:
     comparison = manifest.get("comparison_to_prior_175_102") or {}
     budget = manifest.get("budget") or {}
+    indicators = manifest.get("completion_indicators") or {}
+    scope = manifest.get("proven_coverage_scope") or {}
     lines = [
         "# Cardmarket Blue-Eyes public coverage manifest",
         "",
@@ -1541,6 +1638,21 @@ def render_coverage_manifest_markdown(manifest: dict[str, Any]) -> str:
         f"- Unique public product paths: **{manifest.get('unique_public_product_paths')}**",
         f"- Navigations used: **{budget.get('navigations_used')}** / **{budget.get('max_navigations')}**",
         "",
+        "## Completion indicators",
+        "",
+        f"- `versions_counter_reached`: **{indicators.get('versions_counter_reached')}**",
+        f"- `search_pagination_complete`: **{indicators.get('search_pagination_complete')}**",
+        f"- `product_details_complete`: **{indicators.get('product_details_complete')}**",
+        "",
+        "## Proven coverage scope (not Versions + Search exhaustive)",
+        "",
+        f"- **Versions panel:** {scope.get('versions_panel', 'unknown')}.",
+        f"- **Search pagination:** {scope.get('search_pagination', 'unknown')}.",
+        f"- **Product details / printed codes:** {scope.get('product_details', 'unknown')}.",
+        "",
+        "This crawl does **not** claim the full historical official Konami catalog, deleted listings,",
+        "private inventory, or complete offer pagination.",
+        "",
         "## Comparison to prior corpus (175 paths / 102 expansions)",
         "",
         f"- Prior unique paths: **{comparison.get('prior_unique_paths')}**",
@@ -1549,12 +1661,6 @@ def render_coverage_manifest_markdown(manifest: dict[str, Any]) -> str:
         f"- New vs prior: **{len(comparison.get('new_vs_prior') or [])}**",
         f"- Missing vs prior: **{len(comparison.get('missing_vs_prior') or [])}**",
         f"- Current expansions: **{comparison.get('current_expansion_count')}** (prior {comparison.get('prior_expansion_count')})",
-        "",
-        "## Honest exhaustivity answer",
-        "",
-        "This crawl can claim exhaustivity of **publicly observable Cardmarket Versions + Search product paths**",
-        "for Blue-Eyes White Dragon under the documented stop condition. It cannot claim the full historical",
-        "official Konami catalog, deleted listings, private inventory, or complete offer pagination.",
         "",
     ]
     return "\n".join(lines)

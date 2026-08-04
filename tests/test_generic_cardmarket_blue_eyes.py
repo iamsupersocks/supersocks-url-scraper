@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -527,8 +528,69 @@ def test_coverage_csv_sanitization_and_manifest(cm_example: ModuleType, tmp_path
     assert "seller-hidden" not in manifest_blob
     assert "username" not in manifest_blob
     assert manifest["privacy"]["seller_fields"] == "never collected/published"
+    indicators = manifest["completion_indicators"]
+    assert indicators["versions_counter_reached"] is True
+    assert indicators["search_pagination_complete"] is False
+    assert indicators["product_details_complete"] is False
+    scope = manifest["proven_coverage_scope"]
+    assert "177/177" in scope["versions_panel"] or "2/2" in scope["versions_panel"]
     md = cm_example.render_coverage_manifest_markdown(manifest)
     assert "Stop reason" in md
+    assert "Completion indicators" in md
+    assert "not Versions + Search exhaustive" in md
+    assert "publicly observable Cardmarket Versions + Search product paths" not in md
+    assert "claim exhaustivity of" not in manifest_blob
+
+
+def test_published_coverage_manifest_qualifies_exhaustivity(
+    cm_example: ModuleType,
+) -> None:
+    manifest_path = (
+        Path(__file__).resolve().parents[1]
+        / "docs/data/cardmarket-blue-eyes-coverage-manifest-2026-08-04.json"
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    indicators = manifest["completion_indicators"]
+    assert indicators == {
+        "versions_counter_reached": True,
+        "search_pagination_complete": False,
+        "product_details_complete": False,
+    }
+    scope = manifest["proven_coverage_scope"]
+    assert scope["versions_panel"] == "public Versions panel complete at observed counter 177/177"
+    assert "site=1–7" in scope["search_pagination"]
+    assert "hard challenges" in scope["search_pagination"]
+    assert scope["product_details"] == "product details and printed codes incomplete"
+    md = cm_example.render_coverage_manifest_markdown(manifest)
+    assert "not Versions + Search exhaustive" in md
+    blob = json_dumps(manifest).lower()
+    assert "publicly observable cardmarket versions + search product paths" not in blob
+
+
+def test_compute_coverage_completion_indicators(cm_example: ModuleType) -> None:
+    rows = [
+        {"detail_attempted": "yes", "detail_ok": "yes", "printed_code": "LOB-001"},
+        {"detail_attempted": "no", "detail_ok": "", "printed_code": ""},
+    ]
+    partial = cm_example.compute_coverage_completion_indicators(
+        ledger={"announced_versions": 177, "search_pagination_complete": False},
+        coverage_rows=rows,
+    )
+    assert partial["versions_counter_reached"] is False
+    assert partial["search_pagination_complete"] is False
+    assert partial["product_details_complete"] is False
+
+    complete_rows = [
+        {"detail_attempted": "yes", "detail_ok": "yes", "printed_code": "LOB-001"}
+        for _ in range(177)
+    ]
+    complete = cm_example.compute_coverage_completion_indicators(
+        ledger={"announced_versions": 177, "search_pagination_complete": True},
+        coverage_rows=complete_rows,
+    )
+    assert complete["versions_counter_reached"] is True
+    assert complete["search_pagination_complete"] is True
+    assert complete["product_details_complete"] is True
 
 
 def test_coverage_crawl_pagination_stop_resume_and_challenge(

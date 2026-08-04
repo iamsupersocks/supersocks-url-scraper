@@ -26,6 +26,11 @@
     "prior_expansion_count": 102,
     "prior_unique_paths": 175
   },
+  "completion_indicators": {
+    "product_details_complete": false,
+    "search_pagination_complete": false,
+    "versions_counter_reached": true
+  },
   "duplicates_skipped": 154,
   "enrichment_note": "from_status/price fields for overlapping paths reused from prior sanitized 2026-08-04 floor CSV; two known From N/A public refs marked na from Versions tile probe. Live EN Versions re-fetch hit a hard challenge, so prices were not re-scraped in the blocked window.",
   "errors": [],
@@ -41,7 +46,7 @@
   },
   "generated_at": "2026-08-04T21:15:19.218097+00:00",
   "limits": [
-    "Exhaustivity here means observable public Versions/Search product paths, not the historical Konami catalog.",
+    "Coverage scope is proven per completion_indicators; do not read this as Versions + Search exhaustive.",
     "Offer tables remain first-page only unless a future task paginates offers.",
     "Printed collector numbers are recorded only when HTML exposes them; absence is not inferred."
   ],
@@ -63,6 +68,12 @@
     "raw_html": "memory-only; private ledger under gitignored runs/",
     "seller_fields": "never collected/published"
   },
+  "proven_coverage_scope": {
+    "product_details": "product details and printed codes incomplete",
+    "search_pagination": "Search site=1–7 only; interrupted by 3 consecutive hard challenges",
+    "versions_panel": "public Versions panel complete at observed counter 177/177"
+  },
+  "search_last_site": 7,
   "started_at": "2026-08-04T21:13:06.120454+00:00",
   "stop_reason": "versions_announced_counter_reached_then_hard_challenges_x3_during_search_or_product_details",
   "timezone": "UTC",

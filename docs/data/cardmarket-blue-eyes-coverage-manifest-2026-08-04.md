@@ -7,6 +7,21 @@
 - Unique public product paths: **177**
 - Navigations used: **15** / **230**
 
+## Completion indicators
+
+- `versions_counter_reached`: **True**
+- `search_pagination_complete`: **False**
+- `product_details_complete`: **False**
+
+## Proven coverage scope (not Versions + Search exhaustive)
+
+- **Versions panel:** public Versions panel complete at observed counter 177/177.
+- **Search pagination:** Search site=1–7 only; interrupted by 3 consecutive hard challenges.
+- **Product details / printed codes:** product details and printed codes incomplete.
+
+This crawl does **not** claim the full historical official Konami catalog, deleted listings,
+private inventory, or complete offer pagination.
+
 ## Comparison to prior corpus (175 paths / 102 expansions)
 
 - Prior unique paths: **175**
@@ -15,12 +30,6 @@
 - New vs prior: **2**
 - Missing vs prior: **0**
 - Current expansions: **102** (prior 102)
-
-## Honest exhaustivity answer
-
-This crawl can claim exhaustivity of **publicly observable Cardmarket Versions + Search product paths**
-for Blue-Eyes White Dragon under the documented stop condition. It cannot claim the full historical
-official Konami catalog, deleted listings, private inventory, or complete offer pagination.
 
 
 ## Enrichment

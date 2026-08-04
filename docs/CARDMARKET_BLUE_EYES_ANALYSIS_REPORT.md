@@ -55,10 +55,13 @@ Distinguish three layers:
 | **B. Live offers / offer pagination** | Every seller row across every product and every offer page | **No.** Offer tables remain first-page only (≤50 rows) when fetched; product-detail pass aborted on hard challenges. |
 | **C. Official historical catalog** | Every Konami print with collector number across all languages/regions | **No claim.** Printed codes were **not** exposed on Versions tiles; product-detail HTML did not yield collector numbers in the samples that rendered before challenges. Never invent `LOB-001`-style codes. |
 
-Public artifacts for the coverage pass:
+Public artifacts for the coverage pass (see `completion_indicators` in the manifest):
 
 - [`docs/data/cardmarket-blue-eyes-coverage-2026-08-04.csv`](data/cardmarket-blue-eyes-coverage-2026-08-04.csv) — sanitized paths + identity fields
 - [`docs/data/cardmarket-blue-eyes-coverage-manifest-2026-08-04.json`](data/cardmarket-blue-eyes-coverage-manifest-2026-08-04.json) / [`.md`](data/cardmarket-blue-eyes-coverage-manifest-2026-08-04.md)
+
+Proven scope (not “Versions + Search exhaustive”): public Versions panel **177/177**;
+Search **site=1–7** only (hard challenges ×3); product details / printed codes **incomplete**.
 
 Compared to the prior priced corpus (**175** paths / **102** expansions): overlap **175**,
 **2** new public refs (`Duel-Royale-Deck-Set-EX` V1 Common + `Promos-OCG` bare),
