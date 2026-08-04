@@ -162,6 +162,14 @@ def test_price_quartiles(cm_example: ModuleType) -> None:
     assert cm_example.price_quartiles([]) == {"n": 0}
 
 
+def test_price_quartiles_cents_median_rounds_half_up_between_zero_and_one(
+    cm_example: ModuleType,
+) -> None:
+    stats = cm_example.price_quartiles_cents([0, 1])
+    assert stats["median_cents"] == 1
+    assert stats["median"] == 0.01
+
+
 def test_is_access_challenge_ignores_passive_cf_jsd_when_offers_present(cm_example: ModuleType) -> None:
     ordinary = (
         '<html><body><script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script>'

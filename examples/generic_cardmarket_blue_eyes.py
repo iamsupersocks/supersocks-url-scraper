@@ -401,11 +401,14 @@ def price_quartiles_cents(values: Iterable[int]) -> dict[str, Any]:
         return {"n": 0}
 
     def quantile_cents(p: float) -> int:
-        index = (len(series) - 1) * p
+        index = Decimal(len(series) - 1) * Decimal(str(p))
         low = int(index)
         high = min(low + 1, len(series) - 1)
-        frac = index - low
-        return int(round(series[low] * (1 - frac) + series[high] * frac))
+        frac = index - Decimal(low)
+        interpolated = (
+            Decimal(series[low]) * (Decimal(1) - frac) + Decimal(series[high]) * frac
+        )
+        return int(interpolated.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
     stats_cents = {
         "n": len(series),
