@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="524" viewBox="0 0 1200 524" role="img" aria-labelledby="be-title be-desc">
+  <style>
+    .title,.bar-label,.value{font-family:IBM Plex Sans,Segoe UI,sans-serif}
+    .title{font-weight:650;fill:#102a43}
+    .subtitle,.axis{fill:#486581;font-family:IBM Plex Sans,Segoe UI,sans-serif}
+    .bar{fill:#0b6e4f}
+    .bar-label,.value{fill:#243b53;font-size:16px}
+    .axis{font-size:14px}
+  </style>
+  <title id="be-title">Cardmarket Blue-Eyes version floor medians by rarity</title>
+  <desc id="be-desc">Median From-price in EUR for Blue-Eyes White Dragon product versions on Cardmarket, grouped by parsed rarity. Unknown rarity excluded.</desc>
+  <rect width="1200" height="524" fill="#f0f4f8"/>
+  <text class="title" x="48" y="52" font-size="28">Blue-Eyes · version floor medians by rarity</text>
+  <text class="subtitle" x="48" y="82" font-size="16">Cardmarket public Versions page · From-prices only · 2026-08-04 20:44 CEST · n excludes unknown rarity</text>
+  <text class="axis" x="320" y="118">Median From-price (€)</text>
+  <text class="bar-label" x="48" y="154">Starlight Rare</text>
+  <rect class="bar" x="320" y="140" width="700.0" height="18" rx="4"/>
+  <text class="value" x="1028.0" y="154">69.99 € · n=3</text>
+  <text class="bar-label" x="48" y="190">Ultimate Rare</text>
+  <rect class="bar" x="320" y="176" width="497.3" height="18" rx="4"/>
+  <text class="value" x="825.3" y="190">49.725 € · n=2</text>
+  <text class="bar-label" x="48" y="226">Quarter Century Secret Rare</text>
+  <rect class="bar" x="320" y="212" width="400.1" height="18" rx="4"/>
+  <text class="value" x="728.1" y="226">40 € · n=13</text>
+  <text class="bar-label" x="48" y="262">Rare</text>
+  <rect class="bar" x="320" y="248" width="120.0" height="18" rx="4"/>
+  <text class="value" x="448.0" y="262">12 € · n=11</text>
+  <text class="bar-label" x="48" y="298">Secret Rare</text>
+  <rect class="bar" x="320" y="284" width="78.8" height="18" rx="4"/>
+  <text class="value" x="406.8" y="298">7.875 € · n=16</text>
+  <text class="bar-label" x="48" y="334">Super Rare</text>
+  <rect class="bar" x="320" y="320" width="67.5" height="18" rx="4"/>
+  <text class="value" x="395.5" y="334">6.75 € · n=2</text>
+  <text class="bar-label" x="48" y="370">Ultra Rare</text>
+  <rect class="bar" x="320" y="356" width="42.3" height="18" rx="4"/>
+  <text class="value" x="370.3" y="370">4.225 € · n=32</text>
+  <text class="bar-label" x="48" y="406">Platinum Secret Rare</text>
+  <rect class="bar" x="320" y="392" width="20.0" height="18" rx="4"/>
+  <text class="value" x="348.0" y="406">2 € · n=3</text>
+  <text class="bar-label" x="48" y="442">Common</text>
+  <rect class="bar" x="320" y="428" width="2" height="18" rx="4"/>
+  <text class="value" x="330" y="442">0.2 € · n=11</text>
+</svg>
