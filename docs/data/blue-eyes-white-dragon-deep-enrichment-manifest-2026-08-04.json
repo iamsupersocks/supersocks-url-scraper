@@ -1,0 +1,81 @@
+{
+  "attempted": 0,
+  "baseline_reused_fields": {
+    "available_count": 175,
+    "from_cents": 175,
+    "note": "from_cents / available_count values on pending rows are reused from the prior coverage CSV baseline seed; they were not newly extracted by live product-detail fetches in this deep-enrichment window (live detail successes=0/177)."
+  },
+  "budget": {
+    "consecutive_hard_challenges_at_stop": 2,
+    "max_navigations": 40,
+    "navigations_used": 2,
+    "rate_limit_events": 0
+  },
+  "challenges": 0,
+  "corpus": {
+    "total": 177,
+    "unique_paths": 177,
+    "versions_panel": "complete 177/177 (prior coverage; not re-fetched in deep pass)",
+    "white_phantom_beast_excluded": true
+  },
+  "counts": {
+    "attempted": 0,
+    "challenge": 0,
+    "error": 0,
+    "ok": 0,
+    "pending": 177,
+    "succeeded": 0,
+    "total": 177
+  },
+  "errors": 0,
+  "field_presence_counts": {
+    "available_count": 175,
+    "from_cents": 175
+  },
+  "finished_at": "2026-08-04T21:39:48.994660+00:00",
+  "generated_at": "2026-08-04T21:39:49.000771+00:00",
+  "limits": [
+    "Versions catalog completeness is inherited from the prior 177/177 coverage pass.",
+    "Product details may be only partially enriched within the live navigation budget.",
+    "Search challenge navigations are counted separately from product-queue challenge statuses.",
+    "Offer tables remain first-page only; language/condition aggregates are in-memory counts without seller rows.",
+    "Printed collector numbers are recorded only when HTML exposes an explicit set-code token.",
+    "Deep CSV From/availability cells on pending rows are baseline coverage seeds, not live deep-pass extractions."
+  ],
+  "model_evidence": {
+    "live_navigations": 2,
+    "live_stop_reason": "first_access_hard_challenge_after_cooldown",
+    "model": "Cursor Grok 4.5 (grok-4.5-high)",
+    "no_login_captcha_proxy_fingerprint_spoof": true,
+    "no_parallelism": true,
+    "transport": "direct worktree; CloakBrowser via supersocks-url-scraper fetch_with_browser",
+    "worker": "cursor-grok"
+  },
+  "navigations_used": 2,
+  "pages_attempted": 2,
+  "pending": 177,
+  "privacy": {
+    "published_artifacts": [
+      "sanitized deep-enrichment CSV",
+      "manifest JSON/Markdown"
+    ],
+    "raw_html": "memory-only; private ledger sanitized on write under gitignored runs/",
+    "seller_fields": "never collected/published"
+  },
+  "scope_qualification": {
+    "details_enriched_partially": false,
+    "live_product_details_progress": "0/177",
+    "live_product_details_succeeded": 0,
+    "live_search_challenge_navigations": 2,
+    "offers_non_exhaustive": true,
+    "product_queue_challenges": 0,
+    "versions_complete": true
+  },
+  "search_last_site": 8,
+  "search_pagination_complete": false,
+  "started_at": "2026-08-04T21:38:44.561198+00:00",
+  "stop_reason": "first_access_hard_challenge_after_cooldown",
+  "succeeded": 0,
+  "timezone": "UTC",
+  "title": "Blue-Eyes White Dragon public deep-enrichment manifest"
+}

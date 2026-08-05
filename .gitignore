@@ -3,6 +3,8 @@
 .env.*
 !.env.example
 data/
+!docs/data/
+!docs/data/**
 browser-profiles/
 
 # Python
