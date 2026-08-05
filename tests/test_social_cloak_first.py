@@ -92,6 +92,19 @@ REDDIT_HUMANITY_HTML = """
 </body></html>
 """
 
+FACEBOOK_FR_CONSENT_HTML = """
+<html><head>
+<title>Facebook</title>
+<meta property="og:title" content="Misleading cached Facebook page title" />
+<meta property="og:description" content="A long enough description that could otherwise look like useful content if the French consent gate missed this Facebook cookie banner." />
+</head><body>
+<h1>Autoriser l'utilisation des cookies de Facebook sur ce navigateur ?</h1>
+<p>Nous utilisons des cookies et des technologies similaires pour fournir nos Services.</p>
+<button>Autoriser tous les cookies</button>
+<button>Refuser les cookies optionnels</button>
+</body></html>
+"""
+
 
 @pytest.mark.parametrize(
     ("url", "expected"),
@@ -150,6 +163,25 @@ def test_reddit_prove_your_humanity_is_captcha_not_content() -> None:
     assert parsed["status"] == "error"
     assert any("CAPTCHA" in w for w in parsed["warnings"])
     assert parsed["status"] != "ok"
+
+
+def test_facebook_autoriser_tous_les_cookies_is_consent_not_content() -> None:
+    assert detect_social_gate(
+        FACEBOOK_FR_CONSENT_HTML,
+        platform="facebook",
+        page_title="Facebook",
+    ) == "consent wall"
+    parsed = parse_cloak_social_html(
+        FACEBOOK_FR_CONSENT_HTML,
+        platform="facebook",
+        url="https://www.facebook.com/zuck",
+        page_title="Facebook",
+    )
+    assert parsed["status"] == "error"
+    assert any("consent" in w.lower() for w in parsed["warnings"])
+    assert parsed["status"] != "ok"
+    assert parsed["status"] != "partial"
+    assert "Autoriser tous les cookies" not in (parsed.get("content") or parsed.get("summary") or "")
 
 
 def test_login_and_captcha_never_ok() -> None:

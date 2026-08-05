@@ -54,7 +54,13 @@ _CONSENT_MARKERS = (
     "before you continue",
     "accept all cookies",
     "accepter tous les cookies",
+    "autoriser tous les cookies",
     "privacy preference center",
+)
+# Visible banner CTAs that must never be treated as useful content, even when
+# cached og:title / og:description meta would otherwise look readable.
+_STRONG_CONSENT_MARKERS = (
+    "autoriser tous les cookies",
 )
 
 _REDDIT_SHREDDIT_TITLE = re.compile(
@@ -234,6 +240,8 @@ def detect_social_gate(
         return "login/auth wall"
     if platform == "reddit" and ("log in" in blob and "sign up" in blob) and "shreddit-post" not in visible.lower() and not useful_meta:
         return "login/auth wall"
+    if any(marker in blob for marker in _STRONG_CONSENT_MARKERS):
+        return "consent wall"
     if any(marker in blob for marker in _CONSENT_MARKERS) and len(blob) < 600 and not useful_meta:
         return "consent wall"
     return None
@@ -364,7 +372,7 @@ def parse_cloak_social_html(
             f"(BROWSER_PROFILE_DIR / SOCIAL_BROWSER_PROFILE_DIR) or enable opt-in desktop fallback. "
             "Never automate login/MFA/CAPTCHA."
         )
-        status = "error" if gate == "CAPTCHA/challenge" else ("partial" if useful else "error")
+        status = "error" if gate in {"CAPTCHA/challenge", "consent wall"} else ("partial" if useful else "error")
     elif useful:
         status = "ok"
     elif title or summary:
