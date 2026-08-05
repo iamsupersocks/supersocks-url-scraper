@@ -220,7 +220,57 @@ def test_missing_profile_dir(tmp_path: Path) -> None:
     assert result is not None
     assert result["status"] == "error"
     assert result["fetch_method"] == "cloak-profile"
-    assert any("does not exist" in w for w in result["warnings"])
+    assert any("configured social Cloak profile is absent" in w for w in result["warnings"])
+    assert "no-such-profile" not in json.dumps(result)
+
+
+def test_missing_profile_warning_never_discloses_secret_basename(tmp_path: Path) -> None:
+    secret_profile = tmp_path / "profiles" / "auth_token=SUPERSECRET"
+    result = extract_cloak_social(
+        "https://www.facebook.com/zuck",
+        platform="facebook",
+        browser_profile_dir=str(secret_profile),
+        cloak_fetcher=lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not fetch")),
+    )
+    dumped = json.dumps(result)
+    assert "SUPERSECRET" not in dumped
+    assert "auth_token" not in dumped
+    assert secret_profile.name not in dumped
+    assert any("configured social Cloak profile is absent" in w for w in result["warnings"])
+
+
+def test_fetcher_called_once_on_typeerror() -> None:
+    calls = {"n": 0}
+
+    def broken_fetcher(url, **kwargs):
+        calls["n"] += 1
+        raise TypeError("unexpected keyword argument 'headless'")
+
+    result = extract_cloak_social(
+        "https://www.reddit.com/r/announcements/",
+        platform="reddit",
+        cloak_fetcher=broken_fetcher,
+    )
+    assert calls["n"] == 1
+    assert result is not None
+    assert result["status"] == "error"
+    assert any("cloak social render failed" in w for w in result["warnings"])
+
+
+def test_captcha_markers_in_script_do_not_trigger_gate() -> None:
+    html = """
+    <html><head>
+    <meta property="og:title" content="Public post" />
+    <meta property="og:description" content="Enough visible caption text for extraction without triggering a false challenge gate from embedded JavaScript." />
+    </head><body>
+    <article><p>Enough visible caption text for extraction without triggering a false challenge gate from embedded JavaScript.</p></article>
+    <script>var captcha = "recaptcha"; function verifyYouAreHuman() {}</script>
+    </body></html>
+    """
+    assert detect_social_gate(html, platform="instagram") is None
+    parsed = parse_cloak_social_html(html, platform="instagram", url="https://www.instagram.com/nasa/")
+    assert parsed["status"] == "ok"
+    assert not any("CAPTCHA" in w for w in parsed["warnings"])
 
 
 def test_rdt_cli_opt_in_only(monkeypatch: pytest.MonkeyPatch) -> None:

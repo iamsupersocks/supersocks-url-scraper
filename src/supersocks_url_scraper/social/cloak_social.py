@@ -145,6 +145,15 @@ def _clean_text(value: object) -> str:
     return " ".join(text.split())
 
 
+def _strip_embedded_markup(markup: str) -> str:
+    """Remove embedded code/comments so gate heuristics ignore in-script markers."""
+    text = markup or ""
+    text = re.sub(r"<!--.*?-->", " ", text, flags=re.S)
+    for tag in ("script", "style", "noscript", "template"):
+        text = re.sub(rf"<{tag}\b[^>]*>.*?</{tag}>", " ", text, flags=re.I | re.S)
+    return text
+
+
 def _meta_content(markup: str, *, name: str | None = None, prop: str | None = None) -> str:
     attr = "name" if name else "property"
     key = name or prop
@@ -191,7 +200,8 @@ def _json_ld_nodes(markup: str) -> list[dict[str, Any]]:
 
 def detect_social_gate(markup: str, *, platform: str) -> str | None:
     """Return a gate reason when login/CAPTCHA/consent blocks useful extraction."""
-    blob = _clean_text(markup).lower()
+    visible = _strip_embedded_markup(markup)
+    blob = _clean_text(visible).lower()
     if not blob:
         return "empty page"
     if any(marker in blob for marker in _CAPTCHA_MARKERS):
@@ -209,7 +219,7 @@ def detect_social_gate(markup: str, *, platform: str) -> str | None:
         return "login/auth wall"
     if platform == "facebook" and ("log into facebook" in blob or "créer un compte" in blob) and not useful_meta:
         return "login/auth wall"
-    if platform == "reddit" and ("log in" in blob and "sign up" in blob) and "shreddit-post" not in (markup or "").lower() and not useful_meta:
+    if platform == "reddit" and ("log in" in blob and "sign up" in blob) and "shreddit-post" not in visible.lower() and not useful_meta:
         return "login/auth wall"
     if any(marker in blob for marker in _CONSENT_MARKERS) and len(blob) < 600 and not useful_meta:
         return "consent wall"
@@ -394,7 +404,6 @@ def _missing_profile_result(
     *,
     platform: str,
     length: int,
-    profile_dir: str,
 ) -> dict[str, Any]:
     max_chars = max(50, min(int(length or 900), 10_000))
     return {
@@ -406,7 +415,7 @@ def _missing_profile_result(
         "fetch_method": "cloak-profile",
         "status": "error",
         "warnings": [
-            f"configured social Cloak profile does not exist: {Path(profile_dir).name}; "
+            "configured social Cloak profile is absent; "
             "initialize once with scripts/browser_profile_probe.py under an existing DISPLAY, "
             "then retry. Cookies stay inside the operator-provided profile only.",
         ],
@@ -441,7 +450,7 @@ def extract_cloak_social(
 
     profile_dir = resolve_social_profile_dir(browser_profile_dir, environ=environ)
     if profile_dir and require_existing_profile and not Path(profile_dir).expanduser().exists():
-        return _missing_profile_result(url, platform=platform_id, length=length, profile_dir=profile_dir)
+        return _missing_profile_result(url, platform=platform_id, length=length)
 
     resolved_headless = resolve_social_headless(headless, environ=environ)
     fetch = cloak_fetcher
@@ -459,28 +468,6 @@ def extract_cloak_social(
             max_concurrency=max(1, int(browser_max_concurrency or 1)),
             headless=resolved_headless,
         )
-    except TypeError:
-        # Test doubles or older callables may omit headless.
-        try:
-            page = fetch(
-                url,
-                timeout_seconds=float(timeout),
-                post_load_wait_ms=int(browser_post_load_wait_ms),
-                profile_dir=profile_dir,
-                max_concurrency=max(1, int(browser_max_concurrency or 1)),
-            )
-        except Exception as exc:  # noqa: BLE001
-            return {
-                "url": url,
-                "content_type": "article",
-                "title": None,
-                "summary": "",
-                "length": max(50, min(int(length or 900), 10_000)),
-                "fetch_method": "cloak-profile" if profile_dir else "cloak",
-                "status": "error",
-                "warnings": [f"cloak social render failed: {redact_secrets(str(exc))}"],
-                "platform": platform_id,
-            }
     except Exception as exc:  # noqa: BLE001
         return {
             "url": url,
