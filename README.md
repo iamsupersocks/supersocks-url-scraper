@@ -403,6 +403,25 @@ An aggregate model-level snapshot is available in
 contains only counts and medians; live listing data and target details remain
 outside the repository.
 
+## Blue-Eyes White Dragon / Dragon Blanc analysis
+
+For a public, edition-first analysis of Blue-Eyes White Dragon / Dragon Blanc
+aux Yeux Bleus, see
+[`docs/BLUE_EYES_WHITE_DRAGON_SCRAPING_METHOD.md`](docs/BLUE_EYES_WHITE_DRAGON_SCRAPING_METHOD.md)
+and
+[`examples/blue_eyes_white_dragon_analysis.py`](examples/blue_eyes_white_dragon_analysis.py).
+The example uses the same HTTP → SEO → browser primitives, redacts seller
+identities, keeps version-floor prices separate from live offers, segments by
+condition/language/rarity/edition/graded when exposed, and stops on hard access
+challenges instead of bypassing them.
+
+A dated aggregate snapshot is available in
+[`docs/BLUE_EYES_WHITE_DRAGON_ANALYSIS_REPORT.md`](docs/BLUE_EYES_WHITE_DRAGON_ANALYSIS_REPORT.md)
+with the accessible SVG
+[`docs/assets/blue-eyes-white-dragon-breakdown.svg`](docs/assets/blue-eyes-white-dragon-breakdown.svg).
+Raw HTML and seller-bearing dumps stay out of the repository. The marketplace
+provider is named only in the bounded Source et provenance sections.
+
 ## HTTP service
 
 Start the service:
