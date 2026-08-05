@@ -1543,3 +1543,142 @@ def test_published_deep_manifest_does_not_claim_live_from_extraction() -> None:
     assert "reused" in note or "baseline" in note
     assert "not newly extracted" in note
     assert "0/177" in note
+
+
+def test_classify_valuation_segment_taxonomy(cm_example: ModuleType) -> None:
+    row = cm_example.classify_valuation_segment(
+        printed_code="LOB-001",
+        edition="1st Edition",
+        language="English",
+        region="en-NA",
+        graded=True,
+        grade="PSA 10",
+        price_source_type="pricecharting_market",
+        amount="45000.00",
+        currency="USD",
+    )
+    assert row["edition_class"] == "first_edition"
+    assert row["finish_class"] == "graded"
+    assert row["is_historical_landmark"] is True
+    assert row["usable_as_card_price"] is True
+    assert row["currency"] == "USD"
+    unknown_tile = cm_example.classify_valuation_segment(
+        expansion="Legend of Blue Eyes White Dragon LDD",
+        product_path="/en/YuGiOh/Products/Singles/Legend-of-Blue-Eyes-White-Dragon-LDD/Blue-Eyes-White-Dragon-V1-Ultra-Rare",
+        price_source_type="asking_floor",
+        amount="12.00",
+        currency="EUR",
+    )
+    assert unknown_tile["set_or_card_code"] is None
+    assert unknown_tile["edition_class"] == "unknown"
+    assert unknown_tile["usable_as_card_price"] is False
+
+
+def test_refuse_global_aggregate_as_card_price(cm_example: ModuleType) -> None:
+    stats = {"n": 175, "median": 5.0}
+    with pytest.raises(ValueError, match="NOT_A_CARD_PRICE|Refusing"):
+        cm_example.refuse_global_aggregate_as_card_price(stats, claim="card_price")
+    with pytest.raises(ValueError, match="Refusing"):
+        cm_example.refuse_global_aggregate_as_card_price(stats, claim="first_edition")
+    inspected = cm_example.refuse_global_aggregate_as_card_price(
+        stats, claim="dispersion_only"
+    )
+    assert inspected["allowed"] is False
+    assert inspected["policy"]["usable_as_card_price"] is False
+
+
+def test_refuse_invented_printed_code_join(cm_example: ModuleType) -> None:
+    with pytest.raises(ValueError, match="invented printed-code"):
+        cm_example.refuse_invented_printed_code_join(
+            official_id_product=12345,
+            official_id_expansion=99,
+            printed_code="LOB-001",
+            official_payload_has_printed_code=False,
+        )
+    # Explicit absence is fine.
+    cm_example.refuse_invented_printed_code_join(
+        official_id_product=12345,
+        printed_code=None,
+    )
+    # Only allowed when the official payload itself carries the code.
+    cm_example.refuse_invented_printed_code_join(
+        official_id_product=12345,
+        printed_code="LOB-001",
+        official_payload_has_printed_code=True,
+    )
+
+
+def test_external_comps_registry_validation_and_no_mixing(cm_example: ModuleType) -> None:
+    registry = cm_example.build_external_comps_registry(accessed_on="2026-08-05")
+    assert registry["separated_from_cardmarket_177"] is True
+    assert registry["mixing_with_cardmarket_metrics_forbidden"] is True
+    assert cm_example.validate_external_comps_registry(registry) == []
+    codes = {row.get("printed_code") for row in registry["comps"]}
+    assert {"LOB-001", "LOB-E001", "LDD-F001"} <= codes
+    asking = [
+        row
+        for row in registry["comps"]
+        if row["price_source_type"] in {"asking_floor", "asking_offer"}
+    ]
+    assert asking
+    for row in asking:
+        assert "asking" in row["notes"].lower()
+        assert row["currency"] in {"EUR", "USD"}
+    # No Cardmarket metric keys mixed into comps rows.
+    for row in registry["comps"]:
+        for banned in ("low", "trend", "avg", "avg1", "from_cents"):
+            assert banned not in row
+    # Populations stay separate from published official join metrics.
+    repo = Path(__file__).resolve().parents[1]
+    official = json.loads(
+        (
+            repo / "docs/data/blue-eyes-white-dragon-official-join-manifest-2026-08-04.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert official["market_statistics"]["metrics"]["low"]["median"] == "5"
+    assert registry["population"] == "external_comps"
+    assert official.get("valuation_separation", {}).get("mixing_forbidden") is True
+
+
+def test_published_external_comps_artifact_and_invariants(cm_example: ModuleType) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    path = repo / "docs/data/blue-eyes-white-dragon-external-comps-2026-08-05.json"
+    assert path.exists()
+    registry = json.loads(path.read_text(encoding="utf-8"))
+    assert cm_example.validate_external_comps_registry(registry) == []
+    cm_example.assert_corpus_invariants_177_102(
+        exact_paths=177,
+        id_expansion_count=102,
+        priced_floors=175,
+    )
+    coverage_csv = repo / "docs/data/blue-eyes-white-dragon-coverage-2026-08-04.csv"
+    floors_csv = repo / "docs/data/blue-eyes-white-dragon-version-floors-2026-08-04.csv"
+    coverage_rows = list(csv.DictReader(coverage_csv.open(encoding="utf-8")))
+    floor_rows = list(csv.DictReader(floors_csv.open(encoding="utf-8")))
+    assert len(coverage_rows) == 177
+    assert len(floor_rows) == 175
+    expansions = {row["expansion"] for row in floor_rows}
+    assert len(expansions) == 102
+    report = (repo / "docs/BLUE_EYES_WHITE_DRAGON_ANALYSIS_REPORT.md").read_text(encoding="utf-8")
+    assert "NOT_A_CARD_PRICE" in report or "ne sont pas la" in report
+    assert "LOB-001" in report and "LOB-E001" in report and "LDD-F001" in report
+    assert "asking" in report.lower()
+    svg = (repo / "docs/assets/blue-eyes-white-dragon-valuation-bands.svg").read_text(
+        encoding="utf-8"
+    )
+    assert "NOT_A_CARD_PRICE" in svg
+    assert "tens of thousands" in svg
+
+
+def test_summarize_populations_marks_global_stats_not_card_price(
+    cm_example: ModuleType,
+) -> None:
+    floors = cm_example.parse_version_floor_cards(
+        SYNTHETIC_VERSIONS_HTML,
+        source_url="https://www.cardmarket.com/en/YuGiOh/Cards/Blue-Eyes-White-Dragon/Versions",
+    )
+    summary = cm_example.summarize_populations(floors, [])
+    policy = summary["version_floors"]["stats_policy"]
+    assert policy["usable_as_card_price"] is False
+    assert policy["label"] == "NOT_A_CARD_PRICE"
+    assert summary["valuation_separation"]["mixing_forbidden"] is True

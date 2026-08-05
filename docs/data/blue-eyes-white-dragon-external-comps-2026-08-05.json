@@ -1,0 +1,185 @@
+{
+  "access_note": "URLs and values transcribed from public pages on accessed_on; no aggressive scraping, no seller identities.",
+  "cardmarket_corpus_invariants": {
+    "exact_blue_eyes_paths": 177,
+    "idExpansion_count": 102,
+    "note": "177/102 describe Cardmarket HTML/official populations only. External comps are a different population."
+  },
+  "comps": [
+    {
+      "accessed_on": "2026-08-05",
+      "amount": null,
+      "comp_id": "psa-cardfacts-lob-001-1st-identity",
+      "condition_or_grade": "identity_page",
+      "currency": null,
+      "edition_class": "first_edition",
+      "finish_class": "graded",
+      "language_region": "en-NA",
+      "notes": "Identity/population page for Blue-Eyes White Dragon 1st Edition (LOB #001). PSA Price Guide on page: NM-MT 8 $2,300; Mint 9 $4,500; Gem Mint 10 $40,000. Population Gem Mint 10 = 106. Not a Cardmarket metric.",
+      "price_source_type": "official_catalog_identity",
+      "printed_code": "LOB-001",
+      "related_amounts": [
+        {
+          "amount": "2300",
+          "currency": "USD",
+          "label": "psa_price_guide_nm_mt_8",
+          "price_source_type": "psa_price_guide"
+        },
+        {
+          "amount": "4500",
+          "currency": "USD",
+          "label": "psa_price_guide_mint_9",
+          "price_source_type": "psa_price_guide"
+        },
+        {
+          "amount": "40000",
+          "currency": "USD",
+          "label": "psa_price_guide_gem_mt_10",
+          "price_source_type": "psa_price_guide"
+        },
+        {
+          "amount": "33600",
+          "currency": "USD",
+          "label": "psa_apr_gem_mt_10_goldin_2023-03-08",
+          "price_source_type": "psa_auction_realized"
+        }
+      ],
+      "source_name": "PSA CardFacts",
+      "source_url": "https://www.psacard.com/cardfacts/non-sports-cards/2002-yu-gi-oh-legend-blue-eyes-white-dragon/blue-eyes-white-dragon-1st-edition-001/704863"
+    },
+    {
+      "accessed_on": "2026-08-05",
+      "amount": "2100.00",
+      "comp_id": "pricecharting-lob-001-1st-ungraded",
+      "condition_or_grade": "ungraded_market",
+      "currency": "USD",
+      "edition_class": "first_edition",
+      "finish_class": "raw",
+      "language_region": "en-NA",
+      "notes": "Market guide for ungraded LOB-001 1st Edition (USD). Recent completed sales on the same page often land in the low-to-mid thousands USD. Separate from Cardmarket low/trend/avg.",
+      "price_source_type": "pricecharting_market",
+      "printed_code": "LOB-001",
+      "source_name": "PriceCharting",
+      "source_url": "https://www.pricecharting.com/game/yugioh-legend-of-blue-eyes-white-dragon/blue-eyes-white-dragon-1st-edition-lob-001"
+    },
+    {
+      "accessed_on": "2026-08-05",
+      "amount": "45000.00",
+      "comp_id": "pricecharting-lob-001-1st-psa-10",
+      "condition_or_grade": "PSA 10",
+      "currency": "USD",
+      "edition_class": "first_edition",
+      "finish_class": "graded",
+      "language_region": "en-NA",
+      "notes": "Market guide for PSA 10 LOB-001 1st Edition (USD, tens of thousands). Grade 9 market on same page ~$8,449.50 USD.",
+      "price_source_type": "pricecharting_market",
+      "printed_code": "LOB-001",
+      "source_name": "PriceCharting",
+      "source_url": "https://www.pricecharting.com/game/yugioh-legend-of-blue-eyes-white-dragon/blue-eyes-white-dragon-1st-edition-lob-001"
+    },
+    {
+      "accessed_on": "2026-08-05",
+      "amount": "455.91",
+      "comp_id": "pricecharting-lob-e001-1st-ungraded",
+      "condition_or_grade": "ungraded_market",
+      "currency": "USD",
+      "edition_class": "first_edition",
+      "finish_class": "raw",
+      "language_region": "en-EU",
+      "notes": "European English LOB-E001 1st Edition ungraded market (hundreds USD). Grade 9 market ~$3,377.77 USD. Not interchangeable with NA LOB-001.",
+      "price_source_type": "pricecharting_market",
+      "printed_code": "LOB-E001",
+      "source_name": "PriceCharting",
+      "source_url": "https://www.pricecharting.com/game/yugioh-legend-of-blue-eyes-white-dragon/blue-eyes-white-dragon-1st-edition-lob-e001"
+    },
+    {
+      "accessed_on": "2026-08-05",
+      "amount": null,
+      "comp_id": "konami-db-ldd-f001-identity",
+      "condition_or_grade": "official_print_identity",
+      "currency": null,
+      "edition_class": "unknown",
+      "finish_class": "raw",
+      "language_region": "fr",
+      "notes": "Official FR database lists LDD-F001 — LA LÉGENDE DU DRAGON BLANC AUX YEUX BLEUS — Ultra Rare, first French TCG appearance 2002-03-08. Identity only; no market price on Konami DB.",
+      "price_source_type": "official_catalog_identity",
+      "printed_code": "LDD-F001",
+      "source_name": "Konami Yu-Gi-Oh! Neuron Card Database",
+      "source_url": "https://www.db.yugioh-card.com/yugiohdb/card_search.action?ope=2&cid=4007&request_locale=fr"
+    },
+    {
+      "accessed_on": "2026-08-04",
+      "amount": "12.00",
+      "comp_id": "cardmarket-ldd-v1-asking-floor",
+      "condition_or_grade": "unknown_on_versions_tile",
+      "currency": "EUR",
+      "edition_class": "reprint_unknown_edition",
+      "finish_class": "raw",
+      "language_region": "mixed",
+      "linked_cardmarket_path_only": true,
+      "notes": "French-set LDD product path From floor in the 2026-08-04 snapshot. ASKING floor only — not a concluded sale. Edition (1st vs Unlimited) is absent on Versions tiles; must NOT be read as LDD-F001 1st Edition cote.",
+      "price_source_type": "asking_floor",
+      "printed_code": null,
+      "source_name": "Cardmarket Versions tile (asking From floor)",
+      "source_url": "/en/YuGiOh/Products/Singles/Legend-of-Blue-Eyes-White-Dragon-LDD/Blue-Eyes-White-Dragon-V1-Ultra-Rare"
+    }
+  ],
+  "generated_at": "2026-08-05T00:00:00+00:00",
+  "historical_landmarks": [
+    {
+      "cardmarket_join": "none — never invent from idProduct/idExpansion",
+      "language_region": "en-NA",
+      "printed_code": "LOB-001",
+      "role": "North-American historical Ultra Rare landmark",
+      "set_name": "Legend of Blue Eyes White Dragon"
+    },
+    {
+      "cardmarket_join": "none — never invent from idProduct/idExpansion",
+      "language_region": "en-EU",
+      "printed_code": "LOB-E001",
+      "role": "European anglophone historical Ultra Rare landmark",
+      "set_name": "Legend of Blue Eyes White Dragon (European English)"
+    },
+    {
+      "cardmarket_join": "none — never invent from idProduct/idExpansion",
+      "language_region": "fr",
+      "printed_code": "LDD-F001",
+      "role": "French historical Ultra Rare landmark (Konami DB print)",
+      "set_name": "La Légende du Dragon Blanc aux Yeux Bleus"
+    }
+  ],
+  "mixing_with_cardmarket_metrics_forbidden": true,
+  "population": "external_comps",
+  "separated_from_cardmarket_177": true,
+  "taxonomy_dimensions": [
+    "set_or_card_code",
+    "edition_class",
+    "language_region",
+    "finish_class",
+    "condition_or_grade",
+    "price_source_type"
+  ],
+  "verdict": {
+    "bands": [
+      {
+        "band": "thousands_to_tens_of_thousands_USD",
+        "graded_psa_10": "tens of thousands USD (PSA guide 40k; PriceCharting ~45k)",
+        "graded_psa_9": "thousands USD (PSA guide 4.5k; PriceCharting ~8.4k)",
+        "printed_code": "LOB-001",
+        "raw_ungraded": "about 1k–4k+ USD recent sold / ~2.1k USD PriceCharting"
+      },
+      {
+        "band": "hundreds_to_thousands_USD",
+        "graded": "low thousands USD for high grades",
+        "printed_code": "LOB-E001",
+        "raw_ungraded": "hundreds USD (~456 USD PriceCharting market)"
+      },
+      {
+        "band": "identity_confirmed_asking_only_in_registry",
+        "note": "Konami confirms the French print. French/Cardmarket figures in this registry are asking floors or identity — not sales.",
+        "printed_code": "LDD-F001"
+      }
+    ],
+    "headline": "First-edition Blue-Eyes historical prints are worth hundreds, thousands, or tens of thousands depending on version and grade — never the global Cardmarket median (~5 EUR)."
+  }
+}

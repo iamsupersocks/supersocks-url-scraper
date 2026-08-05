@@ -25,6 +25,14 @@
 - HTML corpus by URL/path: **177**
 - Mapping verified: **False** — Official productList/priceGuide payloads do not expose public product URLs. HTML coverage corpus is keyed by URL/path; official corpus is keyed by idProduct. Do not invent rank-to-rank or lexical URL↔idProduct mappings.
 
+## Valuation separation
+
+- Official `low` / `trend` / `avg` medians over 177 rows are **`NOT_A_CARD_PRICE`**.
+- They must not be read as LOB-001 / LOB-E001 / LDD-F001 first-edition cotes.
+- Printed codes are never invented from `idProduct` / `idExpansion`.
+- External comps (separate population):
+  [`blue-eyes-white-dragon-external-comps-2026-08-05.json`](blue-eyes-white-dragon-external-comps-2026-08-05.json).
+
 ## Market statistics (Decimal, no float)
 
 - Rows: **177**

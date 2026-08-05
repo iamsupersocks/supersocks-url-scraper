@@ -12,9 +12,14 @@ It is intentionally narrow:
 - version floor prices and live offer rows stay in separate populations
 - edition / référence analysis prefers set label + public product path over
   global quartiles; official printed codes (`LOB-001`, …) are never invented
+- global Versions medians are labeled **`NOT_A_CARD_PRICE`** and must not be
+  read as first-edition cotes
+- external comps (PSA / PriceCharting / Konami) live in a **separate**
+  population from the Cardmarket 177 metrics
 
 For a didactic walkthrough of a dated live snapshot (edition-first tables,
-pipeline diagram, 403/429 caveats, segment tables, and reading guide), see
+pipeline diagram, 403/429 caveats, segment tables, valuation verdict, and
+reading guide), see
 [`BLUE_EYES_WHITE_DRAGON_ANALYSIS_REPORT.md`](BLUE_EYES_WHITE_DRAGON_ANALYSIS_REPORT.md).
 Do not duplicate market conclusions here — keep this file as the short operator
 howto.
@@ -94,6 +99,33 @@ Seller names, offer/article ids, cookies, and HTML are excluded.
 Published snapshot for the 2026-08-04 run:
 [`docs/data/blue-eyes-white-dragon-version-floors-2026-08-04.csv`](data/blue-eyes-white-dragon-version-floors-2026-08-04.csv)
 (header + 175 data rows).
+
+## Valuation taxonomy + external comps (offline)
+
+Regenerate the sourced/dated external comps registry (no network):
+
+```bash
+python examples/blue_eyes_white_dragon_analysis.py \
+  --export-external-comps docs/data/blue-eyes-white-dragon-external-comps-2026-08-05.json \
+  --source-date 2026-08-05
+```
+
+Taxonomy dimensions enforced in code: set/card code, edition class
+(1st / Unlimited / …), language/region, raw vs graded, condition/grade,
+price source type (`guide_low` / `asking_floor` / `sold_comp` / `psa_*` /
+`pricecharting_market` / …).
+
+Hard guards:
+
+- `refuse_global_aggregate_as_card_price()` — global medians ≠ card cote
+- `refuse_invented_printed_code_join()` — no `idProduct` → `LOB-001` invention
+- `validate_external_comps_registry()` — URL + `accessed_on` required; French
+  asking rows must stay labeled asking; landmarks LOB-001 / LOB-E001 / LDD-F001
+  must be covered; population stays separated from Cardmarket 177
+
+Artifacts:
+[`docs/data/blue-eyes-white-dragon-external-comps-2026-08-05.json`](data/blue-eyes-white-dragon-external-comps-2026-08-05.json)
+/ [`.md`](data/blue-eyes-white-dragon-external-comps-2026-08-05.md).
 
 ## What is parsed
 

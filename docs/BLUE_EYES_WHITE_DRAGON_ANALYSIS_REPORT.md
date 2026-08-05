@@ -14,10 +14,34 @@ marketplace named only in [Source et provenance](#source-et-provenance).
 Workflow docs:
 [`BLUE_EYES_WHITE_DRAGON_SCRAPING_METHOD.md`](BLUE_EYES_WHITE_DRAGON_SCRAPING_METHOD.md).
 
+> ### Verdict — premières éditions ≠ médiane des 177
+>
+> **Les médianes / planchers Cardmarket sur 175–177 impressions ne sont pas la
+> cote d’une carte.** La médiane globale **~5 €** décrit seulement la dispersion
+> de tuiles Versions incompatibles (commons de Structure Deck mélangés à des
+> Ultra/Secret/promos). Elle **ne peut pas** être lue comme le prix d’une
+> première édition.
+>
+> Les marchés historiques se lisent **par code imprimé + édition + langue +
+> raw/gradé**, avec des preuves externes séparées des 177 métriques :
+>
+> | Landmark | Bande d’ordre de grandeur (preuves externes, USD sauf mention) |
+> | --- | --- |
+> | **LOB-001** (EN Amérique du Nord, 1st) | **milliers** raw ; **milliers → dizaines de milliers** en PSA 9 / PSA 10 |
+> | **LOB-E001** (EN Europe, 1st) | **centaines** raw ; **milliers** en hauts grades |
+> | **LDD-F001** (FR, print officiel Konami) | identité confirmée ; annonces FR = **asking**, pas ventes conclues |
+>
+> Registre sourcé/daté :
+> [`docs/data/blue-eyes-white-dragon-external-comps-2026-08-05.json`](data/blue-eyes-white-dragon-external-comps-2026-08-05.json)
+> · [`.md`](data/blue-eyes-white-dragon-external-comps-2026-08-05.md).
+> Visuel d’ordre de grandeur :
+> [`assets/blue-eyes-white-dragon-valuation-bands.svg`](assets/blue-eyes-white-dragon-valuation-bands.svg).
+
 **Read this report edition-first.** Blue-Eyes / Dragon Blanc is not one SKU.
 The useful unit is a public **version / product reference** (set label +
 product path + optional Vn + rarity), not a global quartile across 175
-incompatible tiles.
+incompatible tiles. Global aggregates are labeled **`NOT_A_CARD_PRICE`** in
+code (`GLOBAL_AGGREGATE_POLICY` / `refuse_global_aggregate_as_card_price()`).
 
 ## What this analysis can and cannot say
 
@@ -164,16 +188,68 @@ print versions (V1, V2, …), languages, conditions, and editions. A Structure
 Deck common at **0.02 €** and a Duel Terminal Preview floor at **1999.99 €**
 are both “Blue-Eyes” listings, but they are not comparable.
 
-Two populations must stay separate:
+Cardmarket populations must stay separate from each other **and** from external
+comps:
 
 | Population | Where it comes from | What one row means |
 | --- | --- | --- |
 | `version_floor` | Versions overview tiles | Product-level **From** price for one version path — not a seller offer |
 | `offer` | Product / card `article-row` blocks | One anonymized live listing on that page |
+| `external_comps` | PSA / PriceCharting / Konami registry | Sourced landmark evidence — **not** merged into 177 metrics |
 
 Averaging floors with offers, or merging offers across product URLs into one
 median, silently invents a fake “Blue-Eyes price”. The example refuses that
-merge in `summarize_populations()`.
+merge in `summarize_populations()` and refuses treating global floor stats as a
+card cote via `refuse_global_aggregate_as_card_price()`.
+
+## Taxonomie de valorisation (segments)
+
+Toute cote honnête nomme ces dimensions — pas une médiane globale :
+
+| Dimension | Valeurs typiques | Où ça vit |
+| --- | --- | --- |
+| **Set / card code** | `LOB-001`, `LOB-E001`, `LDD-F001`, ou *absent* | Code imprimé officiel **ou** label d’expansion + path public (jamais inventé depuis `idProduct`) |
+| **Édition** | `first_edition` / `unlimited` / `limited` / `reprint_unknown_edition` / `unknown` | Offers (tooltip) ; **absent** des tuiles Versions |
+| **Langue / région** | `en-NA`, `en-EU`, `fr`, … | Offers + landmarks historiques |
+| **Raw vs graded** | `raw` / `graded` | Offers (`PSA\|BGS\|CGC\|SGC`) ; sample 2026-08-04 : **0** graded |
+| **État / grade** | Near Mint, PSA 9, … | Offers / preuves externes |
+| **Source / type de prix** | `guide_low` / `guide_trend` / `guide_avg` / `asking_floor` / `asking_offer` / `sold_comp` / `psa_*` / `pricecharting_market` | Cardmarket guide ≠ Versions From ≠ vente conclue |
+
+Helpers : `classify_valuation_segment()`, `PRICE_SOURCE_TYPES`,
+`historical_landmark_catalog()`.
+
+### Landmarks historiques (pas de jointure inventée)
+
+| Code | Région | Rôle |
+| --- | --- | --- |
+| **LOB-001** | EN Amérique du Nord | Ultra Rare historique LOB |
+| **LOB-E001** | EN Europe | Ultra Rare historique européen anglophone |
+| **LDD-F001** | FR | Ultra Rare historique français (Konami Neuron `cid=4007`, set LDD 2002-03-08) |
+
+Les payloads officiels Cardmarket `productList` / `priceGuide` exposent
+`idProduct` / `idExpansion` **sans** code imprimé. Le pipeline
+**refuse** (`refuse_invented_printed_code_join`) toute jointure
+`idProduct` → `LOB-001` inventée.
+
+## Preuves externes (population séparée des 177)
+
+Les valeurs ci-dessous **ne sont pas** des métriques Cardmarket `low` /
+`trend` / `avg`. Devise et type de prix restent explicites. Accès manuel
+daté **2026-08-05** (pas de scraping agressif).
+
+| Preuve | Code | Type | Montant | Devise | Accès |
+| --- | --- | --- | ---: | --- | --- |
+| PSA CardFacts + Price Guide | LOB-001 1st | guide PSA / identité | 2 300 / 4 500 / **40 000** (8 / 9 / 10) | USD | [CardFacts](https://www.psacard.com/cardfacts/non-sports-cards/2002-yu-gi-oh-legend-blue-eyes-white-dragon/blue-eyes-white-dragon-1st-edition-001/704863) |
+| PSA APR Gem Mint 10 (Goldin 2023-03-08) | LOB-001 1st | vente / enchère réalisée | **33 600** | USD | même page CardFacts |
+| PriceCharting market | LOB-001 1st raw | market guide (sold-based) | **2 100.00** | USD | [PC LOB-001 1st](https://www.pricecharting.com/game/yugioh-legend-of-blue-eyes-white-dragon/blue-eyes-white-dragon-1st-edition-lob-001) |
+| PriceCharting market | LOB-001 1st PSA 10 | market guide | **45 000.00** | USD | idem |
+| PriceCharting market | LOB-E001 1st raw | market guide | **455.91** | USD | [PC LOB-E001 1st](https://www.pricecharting.com/game/yugioh-legend-of-blue-eyes-white-dragon/blue-eyes-white-dragon-1st-edition-lob-e001) |
+| Konami Neuron DB | LDD-F001 | identité officielle | — | — | [cid=4007 FR](https://www.db.yugioh-card.com/yugiohdb/card_search.action?ope=2&cid=4007&request_locale=fr) |
+| Cardmarket Versions From | path LDD V1 Ultra (pas de code imprimé sur la tuile) | **asking floor** | 12.00 | EUR | snapshot 2026-08-04 |
+
+Les annonces / planchers français (et le From LDD ci-dessus) sont des
+**asking prices**, pas des ventes conclues. Le From **12 €** mélange éditions
+inconnues sur la tuile — ce n’est **pas** la cote d’une LDD-F001 1st.
 
 ## Field audit — what identifies a référence / édition
 
@@ -425,7 +501,9 @@ dedupe, cookies, raw HTML. Σ `available_count` across the CSV = **78,357**
 
 ## Secondary context — global version-floor quartiles
 
-**Secondary only.** Across all 175 incompatible tiles:
+> **`NOT_A_CARD_PRICE`.** Across all 175 incompatible tiles. These numbers are
+> **forbidden** as the price of LOB-001 / LOB-E001 / LDD-F001 or any first
+> edition. Prefer landmarks + external comps above, then expansion tables.
 
 | Stat | EUR |
 | --- | ---: |
@@ -437,8 +515,9 @@ dedupe, cookies, raw HTML. Σ `available_count` across the CSV = **78,357**
 | max | 1999.99 |
 | Sum of displayed “Available” counts | 78,357 |
 
-Use this table to describe dispersion of the Versions page, not to price a
-card you intend to buy. Prefer the expansion and reference tables above.
+Use this table only to describe dispersion of the Versions page.
+`refuse_global_aggregate_as_card_price()` raises if code tries to treat it as a
+card cote.
 
 ### Median From-price by parsed rarity (still not edition-safe)
 
@@ -761,7 +840,12 @@ fetch succeeded.
 7. First-page bias: marketplace sort/filters choose which ≤50 offers you see.
 8. Do not cite the non-canonical FR slug probe as proof about the canonical FR
    hub that was never fetched.
-9. Do not invent `LOB-001`-style codes from expansion names.
+9. Do not invent `LOB-001`-style codes from expansion names or from
+   `idProduct` / `idExpansion`.
+10. Do not read the global ~5 € median / official guide medians as a first-edition
+    cote — see the verdict box and external comps registry.
+11. French marketplace figures in the comps registry are **asking** prices unless
+    a row explicitly says `sold_comp` / auction realized.
 
 ## What was verified offline
 
@@ -779,6 +863,8 @@ fetch succeeded.
 - `--from-json` offline export path
 - coverage helpers: Versions refs including `From N/A`, Search `site=` stop
   proofs, path dedupe/resume, coverage CSV sanitization
+- valuation taxonomy / external comps validation / `NOT_A_CARD_PRICE` guard /
+  refusal of invented printed-code joins / 177/102 invariants
 
 Fixtures are synthetic HTML only.
 

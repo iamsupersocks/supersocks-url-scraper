@@ -22,6 +22,10 @@
 This crawl does **not** claim the full historical official Konami catalog, deleted listings,
 private inventory, or complete offer pagination.
 
+Coverage **177/102** counts are catalog completeness — **not** a first-edition price.
+Global Versions medians remain `NOT_A_CARD_PRICE`. External comps:
+[`blue-eyes-white-dragon-external-comps-2026-08-05.json`](blue-eyes-white-dragon-external-comps-2026-08-05.json).
+
 ## Comparison to prior corpus (175 paths / 102 expansions)
 
 - Prior unique paths: **175**

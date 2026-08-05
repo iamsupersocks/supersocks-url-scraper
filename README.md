@@ -417,8 +417,13 @@ challenges instead of bypassing them.
 
 A dated aggregate snapshot is available in
 [`docs/BLUE_EYES_WHITE_DRAGON_ANALYSIS_REPORT.md`](docs/BLUE_EYES_WHITE_DRAGON_ANALYSIS_REPORT.md)
-with the accessible SVG
-[`docs/assets/blue-eyes-white-dragon-breakdown.svg`](docs/assets/blue-eyes-white-dragon-breakdown.svg).
+with accessible SVGs
+[`docs/assets/blue-eyes-white-dragon-breakdown.svg`](docs/assets/blue-eyes-white-dragon-breakdown.svg)
+and
+[`docs/assets/blue-eyes-white-dragon-valuation-bands.svg`](docs/assets/blue-eyes-white-dragon-valuation-bands.svg)
+(first-edition order-of-magnitude bands vs the global Versions median, which is
+**not** a card price). External comps live in
+[`docs/data/blue-eyes-white-dragon-external-comps-2026-08-05.json`](docs/data/blue-eyes-white-dragon-external-comps-2026-08-05.json).
 Raw HTML and seller-bearing dumps stay out of the repository. The marketplace
 provider is named only in the bounded Source et provenance sections.
 
