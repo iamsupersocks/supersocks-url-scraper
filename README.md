@@ -388,41 +388,37 @@ python3 scripts/seed_strategy_cache.py \
 
 `data/` is gitignored. Never commit real URLs, domains, cookies, fetched content, raw HTML, browser profiles, screenshots, tokens, or local private seeds. The discovery helper writes only metadata like `{"fetch_method":"cloak-profile","success_count":1}` keyed by normalized domain.
 
-## Structured RTX price example
+## Case study: RTX prices
 
-For a dynamic search page that embeds listing records in JSON, see
-[`docs/GENERIC_RTX_PRICE_EXAMPLE.md`](docs/GENERIC_RTX_PRICE_EXAMPLE.md) and
-[`examples/generic_rtx_prices.py`](examples/generic_rtx_prices.py). The example
-keeps the target URL and field mapping local, uses the existing HTTP/SEO/browser
-fetch primitives, filters RTX listings, converts EUR values, deduplicates by
-listing id, and reports `ok`/`partial`/`error` with page-level warnings. It does
-not store live HTML or provide a bypass flow.
+For a dynamic search page that embeds listing records in JSON, see the consolidated
+case study [`docs/CASE_STUDY_RTX_PRICES.md`](docs/CASE_STUDY_RTX_PRICES.md) and
+[`examples/generic_rtx_prices.py`](examples/generic_rtx_prices.py). The study
+covers objectif → parcours du scraper → limites → résultats → reproduction: local
+URL/field mapping, HTTP/SEO/browser fetch primitives, RTX filtering, EUR
+normalization, dedupe by listing id, `ok`/`partial`/`error` reporting, and a
+sanitized aggregate model-level snapshot (counts and medians only). It does not
+store live HTML or provide a bypass flow.
 
-An aggregate model-level snapshot is available in
-[`docs/RTX_PRICE_ANALYSIS_REPORT.md`](docs/RTX_PRICE_ANALYSIS_REPORT.md). It
-contains only counts and medians; live listing data and target details remain
-outside the repository.
-
-## Blue-Eyes White Dragon / Dragon Blanc analysis
+## Case study: Blue-Eyes White Dragon / Dragon Blanc
 
 For a public, edition-first analysis of Blue-Eyes White Dragon / Dragon Blanc
-aux Yeux Bleus, see
-[`docs/BLUE_EYES_WHITE_DRAGON_SCRAPING_METHOD.md`](docs/BLUE_EYES_WHITE_DRAGON_SCRAPING_METHOD.md)
+aux Yeux Bleus, see the consolidated case study
+[`docs/CASE_STUDY_BLUE_EYES_WHITE_DRAGON.md`](docs/CASE_STUDY_BLUE_EYES_WHITE_DRAGON.md)
 and
 [`examples/blue_eyes_white_dragon_analysis.py`](examples/blue_eyes_white_dragon_analysis.py).
-The example uses the same HTTP → SEO → browser primitives, redacts seller
+The study uses the same HTTP → SEO → browser primitives, redacts seller
 identities, keeps version-floor prices separate from live offers, segments by
 condition/language/rarity/edition/graded when exposed, and stops on hard access
 challenges instead of bypassing them.
 
-A dated aggregate snapshot is available in
-[`docs/BLUE_EYES_WHITE_DRAGON_ANALYSIS_REPORT.md`](docs/BLUE_EYES_WHITE_DRAGON_ANALYSIS_REPORT.md)
-with accessible SVGs
+Accessible SVGs:
 [`docs/assets/blue-eyes-white-dragon-breakdown.svg`](docs/assets/blue-eyes-white-dragon-breakdown.svg)
 and
 [`docs/assets/blue-eyes-white-dragon-valuation-bands.svg`](docs/assets/blue-eyes-white-dragon-valuation-bands.svg)
 (first-edition order-of-magnitude bands vs the global Versions median, which is
-**not** a card price). External comps live in
+**not** a card price). Future hero visual path:
+[`docs/assets/blue-eyes-supersocks-case-study.png`](docs/assets/blue-eyes-supersocks-case-study.png)
+(binary not shipped yet). External comps live in
 [`docs/data/blue-eyes-white-dragon-external-comps-2026-08-05.json`](docs/data/blue-eyes-white-dragon-external-comps-2026-08-05.json).
 Raw HTML and seller-bearing dumps stay out of the repository. The marketplace
 provider is named only in the bounded Source et provenance sections.
