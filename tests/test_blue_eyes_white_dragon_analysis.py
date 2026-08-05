@@ -1670,6 +1670,47 @@ def test_published_external_comps_artifact_and_invariants(cm_example: ModuleType
     assert "tens of thousands" in svg
 
 
+def test_valuation_bands_svg_labels_within_viewbox() -> None:
+    """Deterministic guard: text labels and bar rects must fit inside the SVG viewBox."""
+    repo = Path(__file__).resolve().parents[1]
+    svg_path = repo / "docs/assets/blue-eyes-white-dragon-valuation-bands.svg"
+    svg = svg_path.read_text(encoding="utf-8")
+
+    vb_match = re.search(r'viewBox="0\s+0\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)"', svg)
+    assert vb_match, "viewBox missing"
+    vb_w = float(vb_match.group(1))
+
+    # Conservative sans-serif width estimate (font-size px * char count * ratio).
+    char_width_ratio = {14: 0.62, 15: 0.65, 26: 0.58}
+
+    for attrs, content in re.findall(r"<text\b([^>]*)>([^<]*)</text>", svg):
+        text = content.strip()
+        if not text:
+            continue
+        x_match = re.search(r'\bx="(\d+(?:\.\d+)?)"', attrs)
+        if not x_match:
+            continue
+        x = float(x_match.group(1))
+        fs_match = re.search(r'font-size="(\d+(?:\.\d+)?)"', attrs)
+        font_size = float(fs_match.group(1)) if fs_match else 14.0
+        ratio = char_width_ratio.get(int(font_size), 0.62)
+        est_width = len(text) * font_size * ratio
+        right = x + est_width
+        assert right <= vb_w + 0.5, (
+            f"Label {text!r} at x={x} exceeds viewBox width {vb_w} "
+            f"(estimated right edge {right:.1f})"
+        )
+
+    for attrs in re.findall(r"<rect\b([^>]*)/>", svg):
+        if 'fill="#f0f4f8"' in attrs:
+            continue
+        x_match = re.search(r'\bx="(\d+(?:\.\d+)?)"', attrs)
+        w_match = re.search(r'\bwidth="(\d+(?:\.\d+)?)"', attrs)
+        if x_match and w_match:
+            right = float(x_match.group(1)) + float(w_match.group(1))
+            assert right <= vb_w + 0.5, f"Bar rect exceeds viewBox width (right={right})"
+
+
 def test_summarize_populations_marks_global_stats_not_card_price(
     cm_example: ModuleType,
 ) -> None:

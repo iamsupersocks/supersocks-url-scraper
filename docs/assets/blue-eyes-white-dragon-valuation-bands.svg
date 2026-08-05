@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="560" viewBox="0 0 1320 560" role="img" aria-labelledby="be-val-title be-val-desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1480" height="560" viewBox="0 0 1480 560" role="img" aria-labelledby="be-val-title be-val-desc">
   <style>
     .title,.bar-label,.value,.band{font-family:IBM Plex Sans,Segoe UI,sans-serif}
     .title{font-weight:650;fill:#102a43}
@@ -13,7 +13,7 @@
   </style>
   <title id="be-val-title">Blue-Eyes valuation bands vs global Versions median</title>
   <desc id="be-val-desc">Order-of-magnitude comparison: Cardmarket global Versions median is NOT a card price. LOB-E001 1st raw is hundreds USD; LOB-001 1st raw is thousands USD; LOB-001 PSA 10 is tens of thousands USD. External comps accessed 2026-08-05.</desc>
-  <rect width="1320" height="560" fill="#f0f4f8"/>
+  <rect width="1480" height="560" fill="#f0f4f8"/>
   <text class="title" x="40" y="44" font-size="26">Blue-Eyes - valuation bands (not one SKU)</text>
   <text class="subtitle" x="40" y="72" font-size="15">External comps (USD) vs Cardmarket global Versions median (EUR) - accessed 2026-08-05</text>
   <text class="warn" x="40" y="96" font-size="15">Global ~5 EUR median = NOT_A_CARD_PRICE - first editions = hundreds / thousands / tens of thousands</text>
