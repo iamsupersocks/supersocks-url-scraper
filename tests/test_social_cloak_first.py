@@ -81,6 +81,17 @@ CAPTCHA_HTML = """
 </body></html>
 """
 
+REDDIT_HUMANITY_HTML = """
+<html><head>
+<title>Reddit - Prove your humanity</title>
+<meta property="og:title" content="Misleading cached post title" />
+<meta property="og:description" content="A long enough description that could otherwise look like useful content if the challenge gate missed this Reddit anti-bot page." />
+</head><body>
+<h1>Prove your humanity</h1>
+<p>Complete the challenge to continue to Reddit.</p>
+</body></html>
+"""
+
 
 @pytest.mark.parametrize(
     ("url", "expected"),
@@ -122,6 +133,23 @@ def test_parse_reddit_instagram_facebook_html() -> None:
     fb = parse_cloak_social_html(FACEBOOK_HTML, platform="facebook", url="https://www.facebook.com/zuck")
     assert fb["status"] == "ok"
     assert "Facebook page text" in fb["summary"]
+
+
+def test_reddit_prove_your_humanity_is_captcha_not_content() -> None:
+    assert detect_social_gate(
+        REDDIT_HUMANITY_HTML,
+        platform="reddit",
+        page_title="Reddit - Prove your humanity",
+    ) == "CAPTCHA/challenge"
+    parsed = parse_cloak_social_html(
+        REDDIT_HUMANITY_HTML,
+        platform="reddit",
+        url="https://www.reddit.com/r/test/comments/abc/title/",
+        page_title="Reddit - Prove your humanity",
+    )
+    assert parsed["status"] == "error"
+    assert any("CAPTCHA" in w for w in parsed["warnings"])
+    assert parsed["status"] != "ok"
 
 
 def test_login_and_captcha_never_ok() -> None:

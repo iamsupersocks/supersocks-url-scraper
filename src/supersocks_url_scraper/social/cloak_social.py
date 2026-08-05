@@ -45,6 +45,7 @@ _CAPTCHA_MARKERS = (
     "security check",
     "unusual traffic",
     "verify you are human",
+    "prove your humanity",
     "press & hold",
 )
 _CONSENT_MARKERS = (
@@ -198,13 +199,25 @@ def _json_ld_nodes(markup: str) -> list[dict[str, Any]]:
     return nodes
 
 
-def detect_social_gate(markup: str, *, platform: str) -> str | None:
+def _visible_challenge_text(*parts: object) -> str:
+    return " ".join(_clean_text(part).lower() for part in parts if part)
+
+
+def detect_social_gate(
+    markup: str,
+    *,
+    platform: str,
+    page_title: str | None = None,
+) -> str | None:
     """Return a gate reason when login/CAPTCHA/consent blocks useful extraction."""
     visible = _strip_embedded_markup(markup)
     blob = _clean_text(visible).lower()
-    if not blob:
+    title_match = re.search(r"<title[^>]*>(.*?)</title>", visible, re.I | re.S)
+    html_title = title_match.group(1) if title_match else None
+    challenge_blob = _visible_challenge_text(blob, page_title, html_title)
+    if not challenge_blob:
         return "empty page"
-    if any(marker in blob for marker in _CAPTCHA_MARKERS):
+    if any(marker in challenge_blob for marker in _CAPTCHA_MARKERS):
         return "CAPTCHA/challenge"
     # Platform-specific login shells that dominate the page.
     login_hits = sum(1 for marker in _LOGIN_MARKERS if marker in blob)
@@ -309,7 +322,7 @@ def parse_cloak_social_html(
     """Parse rendered social HTML into the public JSON contract."""
     max_chars = max(50, min(int(length or 900), 10_000))
     warnings = list(extra_warnings or [])
-    gate = detect_social_gate(markup, platform=platform)
+    gate = detect_social_gate(markup, platform=platform, page_title=page_title)
     nodes = _json_ld_nodes(markup)
     title = (
         _meta_content(markup, prop="og:title")
@@ -351,7 +364,7 @@ def parse_cloak_social_html(
             f"(BROWSER_PROFILE_DIR / SOCIAL_BROWSER_PROFILE_DIR) or enable opt-in desktop fallback. "
             "Never automate login/MFA/CAPTCHA."
         )
-        status = "partial" if useful else "error"
+        status = "error" if gate == "CAPTCHA/challenge" else ("partial" if useful else "error")
     elif useful:
         status = "ok"
     elif title or summary:
