@@ -1659,7 +1659,7 @@ def test_published_external_comps_artifact_and_invariants(cm_example: ModuleType
     assert len(floor_rows) == 175
     expansions = {row["expansion"] for row in floor_rows}
     assert len(expansions) == 102
-    report = (repo / "docs/BLUE_EYES_WHITE_DRAGON_ANALYSIS_REPORT.md").read_text(encoding="utf-8")
+    report = (repo / "docs/CASE_STUDY_BLUE_EYES_WHITE_DRAGON.md").read_text(encoding="utf-8")
     assert "NOT_A_CARD_PRICE" in report or "ne sont pas la" in report
     assert "LOB-001" in report and "LOB-E001" in report and "LDD-F001" in report
     assert "asking" in report.lower()
