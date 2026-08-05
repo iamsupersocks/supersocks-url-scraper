@@ -78,5 +78,10 @@
   "stop_reason": "versions_announced_counter_reached_then_hard_challenges_x3_during_search_or_product_details",
   "timezone": "UTC",
   "title": "Blue-Eyes White Dragon public coverage manifest",
-  "unique_public_product_paths": 177
+  "unique_public_product_paths": 177,
+  "valuation_separation": {
+    "external_comps": "docs/data/blue-eyes-white-dragon-external-comps-2026-08-05.json",
+    "global_version_floor_median_usable_as_card_price": false,
+    "note": "Coverage 177/102 counts are catalog completeness — not a first-edition price."
+  }
 }

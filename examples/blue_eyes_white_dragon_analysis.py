@@ -767,6 +767,607 @@ def export_version_floor_references_csv(
     return text
 
 
+# ---------------------------------------------------------------------------
+# Valuation taxonomy + external comps (separate from Cardmarket 177 metrics)
+# ---------------------------------------------------------------------------
+
+PRICE_SOURCE_TYPES = frozenset(
+    {
+        "guide_low",
+        "guide_trend",
+        "guide_avg",
+        "asking_offer",
+        "asking_floor",
+        "sold_comp",
+        "psa_price_guide",
+        "psa_auction_realized",
+        "pricecharting_market",
+        "official_catalog_identity",
+    }
+)
+EDITION_CLASSES = frozenset(
+    {"first_edition", "unlimited", "limited", "reprint_unknown_edition", "unknown"}
+)
+FINISH_CLASSES = frozenset({"raw", "graded"})
+GLOBAL_AGGREGATE_POLICY: dict[str, Any] = {
+    "label": "NOT_A_CARD_PRICE",
+    "usable_as_card_price": False,
+    "usable_as_first_edition_floor": False,
+    "reason": (
+        "Global medians/quartiles over the 175/177 incompatible Blue-Eyes product "
+        "tiles mix Structure Deck commons with historical Ultra Rares and promos. "
+        "They describe dispersion on the Versions page only — never the cote of "
+        "LOB-001 / LOB-E001 / LDD-F001 or any single printed card."
+    ),
+}
+HISTORICAL_LANDMARK_CODES: tuple[str, ...] = ("LOB-001", "LOB-E001", "LDD-F001")
+PRINTED_CODE_PATTERN = re.compile(r"^[A-Z]{2,5}-[A-Z]?\d{3}$")
+EXTERNAL_COMPS_REQUIRED_FIELDS: tuple[str, ...] = (
+    "comp_id",
+    "printed_code",
+    "edition_class",
+    "language_region",
+    "finish_class",
+    "condition_or_grade",
+    "price_source_type",
+    "amount",
+    "currency",
+    "source_name",
+    "source_url",
+    "accessed_on",
+    "notes",
+)
+
+# Curated, dated external evidence. Values were transcribed from public pages
+# on accessed_on — not scraped in bulk, not merged into Cardmarket metrics.
+EXTERNAL_COMPS_SEED: tuple[dict[str, Any], ...] = (
+    {
+        "comp_id": "psa-cardfacts-lob-001-1st-identity",
+        "printed_code": "LOB-001",
+        "edition_class": "first_edition",
+        "language_region": "en-NA",
+        "finish_class": "graded",
+        "condition_or_grade": "identity_page",
+        "price_source_type": "official_catalog_identity",
+        "amount": None,
+        "currency": None,
+        "source_name": "PSA CardFacts",
+        "source_url": (
+            "https://www.psacard.com/cardfacts/non-sports-cards/"
+            "2002-yu-gi-oh-legend-blue-eyes-white-dragon/"
+            "blue-eyes-white-dragon-1st-edition-001/704863"
+        ),
+        "accessed_on": "2026-08-05",
+        "notes": (
+            "Identity/population page for Blue-Eyes White Dragon 1st Edition "
+            "(LOB #001). PSA Price Guide on page: NM-MT 8 $2,300; Mint 9 $4,500; "
+            "Gem Mint 10 $40,000. Population Gem Mint 10 = 106. Not a Cardmarket metric."
+        ),
+        "related_amounts": [
+            {
+                "label": "psa_price_guide_nm_mt_8",
+                "amount": "2300",
+                "currency": "USD",
+                "price_source_type": "psa_price_guide",
+            },
+            {
+                "label": "psa_price_guide_mint_9",
+                "amount": "4500",
+                "currency": "USD",
+                "price_source_type": "psa_price_guide",
+            },
+            {
+                "label": "psa_price_guide_gem_mt_10",
+                "amount": "40000",
+                "currency": "USD",
+                "price_source_type": "psa_price_guide",
+            },
+            {
+                "label": "psa_apr_gem_mt_10_goldin_2023-03-08",
+                "amount": "33600",
+                "currency": "USD",
+                "price_source_type": "psa_auction_realized",
+            },
+        ],
+    },
+    {
+        "comp_id": "pricecharting-lob-001-1st-ungraded",
+        "printed_code": "LOB-001",
+        "edition_class": "first_edition",
+        "language_region": "en-NA",
+        "finish_class": "raw",
+        "condition_or_grade": "ungraded_market",
+        "price_source_type": "pricecharting_market",
+        "amount": "2100.00",
+        "currency": "USD",
+        "source_name": "PriceCharting",
+        "source_url": (
+            "https://www.pricecharting.com/game/"
+            "yugioh-legend-of-blue-eyes-white-dragon/"
+            "blue-eyes-white-dragon-1st-edition-lob-001"
+        ),
+        "accessed_on": "2026-08-05",
+        "notes": (
+            "Market guide for ungraded LOB-001 1st Edition (USD). Recent completed "
+            "sales on the same page often land in the low-to-mid thousands USD. "
+            "Separate from Cardmarket low/trend/avg."
+        ),
+    },
+    {
+        "comp_id": "pricecharting-lob-001-1st-psa-10",
+        "printed_code": "LOB-001",
+        "edition_class": "first_edition",
+        "language_region": "en-NA",
+        "finish_class": "graded",
+        "condition_or_grade": "PSA 10",
+        "price_source_type": "pricecharting_market",
+        "amount": "45000.00",
+        "currency": "USD",
+        "source_name": "PriceCharting",
+        "source_url": (
+            "https://www.pricecharting.com/game/"
+            "yugioh-legend-of-blue-eyes-white-dragon/"
+            "blue-eyes-white-dragon-1st-edition-lob-001"
+        ),
+        "accessed_on": "2026-08-05",
+        "notes": (
+            "Market guide for PSA 10 LOB-001 1st Edition (USD, tens of thousands). "
+            "Grade 9 market on same page ~$8,449.50 USD."
+        ),
+    },
+    {
+        "comp_id": "pricecharting-lob-e001-1st-ungraded",
+        "printed_code": "LOB-E001",
+        "edition_class": "first_edition",
+        "language_region": "en-EU",
+        "finish_class": "raw",
+        "condition_or_grade": "ungraded_market",
+        "price_source_type": "pricecharting_market",
+        "amount": "455.91",
+        "currency": "USD",
+        "source_name": "PriceCharting",
+        "source_url": (
+            "https://www.pricecharting.com/game/"
+            "yugioh-legend-of-blue-eyes-white-dragon/"
+            "blue-eyes-white-dragon-1st-edition-lob-e001"
+        ),
+        "accessed_on": "2026-08-05",
+        "notes": (
+            "European English LOB-E001 1st Edition ungraded market (hundreds USD). "
+            "Grade 9 market ~$3,377.77 USD. Not interchangeable with NA LOB-001."
+        ),
+    },
+    {
+        "comp_id": "konami-db-ldd-f001-identity",
+        "printed_code": "LDD-F001",
+        "edition_class": "unknown",
+        "language_region": "fr",
+        "finish_class": "raw",
+        "condition_or_grade": "official_print_identity",
+        "price_source_type": "official_catalog_identity",
+        "amount": None,
+        "currency": None,
+        "source_name": "Konami Yu-Gi-Oh! Neuron Card Database",
+        "source_url": (
+            "https://www.db.yugioh-card.com/yugiohdb/card_search.action"
+            "?ope=2&cid=4007&request_locale=fr"
+        ),
+        "accessed_on": "2026-08-05",
+        "notes": (
+            "Official FR database lists LDD-F001 — LA LÉGENDE DU DRAGON BLANC "
+            "AUX YEUX BLEUS — Ultra Rare, first French TCG appearance 2002-03-08. "
+            "Identity only; no market price on Konami DB."
+        ),
+    },
+    {
+        "comp_id": "cardmarket-ldd-v1-asking-floor",
+        "printed_code": None,
+        "edition_class": "reprint_unknown_edition",
+        "language_region": "mixed",
+        "finish_class": "raw",
+        "condition_or_grade": "unknown_on_versions_tile",
+        "price_source_type": "asking_floor",
+        "amount": "12.00",
+        "currency": "EUR",
+        "source_name": "Cardmarket Versions tile (asking From floor)",
+        "source_url": (
+            "/en/YuGiOh/Products/Singles/Legend-of-Blue-Eyes-White-Dragon-LDD/"
+            "Blue-Eyes-White-Dragon-V1-Ultra-Rare"
+        ),
+        "accessed_on": "2026-08-04",
+        "notes": (
+            "French-set LDD product path From floor in the 2026-08-04 snapshot. "
+            "ASKING floor only — not a concluded sale. Edition (1st vs Unlimited) "
+            "is absent on Versions tiles; must NOT be read as LDD-F001 1st Edition cote."
+        ),
+        "linked_cardmarket_path_only": True,
+    },
+)
+
+
+def normalize_edition_class(value: object) -> str:
+    text = str(value or "").strip().lower()
+    if not text or text in {"unknown", "none", "null"}:
+        return "unknown"
+    if "1st" in text or "first" in text:
+        return "first_edition"
+    if "unlimited" in text:
+        return "unlimited"
+    if "limited" in text:
+        return "limited"
+    if "reprint" in text:
+        return "reprint_unknown_edition"
+    return "unknown"
+
+
+def normalize_finish_class(*, graded: object = None, finish: object = None) -> str:
+    if finish is not None:
+        text = str(finish).strip().lower()
+        if text in FINISH_CLASSES:
+            return text
+    return "graded" if bool(graded) else "raw"
+
+
+def classify_valuation_segment(
+    *,
+    printed_code: object = None,
+    expansion: object = None,
+    product_path: object = None,
+    edition: object = None,
+    language: object = None,
+    region: object = None,
+    graded: object = None,
+    grade: object = None,
+    condition: object = None,
+    rarity: object = None,
+    price_source_type: object = None,
+    amount: object = None,
+    currency: object = None,
+) -> dict[str, Any]:
+    """Build a structured valuation taxonomy record (never invents printed codes)."""
+    code_raw = str(printed_code).strip().upper() if printed_code not in (None, "") else None
+    if code_raw and not PRINTED_CODE_PATTERN.match(code_raw):
+        raise ValueError(f"printed_code failed pattern validation: {code_raw}")
+    source_type = str(price_source_type or "unknown").strip()
+    if source_type != "unknown" and source_type not in PRICE_SOURCE_TYPES:
+        raise ValueError(f"unsupported price_source_type: {source_type}")
+    edition_class = normalize_edition_class(edition)
+    finish_class = normalize_finish_class(graded=graded)
+    language_region = str(region or language or "unknown").strip() or "unknown"
+    return {
+        "set_or_card_code": code_raw,
+        "expansion_label": str(expansion).strip() if expansion not in (None, "") else None,
+        "product_path": str(product_path).strip() if product_path not in (None, "") else None,
+        "edition_class": edition_class,
+        "language_region": language_region,
+        "finish_class": finish_class,
+        "condition_or_grade": str(grade or condition or "unknown"),
+        "rarity": str(rarity or "unknown"),
+        "price_source_type": source_type,
+        "amount": None if amount in (None, "") else str(amount),
+        "currency": None if currency in (None, "") else str(currency).upper(),
+        "is_historical_landmark": code_raw in HISTORICAL_LANDMARK_CODES,
+        "usable_as_card_price": source_type
+        in {
+            "sold_comp",
+            "psa_auction_realized",
+            "psa_price_guide",
+            "pricecharting_market",
+            "asking_offer",
+            "asking_floor",
+            "guide_low",
+            "guide_trend",
+            "guide_avg",
+        }
+        and code_raw is not None
+        and edition_class == "first_edition",
+    }
+
+
+def refuse_global_aggregate_as_card_price(
+    stats: dict[str, Any] | None,
+    *,
+    claim: str = "card_price",
+) -> dict[str, Any]:
+    """Hard guard: global Versions aggregates are never a card cote."""
+    policy = dict(GLOBAL_AGGREGATE_POLICY)
+    if claim in {"card_price", "first_edition", "lob_001", "cote"}:
+        raise ValueError(
+            f"Refusing to treat global aggregate as {claim}: {policy['reason']}"
+        )
+    return {
+        "allowed": False,
+        "claim": claim,
+        "stats_n": (stats or {}).get("n"),
+        "stats_median": (stats or {}).get("median"),
+        "policy": policy,
+    }
+
+
+def refuse_invented_printed_code_join(
+    *,
+    official_id_product: object = None,
+    official_id_expansion: object = None,
+    printed_code: object = None,
+    official_payload_has_printed_code: bool = False,
+) -> None:
+    """Never invent LOB-001-style joins from idProduct/idExpansion alone."""
+    if printed_code in (None, ""):
+        return
+    code = str(printed_code).strip().upper()
+    if not PRINTED_CODE_PATTERN.match(code):
+        raise ValueError(f"invalid printed_code: {code}")
+    if official_payload_has_printed_code:
+        return
+    if official_id_product is not None or official_id_expansion is not None:
+        raise ValueError(
+            "Refusing invented printed-code join: Cardmarket official productList/"
+            "priceGuide rows expose idProduct/idExpansion but not printed set codes. "
+            f"Cannot map idProduct={official_id_product!r} / "
+            f"idExpansion={official_id_expansion!r} → {code}."
+        )
+
+
+def historical_landmark_catalog() -> list[dict[str, Any]]:
+    """Highlight LOB-001 / LOB-E001 / LDD-F001 without Cardmarket id joins."""
+    return [
+        {
+            "printed_code": "LOB-001",
+            "set_name": "Legend of Blue Eyes White Dragon",
+            "language_region": "en-NA",
+            "role": "North-American historical Ultra Rare landmark",
+            "cardmarket_join": "none — never invent from idProduct/idExpansion",
+        },
+        {
+            "printed_code": "LOB-E001",
+            "set_name": "Legend of Blue Eyes White Dragon (European English)",
+            "language_region": "en-EU",
+            "role": "European anglophone historical Ultra Rare landmark",
+            "cardmarket_join": "none — never invent from idProduct/idExpansion",
+        },
+        {
+            "printed_code": "LDD-F001",
+            "set_name": "La Légende du Dragon Blanc aux Yeux Bleus",
+            "language_region": "fr",
+            "role": "French historical Ultra Rare landmark (Konami DB print)",
+            "cardmarket_join": "none — never invent from idProduct/idExpansion",
+        },
+    ]
+
+
+def validate_external_comp_row(row: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    for field in EXTERNAL_COMPS_REQUIRED_FIELDS:
+        if field not in row:
+            errors.append(f"missing field: {field}")
+    source_type = row.get("price_source_type")
+    if source_type not in PRICE_SOURCE_TYPES:
+        errors.append(f"bad price_source_type: {source_type}")
+    edition = row.get("edition_class")
+    if edition not in EDITION_CLASSES:
+        errors.append(f"bad edition_class: {edition}")
+    finish = row.get("finish_class")
+    if finish not in FINISH_CLASSES:
+        errors.append(f"bad finish_class: {finish}")
+    code = row.get("printed_code")
+    if code not in (None, "") and not PRINTED_CODE_PATTERN.match(str(code)):
+        errors.append(f"bad printed_code: {code}")
+    if not row.get("source_url"):
+        errors.append("source_url required")
+    if not row.get("accessed_on"):
+        errors.append("accessed_on required")
+    amount = row.get("amount")
+    currency = row.get("currency")
+    if amount not in (None, "") and currency in (None, ""):
+        errors.append("currency required when amount is set")
+    if currency not in (None, "") and amount in (None, ""):
+        if source_type not in {"official_catalog_identity"}:
+            errors.append("amount required when currency is set")
+    # French / Cardmarket asking floors must stay labeled as asking, not sold.
+    notes = str(row.get("notes") or "").lower()
+    if source_type in {"asking_offer", "asking_floor"}:
+        if "asking" not in notes and "ask" not in notes:
+            errors.append("asking price rows must say asking in notes")
+        if "sold" in notes and "not a" not in notes and "not sold" not in notes:
+            errors.append("asking price rows must not claim sold")
+    return errors
+
+
+def validate_external_comps_registry(registry: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if registry.get("population") != "external_comps":
+        errors.append("population must be external_comps")
+    if registry.get("separated_from_cardmarket_177") is not True:
+        errors.append("must declare separated_from_cardmarket_177=true")
+    comps = registry.get("comps")
+    if not isinstance(comps, list) or not comps:
+        errors.append("comps must be a non-empty list")
+        return errors
+    seen_ids: set[str] = set()
+    landmark_hits = {code: False for code in HISTORICAL_LANDMARK_CODES}
+    for row in comps:
+        if not isinstance(row, dict):
+            errors.append("comp row must be object")
+            continue
+        errors.extend(validate_external_comp_row(row))
+        comp_id = str(row.get("comp_id") or "")
+        if comp_id in seen_ids:
+            errors.append(f"duplicate comp_id: {comp_id}")
+        seen_ids.add(comp_id)
+        code = row.get("printed_code")
+        if code in landmark_hits:
+            landmark_hits[str(code)] = True
+        # No mixing: Cardmarket guide fields must not appear as peer metrics.
+        for banned in ("low", "trend", "avg", "avg1", "avg7", "avg30", "from_cents"):
+            if banned in row and row.get("price_source_type") not in {
+                "asking_floor",
+                "guide_low",
+                "guide_trend",
+                "guide_avg",
+            }:
+                errors.append(f"comp {comp_id} must not embed Cardmarket field {banned}")
+    for code, hit in landmark_hits.items():
+        if not hit:
+            errors.append(f"missing landmark coverage for {code}")
+    return errors
+
+
+def build_external_comps_registry(*, accessed_on: str = "2026-08-05") -> dict[str, Any]:
+    comps = [dict(row) for row in EXTERNAL_COMPS_SEED]
+    registry = {
+        "population": "external_comps",
+        "separated_from_cardmarket_177": True,
+        "mixing_with_cardmarket_metrics_forbidden": True,
+        "generated_at": f"{accessed_on}T00:00:00+00:00",
+        "access_note": (
+            "URLs and values transcribed from public pages on accessed_on; "
+            "no aggressive scraping, no seller identities."
+        ),
+        "cardmarket_corpus_invariants": {
+            "exact_blue_eyes_paths": EXPECTED_EXACT_BLUE_EYES_PATHS,
+            "idExpansion_count": 102,
+            "note": (
+                "177/102 describe Cardmarket HTML/official populations only. "
+                "External comps are a different population."
+            ),
+        },
+        "historical_landmarks": historical_landmark_catalog(),
+        "taxonomy_dimensions": [
+            "set_or_card_code",
+            "edition_class",
+            "language_region",
+            "finish_class",
+            "condition_or_grade",
+            "price_source_type",
+        ],
+        "verdict": {
+            "headline": (
+                "First-edition Blue-Eyes historical prints are worth hundreds, "
+                "thousands, or tens of thousands depending on version and grade — "
+                "never the global Cardmarket median (~5 EUR)."
+            ),
+            "bands": [
+                {
+                    "printed_code": "LOB-001",
+                    "band": "thousands_to_tens_of_thousands_USD",
+                    "raw_ungraded": "about 1k–4k+ USD recent sold / ~2.1k USD PriceCharting",
+                    "graded_psa_9": "thousands USD (PSA guide 4.5k; PriceCharting ~8.4k)",
+                    "graded_psa_10": "tens of thousands USD (PSA guide 40k; PriceCharting ~45k)",
+                },
+                {
+                    "printed_code": "LOB-E001",
+                    "band": "hundreds_to_thousands_USD",
+                    "raw_ungraded": "hundreds USD (~456 USD PriceCharting market)",
+                    "graded": "low thousands USD for high grades",
+                },
+                {
+                    "printed_code": "LDD-F001",
+                    "band": "identity_confirmed_asking_only_in_registry",
+                    "note": (
+                        "Konami confirms the French print. French/Cardmarket figures "
+                        "in this registry are asking floors or identity — not sales."
+                    ),
+                },
+            ],
+        },
+        "comps": comps,
+    }
+    errors = validate_external_comps_registry(registry)
+    if errors:
+        raise ValueError("external comps registry invalid: " + "; ".join(errors))
+    return registry
+
+
+def render_external_comps_markdown(registry: dict[str, Any]) -> str:
+    lines = [
+        "# Blue-Eyes external comps registry",
+        "",
+        f"Population: **{registry['population']}** (separated from Cardmarket 177).",
+        "",
+        f"**Verdict.** {registry['verdict']['headline']}",
+        "",
+        "## Historical landmarks",
+        "",
+        "| Code | Region | Role | Cardmarket join |",
+        "| --- | --- | --- | --- |",
+    ]
+    for row in registry["historical_landmarks"]:
+        lines.append(
+            f"| `{row['printed_code']}` | {row['language_region']} | "
+            f"{row['role']} | {row['cardmarket_join']} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Sourced comps",
+            "",
+            "| comp_id | code | edition | finish | grade | type | amount | CCY | source | accessed |",
+            "| --- | --- | --- | --- | --- | --- | ---: | --- | --- | --- |",
+        ]
+    )
+    for row in registry["comps"]:
+        amount = row.get("amount") if row.get("amount") is not None else "—"
+        currency = row.get("currency") or "—"
+        code = row.get("printed_code") or "—"
+        lines.append(
+            f"| `{row['comp_id']}` | {code} | {row['edition_class']} | "
+            f"{row['finish_class']} | {row['condition_or_grade']} | "
+            f"{row['price_source_type']} | {amount} | {currency} | "
+            f"{row['source_name']} | {row['accessed_on']} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Notes",
+            "",
+            "- French / Cardmarket rows with `asking_floor` / `asking_offer` are "
+            "**asking prices**, not concluded sales.",
+            "- Do not average these USD comps with Cardmarket EUR `low`/`trend`/`avg`.",
+            "- Printed codes appear only when the source page states them; never "
+            "from `idProduct`/`idExpansion` alone.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def export_external_comps_registry(
+    destination: Path,
+    *,
+    accessed_on: str = "2026-08-05",
+) -> dict[str, Any]:
+    registry = build_external_comps_registry(accessed_on=accessed_on)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(
+        json.dumps(registry, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    md_path = destination.with_suffix(".md")
+    md_path.write_text(render_external_comps_markdown(registry), encoding="utf-8")
+    return registry
+
+
+def assert_corpus_invariants_177_102(
+    *,
+    exact_paths: int,
+    id_expansion_count: int,
+    priced_floors: int | None = None,
+) -> None:
+    if exact_paths != EXPECTED_EXACT_BLUE_EYES_PATHS:
+        raise ValueError(
+            f"exact Blue-Eyes path invariant failed: {exact_paths} != "
+            f"{EXPECTED_EXACT_BLUE_EYES_PATHS}"
+        )
+    if id_expansion_count != 102:
+        raise ValueError(
+            f"idExpansion/expansion invariant failed: {id_expansion_count} != 102"
+        )
+    if priced_floors is not None and priced_floors not in {175, 177}:
+        raise ValueError(
+            f"priced floor count unexpected: {priced_floors} (expected 175 or 177)"
+        )
+
+
 def segment_key(row: dict[str, Any]) -> tuple[str, str, str, str, str]:
     return (
         str(row.get("condition") or "unknown"),
@@ -811,10 +1412,12 @@ def summarize_populations(version_floors: list[dict[str, Any]], offers: list[dic
         rarity_groups[str(row.get("rarity") or "unknown")].append(float(row["price_eur"]))
 
     by_expansion = aggregate_version_floors_by_expansion(version_floors)
+    global_stats = price_quartiles(float(row["price_eur"]) for row in version_floors)
     return {
         "version_floors": {
             "n": len(version_floors),
-            "stats": price_quartiles(float(row["price_eur"]) for row in version_floors),
+            "stats": global_stats,
+            "stats_policy": GLOBAL_AGGREGATE_POLICY,
             "by_rarity": {
                 rarity: price_quartiles(values) for rarity, values in sorted(rarity_groups.items())
             },
@@ -822,7 +1425,8 @@ def summarize_populations(version_floors: list[dict[str, Any]], offers: list[dic
             "reference_ranks": rank_version_floor_references(version_floors),
             "note": (
                 "Version floors are product-level 'From' prices, not offer rows. "
-                "Prefer by_expansion / public_product_path over global quartiles."
+                "Prefer by_expansion / public_product_path over global quartiles. "
+                "Global stats are NOT_A_CARD_PRICE."
             ),
             "printed_card_code_note": (
                 "Official printed set codes (LOB-001, SDK-001, …) are absent from "
@@ -830,6 +1434,11 @@ def summarize_populations(version_floors: list[dict[str, Any]], offers: list[dic
             ),
         },
         "offers_by_source": source_summaries,
+        "valuation_separation": {
+            "cardmarket_metrics_population": "version_floors_and_offers",
+            "external_comps_population": "docs/data blue-eyes-white-dragon-external-comps-*",
+            "mixing_forbidden": True,
+        },
     }
 
 
@@ -3810,6 +4419,14 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--export-external-comps",
+        type=Path,
+        help=(
+            "Write sourced/dated external comps registry JSON (Markdown sibling). "
+            "Offline/deterministic; separate from Cardmarket 177 metrics."
+        ),
+    )
+    parser.add_argument(
         "--source-date",
         default="",
         help="ISO date stamped on CSV rows (default: today UTC, or value from payload when present).",
@@ -3820,6 +4437,40 @@ def main(argv: list[str] | None = None) -> int:
         help="With --from-json / CSV export, skip printing the full JSON payload to stdout.",
     )
     args = parser.parse_args(argv)
+
+    if args.export_external_comps is not None and not (
+        args.official_catalog_join
+        or args.coverage_crawl
+        or args.deep_enrichment
+        or args.from_json
+        or args.url
+    ):
+        accessed = (args.source_date or "2026-08-05").strip()[:10] or "2026-08-05"
+        registry = export_external_comps_registry(
+            args.export_external_comps,
+            accessed_on=accessed,
+        )
+        assert_corpus_invariants_177_102(
+            exact_paths=int(registry["cardmarket_corpus_invariants"]["exact_blue_eyes_paths"]),
+            id_expansion_count=int(registry["cardmarket_corpus_invariants"]["idExpansion_count"]),
+            priced_floors=175,
+        )
+        print(
+            json.dumps(
+                {
+                    "status": "ok",
+                    "population": registry["population"],
+                    "comps": len(registry["comps"]),
+                    "external_comps": str(args.export_external_comps),
+                    "external_comps_markdown": str(args.export_external_comps.with_suffix(".md")),
+                    "separated_from_cardmarket_177": True,
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
 
     payload: dict[str, Any]
     budget_obj: CoverageBudget | None = None

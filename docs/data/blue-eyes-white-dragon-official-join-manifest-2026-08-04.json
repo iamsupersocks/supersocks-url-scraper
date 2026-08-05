@@ -80,8 +80,15 @@
     "Market statistics use Decimal min/median/max with even-n ((a+b)/2) median; serialized as strings.",
     "Top-5-by-trend rows expose only idProduct, idExpansion, and public price metrics (no seller).",
     "Official files do not expose expansion name, URL, rarity, or set code — no edition-slug attribution without a verified mapping.",
-    "HTML URL corpus and official idProduct corpus stay separate unless a verifiable mapping exists."
+    "HTML URL corpus and official idProduct corpus stay separate unless a verifiable mapping exists.",
+    "Official low/trend/avg medians over 177 rows are NOT_A_CARD_PRICE and must not be read as LOB-001/LOB-E001/LDD-F001 first-edition cotes.",
+    "Printed codes are never invented from idProduct/idExpansion; external comps live in docs/data/blue-eyes-white-dragon-external-comps-2026-08-05.json."
   ],
+  "valuation_separation": {
+    "external_comps": "docs/data/blue-eyes-white-dragon-external-comps-2026-08-05.json",
+    "mixing_forbidden": true,
+    "official_guide_medians_usable_as_card_price": false
+  },
   "market_statistics": {
     "median_rule": "Even-n Decimal median: sort ascending, take the arithmetic mean of the two central values as (a + b) / Decimal('2') with Decimal division only (no float). Odd-n median: the single middle value. Serialize with format_official_decimal (format(value, 'f')), never float().",
     "metrics": {

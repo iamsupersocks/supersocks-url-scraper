@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1480" height="560" viewBox="0 0 1480 560" role="img" aria-labelledby="be-val-title be-val-desc">
+  <style>
+    .title,.bar-label,.value,.band{font-family:IBM Plex Sans,Segoe UI,sans-serif}
+    .title{font-weight:650;fill:#102a43}
+    .subtitle,.axis,.note{fill:#486581;font-family:IBM Plex Sans,Segoe UI,sans-serif}
+    .bar-global{fill:#9fb3c8}
+    .bar-hundreds{fill:#0b6e4f}
+    .bar-thousands{fill:#0b4f6c}
+    .bar-tens{fill:#8b1e3f}
+    .bar-label,.value,.band{fill:#243b53;font-size:14px}
+    .axis,.note{font-size:14px}
+    .warn{fill:#8b1e3f;font-weight:650}
+  </style>
+  <title id="be-val-title">Blue-Eyes valuation bands vs global Versions median</title>
+  <desc id="be-val-desc">Order-of-magnitude comparison: Cardmarket global Versions median is NOT a card price. LOB-E001 1st raw is hundreds USD; LOB-001 1st raw is thousands USD; LOB-001 PSA 10 is tens of thousands USD. External comps accessed 2026-08-05.</desc>
+  <rect width="1480" height="560" fill="#f0f4f8"/>
+  <text class="title" x="40" y="44" font-size="26">Blue-Eyes - valuation bands (not one SKU)</text>
+  <text class="subtitle" x="40" y="72" font-size="15">External comps (USD) vs Cardmarket global Versions median (EUR) - accessed 2026-08-05</text>
+  <text class="warn" x="40" y="96" font-size="15">Global ~5 EUR median = NOT_A_CARD_PRICE - first editions = hundreds / thousands / tens of thousands</text>
+  <text class="axis" x="520" y="130">Order of magnitude (log-style bars, illustrative)</text>
+
+  <text class="bar-label" x="40" y="178">Cardmarket global median (175 floors)</text>
+  <rect class="bar-global" x="520" y="160" width="28" height="22" rx="4"/>
+  <text class="value" x="558" y="177">~5 EUR - dispersion only - NOT a cote</text>
+
+  <text class="bar-label" x="40" y="238">LOB-E001 1st raw (PriceCharting)</text>
+  <rect class="bar-hundreds" x="520" y="220" width="160" height="22" rx="4"/>
+  <text class="value" x="690" y="237">~456 USD - hundreds</text>
+
+  <text class="bar-label" x="40" y="298">LOB-001 1st raw (PriceCharting)</text>
+  <rect class="bar-thousands" x="520" y="280" width="320" height="22" rx="4"/>
+  <text class="value" x="850" y="297">~2100 USD - thousands</text>
+
+  <text class="bar-label" x="40" y="358">LOB-001 1st PSA 9 band</text>
+  <rect class="bar-thousands" x="520" y="340" width="420" height="22" rx="4"/>
+  <text class="value" x="950" y="357">~4.5k-8.4k USD - thousands</text>
+
+  <text class="bar-label" x="40" y="418">LOB-001 1st PSA 10 band</text>
+  <rect class="bar-tens" x="520" y="400" width="620" height="22" rx="4"/>
+  <text class="value" x="1150" y="417">~33k-45k USD - tens of thousands</text>
+
+  <text class="note" x="40" y="480">LDD-F001: Konami identity confirmed (FR). French/Cardmarket figures in the registry are asking prices, not sales.</text>
+  <text class="note" x="40" y="508">Do not average USD comps with Cardmarket EUR low/trend/avg. Printed codes are never invented from idProduct.</text>
+  <text class="band" x="40" y="536">Source registry: docs/data/blue-eyes-white-dragon-external-comps-2026-08-05.json</text>
+</svg>
