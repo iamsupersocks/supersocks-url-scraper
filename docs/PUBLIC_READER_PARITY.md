@@ -12,9 +12,9 @@ The public service should keep the same operational contract that downstream too
 - `POST /markdown`
 - JSON response fields: `status`, `url`, `content_type`, `title`, `summary`, `length`, `fetch_method`, `warnings`, optional `content`
 - optional social fields when routing matches: `platform`, `author`, `published_at`, `duration`, `transcript`, `transcript_source`, plus LinkedIn `linkedin_page_type` / `structured_data` when specialized extraction ran
-- fetch methods: `http`, `seo`, `cloak`, `cloak-profile`, `archive`, `fallback`, plus social `yt-dlp`, opt-in `jina`, `twitter-cli`, and `opencli`
+- fetch methods: `http`, `seo`, `cloak`, `cloak-profile`, `archive`, `fallback`, plus social `yt-dlp`, opt-in `jina`, `twitter-cli`, `opencli`, and opt-in `rdt-cli`
 - layered route: HTTP → SEO variants → CloakBrowser → public archive/cache snapshots
-- social routing: YouTube via optional yt-dlp; LinkedIn specialized public guest extractor first (generic + opt-in Jina as last resorts); X via optional twitter-cli with explicit env credentials only; Instagram/Facebook via optional OpenCLI Chrome session
+- social routing: YouTube via optional yt-dlp; LinkedIn specialized public guest extractor first (generic + opt-in Jina as last resorts); X via optional twitter-cli with explicit env credentials only; Reddit/Instagram/Facebook Cloak-first (OpenCLI/rdt-cli opt-in only)
 - metadata-only strategy cache by domain, never cookies/content/secrets
 
 ## Production-style public defaults
@@ -54,7 +54,7 @@ Implemented here:
 - optional generic HTTP summary provider interface, disabled by default, with no bundled keys or vendor SDK dependency
 - source-discovery registry and `scripts/discover_source.py` loop, ported from the internal method but storing only sanitized domain metadata
 - browser-profile probe script for operator-owned Cloak profile warm-up/diagnostics, with outputs outside git by default
-- social routing inspired by Agent Reach's channel/backend idea (MIT; no Agent Reach code imported): YouTube metadata/subtitles via optional `yt-dlp` extra; LinkedIn specialized public guest extraction with generic + opt-in Jina as last resorts; opt-in X via upstream twitter-cli (explicit `TWITTER_AUTH_TOKEN`/`TWITTER_CT0` only, never auto-read cookies); opt-in Instagram/Facebook via upstream OpenCLI (user-controlled Chrome session only); actionable missing-tool/extension/auth warnings; no ZIP installs or fake PyPI extras for those CLIs; no cookie/token/profile collection
+- social routing inspired by Agent Reach's channel/backend idea (MIT; no Agent Reach code imported): YouTube metadata/subtitles via optional `yt-dlp` extra; LinkedIn specialized public guest extraction with generic + opt-in Jina as last resorts; opt-in X via upstream twitter-cli (explicit `TWITTER_AUTH_TOKEN`/`TWITTER_CT0` only, never auto-read cookies); Cloak-first Reddit/Instagram/Facebook via CloakBrowser (`BROWSER_PROFILE_DIR` / `SOCIAL_BROWSER_PROFILE_DIR`, headed only under existing DISPLAY/Xvfb); OpenCLI and rdt-cli strictly opt-in (`SOCIAL_OPENCLI_FALLBACK`, `RDT_CLI_FALLBACK`); actionable missing-tool/extension/auth/challenge warnings; no ZIP installs or fake PyPI extras for those CLIs; no cookie/token/profile collection; no automated login/MFA/CAPTCHA
 
 Still worth adding where it can remain public and generic:
 

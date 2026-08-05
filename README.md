@@ -59,7 +59,7 @@ curl -s http://127.0.0.1:8768/summarize \
 - CLI one-shot mode.
 - Optional HTTP service with `/health`, `/summarize`, `/read`, and `/markdown`.
 - Detects articles, PDFs, images, and unknown binary content.
-- Extensible social routing for YouTube, LinkedIn, X (twitter-cli), Instagram and Facebook (OpenCLI), with actionable missing-backend warnings and no cookie/token collection.
+- Extensible social routing for YouTube, LinkedIn, X (twitter-cli), plus Cloak-first Reddit/Instagram/Facebook (OpenCLI/rdt-cli opt-in only), with actionable missing-backend warnings and no cookie/token collection.
 - Extracts from:
   - OpenGraph/Twitter/HTML metadata
   - JSON-LD article objects
@@ -293,14 +293,15 @@ By default the CLI also tries public archive/cache snapshots as a last resort, i
 supersocks-url-scraper --no-archive-fallback https://example.com/article
 ```
 
-### Social routing (YouTube / LinkedIn / X / Instagram / Facebook)
+### Social routing (YouTube / LinkedIn / X / Instagram / Facebook / Reddit)
 
 Social routing is inspired by the channel/backend pattern popularized by [Agent Reach](https://github.com/Panniantong/Agent-Reach) (MIT). This repository adapts that idea minimally and does **not** vendor Agent Reach, copy its package, ship ZIP installs, or invent fake PyPI extras for upstream CLIs.
 
 - **YouTube** (`youtube.com`, `youtu.be`): when the optional `youtube`/`social` extra is installed, metadata and available subtitles/auto-captions are extracted with `yt-dlp` (`fetch_method=yt-dlp`, `platform=youtube`) without downloading media. If yt-dlp is missing, the reader warns and falls back to the generic HTTP pipeline.
 - **LinkedIn** (`linkedin.com`): uses a specialized **public guest** extractor first. It classifies common public paths (`/in/`, `/company/`, `/school/`, `/showcase/`, `/jobs/view/` and jobs-guest variants, `/pulse/`/`/articles/`, `/posts/`/`/feed/update/`), prefers Open Graph/meta, valid JSON-LD, and stable guest selectors, and may add backward-compatible fields `linkedin_page_type` and `structured_data`. Auth walls, security challenges, navigation/CTA shells, and too-poor useful content return `status=partial` with an explicit warning — never `ok`. The generic HTTP/SEO/Cloak/archive pipeline and the opt-in Jina Reader fallback run only as last resorts. Jina is off by default and blocked for credentialed URLs, localhost/private hosts, and non-HTTP(S) schemes. No cookies, tokens, Voyager private APIs, login browsers, proxies, or caller headers are used or forwarded. Successful Jina reads set `fetch_method=jina` and warn `external reader used: jina`.
 - **X / Twitter** (`x.com`, `twitter.com`): optional local backend via upstream [twitter-cli](https://github.com/public-clis/twitter-cli) (`fetch_method=twitter-cli`, `platform=x`). Requires the `twitter` binary on `PATH` **and** explicit `TWITTER_AUTH_TOKEN` + `TWITTER_CT0` already set in the process environment. This package never auto-reads browser cookies, never prints/stores tokens, and returns actionable warnings when the tool or credentials are missing.
-- **Instagram** / **Facebook**: optional desktop backends via upstream [OpenCLI](https://github.com/jackwener/opencli) (`fetch_method=opencli`, `platform=instagram|facebook`). Reuses only the Chrome session the user already controls through the OpenCLI Browser Bridge extension. Missing CLI, disconnected extension, or missing site login produce actionable warnings. No cookies/tokens/profiles are collected or stored here.
+- **Reddit / Instagram / Facebook** (**Cloak-first**): render with CloakBrowser (`fetch_method=cloak` or `cloak-profile`, `platform=reddit|instagram|facebook`), then extract title/text/author/published_at from HTML meta + stable selectors. Requires the `browser` extra. Optional persistent profile via `browser_profile_dir`, `SOCIAL_BROWSER_PROFILE_DIR`, or `BROWSER_PROFILE_DIR` (cookies stay inside that operator-owned directory only). Default is headless; headed mode uses an existing `DISPLAY`/`WAYLAND_DISPLAY` / operator-managed Xvfb (`CLOAK_HEADLESS=0`) and **never** installs or starts Xvfb. Login/MFA/CAPTCHA/consent blocks return `partial`/`error` with actionable warnings — never pretended success, never automated.
+- **OpenCLI** (Instagram/Facebook) and **rdt-cli** (Reddit) are **opt-in desktop fallbacks only** (`SOCIAL_OPENCLI_FALLBACK=1`, `RDT_CLI_FALLBACK=1`). They are never automatic by default, never auto-installed, and never auto-read cookies.
 
 ```bash
 # YouTube (requires optional yt-dlp extra)
@@ -313,9 +314,22 @@ supersocks-url-scraper --jina-fallback https://www.linkedin.com/pulse/example-pu
 export TWITTER_AUTH_TOKEN='…' TWITTER_CT0='…'
 supersocks-url-scraper https://x.com/example/status/1234567890
 
-# Instagram / Facebook (requires OpenCLI + connected Chrome extension + site login)
-supersocks-url-scraper https://www.instagram.com/nasa/
-supersocks-url-scraper https://www.facebook.com/zuck
+# Cloak-first social (requires browser extra; profile optional)
+pip install 'supersocks-url-scraper[browser]'
+supersocks-url-scraper https://www.reddit.com/r/announcements/
+supersocks-url-scraper https://www.instagram.com/instagram/
+supersocks-url-scraper https://www.facebook.com/facebook
+
+# Warm a profile once under an existing display (operator-owned; never commit it)
+DISPLAY=:99 python scripts/browser_profile_probe.py \
+  --url https://www.reddit.com/r/announcements/ \
+  --profile-dir ./browser-profiles/social \
+  --no-headless --wait-seconds 120
+BROWSER_PROFILE_DIR=./browser-profiles/social supersocks-url-scraper https://www.reddit.com/r/announcements/
+
+# Opt-in desktop fallbacks only (off by default)
+SOCIAL_OPENCLI_FALLBACK=1 supersocks-url-scraper https://www.instagram.com/instagram/
+RDT_CLI_FALLBACK=1 supersocks-url-scraper https://www.reddit.com/r/announcements/
 ```
 
 #### Optional channel installs (choose what you need)
@@ -327,13 +341,23 @@ Install only the upstream tools for the channels you want. Prefer GitHub/npm/PyP
 | YouTube | `yt-dlp` | `pip install 'supersocks-url-scraper[youtube]'` | None (public metadata/subs) |
 | LinkedIn | built-in guest extractor | none | Public guest pages only |
 | X | `twitter-cli` | `pipx install twitter-cli` or `uv tool install twitter-cli` ([repo](https://github.com/public-clis/twitter-cli)) | Explicit `TWITTER_AUTH_TOKEN` + `TWITTER_CT0` only |
-| Instagram / Facebook | OpenCLI | `npm install -g @jackwener/opencli` ([repo](https://github.com/jackwener/opencli)) + Chrome extension | Existing user-controlled Chrome login |
+| Reddit / Instagram / Facebook | CloakBrowser first | `pip install 'supersocks-url-scraper[browser]'` | Optional operator-owned `BROWSER_PROFILE_DIR` / `SOCIAL_BROWSER_PROFILE_DIR` |
+| Instagram / Facebook fallback | OpenCLI (opt-in) | `npm install -g @jackwener/opencli` + Chrome extension; set `SOCIAL_OPENCLI_FALLBACK=1` | Existing user-controlled Chrome login |
+| Reddit fallback | rdt-cli (opt-in) | put `rdt` on PATH yourself; set `RDT_CLI_FALLBACK=1` | No auto-cookie; never auto-installed |
 
-`GET /health` reports backend presence as booleans only (`twitter_cli_available`, `twitter_explicit_credentials`, `opencli_available`, `opencli_extension_connected`) and never echoes credential values.
+`GET /health` reports backend presence as booleans only (`twitter_cli_available`, `twitter_explicit_credentials`, `cloakbrowser_available`, `opencli_fallback_default`, `opencli_available`, `opencli_extension_connected`, `rdt_cli_fallback_default`, `rdt_cli_available`) and never echoes credential values.
 
 **LinkedIn public support and limits:** guest-visible HTML/meta/JSON-LD only. Logged-in-only content, paywalled profiles, and challenge pages are reported as `partial` rather than guessed. Authenticated LinkedIn scraping remains out of scope.
 
-Domain matching rejects suffix lookalikes (e.g. `notyoutube.com`) and URLs with userinfo/credentials.
+**Cloak-first social limits:** public HTML after render only. Many Instagram/Facebook URLs hard-gate guests; expect `partial`/`error` without a warmed profile. This package never automates login/MFA/CAPTCHA and never exports cookies outside the explicit profile directory.
+
+Domain matching rejects suffix lookalikes (e.g. `notyoutube.com`, `notreddit.com`) and URLs with userinfo/credentials.
+
+Public smoke URLs (no account required; results may still be gated by the site):
+
+- `https://www.reddit.com/r/announcements/`
+- `https://www.instagram.com/instagram/`
+- `https://www.facebook.com/facebook`
 
 For sites that need an already-authenticated/sessioned browser profile, pass a persistent profile directory:
 
@@ -450,6 +474,10 @@ Supported service environment variables:
 - `DEFAULT_SUMMARY_LENGTH`: default `length` when the request omits it.
 - `BROWSER_FALLBACK`: set to `cloak`/`1`/`true` to enable browser fallback by default.
 - `BROWSER_PROFILE_DIR`: persistent Cloak/Chromium profile directory, useful for sites requiring a warmed/sessioned browser profile.
+- `SOCIAL_BROWSER_PROFILE_DIR`: optional social-only Cloak profile (falls back to `BROWSER_PROFILE_DIR`).
+- `CLOAK_HEADLESS` / `BROWSER_HEADLESS` / `SOCIAL_CLOAK_HEADLESS`: default headless; set `0`/`headed` to reuse an existing `DISPLAY`/`WAYLAND_DISPLAY` (Xvfb must already be running — never auto-started).
+- `SOCIAL_OPENCLI_FALLBACK`: opt-in OpenCLI desktop fallback after Cloak-first Instagram/Facebook (`0` by default).
+- `RDT_CLI_FALLBACK`: opt-in rdt-cli fallback after Cloak-first Reddit (`0` by default; never auto-install/auto-cookie).
 - `BROWSER_POST_LOAD_WAIT_MS`: extra wait after DOMContentLoaded for consent/antibot scripts.
 - `BROWSER_MAX_CONCURRENCY`: maximum concurrent CloakBrowser renders in this process. Keep this low; browser rendering is CPU/RAM-heavy.
 - `ARCHIVE_FALLBACK`: set to `latest`/`1`/`true` to allow public archive/cache fallback by default.
@@ -472,7 +500,7 @@ Health check:
 curl http://127.0.0.1:8768/health
 ```
 
-The health payload includes service config metadata: whether auth is required, whether the browser extra is installed, browser fallback defaults, profile/cache path status, archive/SEO defaults, the configured browser concurrency limit, and under `social` the routed platforms plus booleans for yt-dlp, `js_runtime_available`, twitter-cli availability, explicit Twitter env credential presence (never values), and OpenCLI install/extension connectivity. `GET /openapi.json` exposes a dependency-free OpenAPI 3.1 schema for the public HTTP contract.
+The health payload includes service config metadata: whether auth is required, whether the browser extra is installed, browser fallback defaults, profile/cache path status, archive/SEO defaults, the configured browser concurrency limit, and under `social` the routed platforms (including Reddit) plus Cloak-first flags, yt-dlp, `js_runtime_available`, twitter-cli availability, explicit Twitter env credential presence (never values), OpenCLI install/extension connectivity, and opt-in OpenCLI/rdt-cli fallback defaults. `GET /openapi.json` exposes a dependency-free OpenAPI 3.1 schema for the public HTTP contract.
 
 Docker Compose production-style local deployment:
 
@@ -569,7 +597,7 @@ This public repo includes a standalone URL-reading core suitable for agent/news 
 - Browser-profile probe for warming or inspecting operator-owned Cloak profiles without committing sessions.
 - Docker image with browser runtime.
 
-Social routing included here is intentionally bounded and privacy-preserving: YouTube metadata/subtitles via optional yt-dlp; LinkedIn public guest pages via a specialized extractor; opt-in local X via upstream twitter-cli with explicit env credentials only; opt-in desktop Instagram/Facebook via upstream OpenCLI reusing the user's Chrome session. Architectural inspiration comes from Agent Reach (MIT) without importing or copying that project. This package never auto-reads browser cookies, never collects/prints/stores tokens or profiles, and does not ship ZIP installs or fake PyPI extras for those upstream CLIs. LinkedIn MCP, Voyager private APIs, and private indexers remain excluded.
+Social routing included here is intentionally bounded and privacy-preserving: YouTube metadata/subtitles via optional yt-dlp; LinkedIn public guest pages via a specialized extractor; opt-in local X via upstream twitter-cli with explicit env credentials only; Cloak-first Reddit/Instagram/Facebook via CloakBrowser with optional operator-owned profiles; OpenCLI and rdt-cli only as explicit opt-in fallbacks. Architectural inspiration comes from Agent Reach (MIT) without importing or copying that project. This package never auto-reads browser cookies, never collects/prints/stores tokens or profiles, never automates login/MFA/CAPTCHA, and does not ship ZIP installs or fake PyPI extras for those upstream CLIs. LinkedIn MCP, Voyager private APIs, and private indexers remain excluded.
 
 Intentionally excluded from this standalone public repo: credential harvesting, cookie jar persistence, private automation, chat integrations, hosted-service authentication, provider credentials/vendor-specific LLM SDK wiring, and vision-provider wiring.
 

@@ -219,6 +219,47 @@ DISPLAY=:91 python3 scripts/browser_profile_probe.py \
 
 The script prints status, final URL, markers such as CAPTCHA/paywall/cookie consent, and article extraction length. It writes screenshot/HTML diagnostics to `/tmp` by default. Never commit the profile, screenshot, HTML dump, cookies, or sessions.
 
+### Cloak-first Reddit / Instagram / Facebook on Docker/VPS
+
+These platforms route through CloakBrowser first (`fetch_method=cloak` or `cloak-profile`). Install the `browser` extra (already in the default Docker image).
+
+```bash
+# Optional social-only profile (falls back to BROWSER_PROFILE_DIR)
+SOCIAL_BROWSER_PROFILE_DIR=/browser-profiles/social
+
+# Headless by default. Headed warm-up requires an existing display:
+# start/attach Xvfb or VNC yourself — this package never installs or starts Xvfb.
+CLOAK_HEADLESS=1
+# DISPLAY=:99
+# CLOAK_HEADLESS=0
+
+# Desktop fallbacks stay off unless explicitly enabled:
+SOCIAL_OPENCLI_FALLBACK=0
+RDT_CLI_FALLBACK=0
+```
+
+Initialize a profile once on a VPS with an existing display, then reuse it headless:
+
+```bash
+mkdir -p browser-profiles/social
+DISPLAY=:99 python3 scripts/browser_profile_probe.py \
+  --url 'https://www.reddit.com/r/announcements/' \
+  --profile-dir ./browser-profiles/social \
+  --no-headless \
+  --wait-seconds 120
+
+BROWSER_PROFILE_DIR=./browser-profiles/social \
+supersocks-url-scraper https://www.reddit.com/r/announcements/
+```
+
+Public smoke URLs (no account required; sites may still gate guests):
+
+- `https://www.reddit.com/r/announcements/`
+- `https://www.instagram.com/instagram/`
+- `https://www.facebook.com/facebook`
+
+Limits: login/CAPTCHA/consent walls return `partial`/`error` with actionable warnings. Never automate login/MFA/CAPTCHA. Cookies never leave the operator-provided profile directory. OpenCLI and rdt-cli are opt-in only and never auto-installed.
+
 ## 7. Optional external summary provider
 
 The public package does not ship vendor-specific LLM wiring. If you operate your own summarizer, configure the generic HTTP adapter:

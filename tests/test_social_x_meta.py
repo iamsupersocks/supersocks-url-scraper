@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
 import pytest
 
@@ -242,14 +243,29 @@ def test_try_social_read_routes_all_new_channels(monkeypatch: pytest.MonkeyPatch
     x = try_social_read("https://x.com/a/status/1")
     assert x and x["platform"] == "x"
 
-    monkeypatch.setattr(
-        "supersocks_url_scraper.social.meta_opencli.probe_opencli",
-        lambda **kwargs: OpenCLIStatus(installed=False, hint="missing"),
-    )
-    ig = try_social_read("https://www.instagram.com/nasa/")
+    @dataclass
+    class FakePage:
+        final_url: str
+        status_code: int
+        html: str
+        title: str | None = None
+        method: str = "cloak"
+        consent_action: str | None = None
+
+    def cloak_fetcher(url, **kwargs):
+        html = (
+            "<html><head><meta property='og:title' content='Demo' />"
+            "<meta property='og:description' content='A long enough mocked social body for cloak-first routing coverage.' />"
+            "</head><body><article><p>A long enough mocked social body for cloak-first routing coverage.</p></article></body></html>"
+        )
+        return FakePage(url, 200, html, title="Demo", method="cloak")
+
+    ig = try_social_read("https://www.instagram.com/nasa/", cloak_fetcher=cloak_fetcher)
     assert ig and ig["platform"] == "instagram"
-    fb = try_social_read("https://www.facebook.com/zuck")
+    assert ig["fetch_method"] == "cloak"
+    fb = try_social_read("https://www.facebook.com/zuck", cloak_fetcher=cloak_fetcher)
     assert fb and fb["platform"] == "facebook"
+    assert fb["fetch_method"] == "cloak"
 
 
 def test_health_lists_extended_social_platforms(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -265,8 +281,9 @@ def test_health_lists_extended_social_platforms(monkeypatch: pytest.MonkeyPatch)
         lambda timeout=3, **kwargs: OpenCLIStatus(installed=False),
     )
     body = cli.health_payload()
-    assert body["social"]["platforms"] == ["youtube", "linkedin", "x", "instagram", "facebook"]
+    assert body["social"]["platforms"] == ["youtube", "linkedin", "x", "instagram", "facebook", "reddit"]
     assert body["social"]["twitter_cli_available"] is False
     assert body["social"]["twitter_explicit_credentials"] is False
     assert body["social"]["opencli_available"] is False
+    assert body["social"]["opencli_fallback_default"] is False
     assert "TWITTER_AUTH_TOKEN" not in json.dumps(body)

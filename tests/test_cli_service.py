@@ -109,9 +109,10 @@ def test_health_reports_runtime_configuration(monkeypatch, tmp_path, service):
     assert body["strategy_cache"]["configured"] is True
     assert body["strategy_cache"]["writable"] is True
     assert body["fallbacks"]["jina_default"] is False
-    assert body["social"]["platforms"] == ["youtube", "linkedin", "x", "instagram", "facebook"]
+    assert body["social"]["platforms"] == ["youtube", "linkedin", "x", "instagram", "facebook", "reddit"]
     assert "twitter_cli_available" in body["social"]
     assert "opencli_extension_connected" in body["social"]
+    assert body["social"]["cloak_first_platforms"] == ["reddit", "instagram", "facebook"]
     assert "TWITTER_AUTH_TOKEN" not in json.dumps(body)
 
 
