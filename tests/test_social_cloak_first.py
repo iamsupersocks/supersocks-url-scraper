@@ -159,10 +159,15 @@ def test_reddit_prove_your_humanity_is_captcha_not_content() -> None:
         platform="reddit",
         url="https://www.reddit.com/r/test/comments/abc/title/",
         page_title="Reddit - Prove your humanity",
+        include_content=True,
     )
     assert parsed["status"] == "error"
     assert any("CAPTCHA" in w for w in parsed["warnings"])
     assert parsed["status"] != "ok"
+    assert parsed["summary"] == ""
+    assert "content" not in parsed
+    assert "Prove your humanity" not in (parsed.get("summary") or "")
+    assert parsed.get("title") == "Misleading cached post title"
 
 
 def test_facebook_autoriser_tous_les_cookies_is_consent_not_content() -> None:
@@ -176,23 +181,42 @@ def test_facebook_autoriser_tous_les_cookies_is_consent_not_content() -> None:
         platform="facebook",
         url="https://www.facebook.com/zuck",
         page_title="Facebook",
+        include_content=True,
     )
     assert parsed["status"] == "error"
     assert any("consent" in w.lower() for w in parsed["warnings"])
     assert parsed["status"] != "ok"
     assert parsed["status"] != "partial"
+    assert parsed["summary"] == ""
+    assert "content" not in parsed
     assert "Autoriser tous les cookies" not in (parsed.get("content") or parsed.get("summary") or "")
+    assert parsed.get("title") == "Misleading cached Facebook page title"
 
 
 def test_login_and_captcha_never_ok() -> None:
     assert detect_social_gate(LOGIN_HTML, platform="instagram") == "login/auth wall"
     assert detect_social_gate(CAPTCHA_HTML, platform="facebook") == "CAPTCHA/challenge"
-    login = parse_cloak_social_html(LOGIN_HTML, platform="instagram", url="https://www.instagram.com/x/")
+    login = parse_cloak_social_html(
+        LOGIN_HTML,
+        platform="instagram",
+        url="https://www.instagram.com/x/",
+        include_content=True,
+    )
     assert login["status"] == "error"
     assert any("login" in w.lower() for w in login["warnings"])
-    captcha = parse_cloak_social_html(CAPTCHA_HTML, platform="reddit", url="https://www.reddit.com/r/x/")
+    assert login["summary"] == ""
+    assert "content" not in login
+    assert "Sign in to continue" not in (login.get("content") or login.get("summary") or "")
+    captcha = parse_cloak_social_html(
+        CAPTCHA_HTML,
+        platform="reddit",
+        url="https://www.reddit.com/r/x/",
+        include_content=True,
+    )
     assert captcha["status"] == "error"
     assert any("CAPTCHA" in w for w in captcha["warnings"])
+    assert captcha["summary"] == ""
+    assert "content" not in captcha
 
 
 def test_cloak_order_before_opencli_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:

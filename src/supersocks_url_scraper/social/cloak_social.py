@@ -373,6 +373,7 @@ def parse_cloak_social_html(
             "Never automate login/MFA/CAPTCHA."
         )
         status = "error" if gate in {"CAPTCHA/challenge", "consent wall"} else ("partial" if useful else "error")
+        summary = ""
     elif useful:
         status = "ok"
     elif title or summary:
@@ -395,7 +396,7 @@ def parse_cloak_social_html(
         "author": author,
         "published_at": published_at,
     }
-    if include_content:
+    if include_content and not gate:
         out["content"] = text or summary
     # Never echo profile paths that might contain home directories with secrets-looking segments.
     return out
