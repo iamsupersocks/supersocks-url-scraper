@@ -58,6 +58,7 @@ def test_host_matches_root_rejects_lookalikes() -> None:
         ("https://x.com/user/status/1", "x"),
         ("https://www.instagram.com/nasa/", "instagram"),
         ("https://www.facebook.com/zuck", "facebook"),
+        ("https://www.reddit.com/r/announcements/", "reddit"),
         ("https://notyoutube.com/watch?v=abc", None),
         ("https://youtube.com.evil.example/watch?v=abc", None),
         ("https://user:pass@www.youtube.com/watch?v=abc", None),
@@ -402,12 +403,15 @@ def test_health_and_openapi_include_social_contract(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr("supersocks_url_scraper.social.twitter_x.explicit_twitter_credentials_present", lambda: False)
     health = cli.health_payload()
     assert health["fallbacks"]["jina_default"] is False
-    assert health["social"]["platforms"] == ["youtube", "linkedin", "x", "instagram", "facebook"]
+    assert health["social"]["platforms"] == ["youtube", "linkedin", "x", "instagram", "facebook", "reddit"]
     assert "youtube_extra_installed" in health["social"]
     assert "js_runtime_available" in health["social"]
     assert isinstance(health["social"]["js_runtime_available"], bool)
     assert health["social"]["twitter_cli_available"] is False
     assert health["social"]["opencli_available"] is False
+    assert health["social"]["cloak_first_platforms"] == ["reddit", "instagram", "facebook"]
+    assert health["social"]["opencli_fallback_default"] is False
+    assert health["social"]["rdt_cli_fallback_default"] is False
 
     schema = cli.openapi_payload()
     props = schema["paths"]["/summarize"]["post"]["requestBody"]["content"]["application/json"]["schema"]["properties"]
@@ -417,7 +421,8 @@ def test_health_and_openapi_include_social_contract(monkeypatch: pytest.MonkeyPa
     assert "jina" in result_props["fetch_method"]["enum"]
     assert "twitter-cli" in result_props["fetch_method"]["enum"]
     assert "opencli" in result_props["fetch_method"]["enum"]
-    assert set(result_props["platform"]["enum"]) == {"youtube", "linkedin", "x", "instagram", "facebook"}
+    assert "rdt-cli" in result_props["fetch_method"]["enum"]
+    assert set(result_props["platform"]["enum"]) == {"youtube", "linkedin", "x", "instagram", "facebook", "reddit"}
     assert "platform" in result_props
     assert "transcript" in result_props
     assert "linkedin_page_type" in result_props

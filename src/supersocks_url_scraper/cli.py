@@ -44,9 +44,13 @@ def _path_status(raw_path: str, *, kind: str) -> dict:
 
 def health_payload() -> dict:
     browser_profile_dir = os.environ.get("BROWSER_PROFILE_DIR", "")
+    social_profile_dir = os.environ.get("SOCIAL_BROWSER_PROFILE_DIR", "") or browser_profile_dir
     strategy_cache_path = os.environ.get("FETCH_STRATEGY_CACHE_PATH", "")
+    from .browser_fetcher import resolve_headless
     from .social import SOCIAL_PLATFORMS
+    from .social.cloak_social import cloakbrowser_available, opencli_fallback_enabled
     from .social.opencli import probe_opencli
+    from .social.reddit_rdt import rdt_cli_available, rdt_cli_fallback_enabled
     from .social.twitter_x import explicit_twitter_credentials_present, twitter_cli_available
 
     opencli = probe_opencli(timeout=3)
@@ -61,6 +65,7 @@ def health_payload() -> dict:
             "profile_dir": _path_status(browser_profile_dir, kind="dir"),
             "post_load_wait_ms": _env_int("BROWSER_POST_LOAD_WAIT_MS", 8000),
             "max_concurrency": max(1, _env_int("BROWSER_MAX_CONCURRENCY", 1)),
+            "headless_default": resolve_headless(None),
         },
         "fallbacks": {
             "seo_default": _truthy(os.environ.get("SEO_FALLBACK"), True),
@@ -74,8 +79,14 @@ def health_payload() -> dict:
             "jina_fallback_default": _truthy(os.environ.get("JINA_FALLBACK"), False),
             "twitter_cli_available": twitter_cli_available(),
             "twitter_explicit_credentials": explicit_twitter_credentials_present(),
+            "cloak_first_platforms": ["reddit", "instagram", "facebook"],
+            "cloakbrowser_available": cloakbrowser_available(),
+            "social_profile_dir": _path_status(social_profile_dir, kind="dir"),
+            "opencli_fallback_default": opencli_fallback_enabled(),
             "opencli_available": opencli.installed and not opencli.broken,
             "opencli_extension_connected": opencli.extension_connected,
+            "rdt_cli_fallback_default": rdt_cli_fallback_enabled(),
+            "rdt_cli_available": rdt_cli_available(),
         },
         "strategy_cache": _path_status(strategy_cache_path, kind="file"),
         "summary_provider": {
@@ -125,11 +136,11 @@ def openapi_payload() -> dict:
             "title": {"type": "string"},
             "summary": {"type": "string"},
             "length": {"type": "integer"},
-            "fetch_method": {"type": "string", "enum": ["http", "seo", "cloak", "cloak-profile", "archive", "fallback", "yt-dlp", "jina", "twitter-cli", "opencli"]},
+            "fetch_method": {"type": "string", "enum": ["http", "seo", "cloak", "cloak-profile", "archive", "fallback", "yt-dlp", "jina", "twitter-cli", "opencli", "rdt-cli"]},
             "warnings": {"type": "array", "items": {"type": "string"}},
             "content": {"type": "string"},
             "image_url": {"type": "string"},
-            "platform": {"type": "string", "enum": ["youtube", "linkedin", "x", "instagram", "facebook"], "description": "Optional social platform tag when social routing matched."},
+            "platform": {"type": "string", "enum": ["youtube", "linkedin", "x", "instagram", "facebook", "reddit"], "description": "Optional social platform tag when social routing matched."},
             "author": {"type": "string", "description": "Optional author/channel when available from social extractors."},
             "published_at": {"type": "string", "description": "Optional publish/upload date when available."},
             "duration": {"type": "integer", "description": "Optional media duration in seconds when available."},

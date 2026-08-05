@@ -36,6 +36,45 @@ def _browser_semaphore(max_concurrency: int) -> threading.BoundedSemaphore:
         return semaphore
 
 
+def _truthy_env(name: str) -> bool | None:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return None
+    return str(raw).strip().lower() not in {"0", "false", "no", "off", "none"}
+
+
+def resolve_headless(headless: bool | None = None) -> bool:
+    """Resolve headless vs headed Cloak launch.
+
+    Precedence: explicit argument → ``CLOAK_HEADLESS`` / ``BROWSER_HEADLESS`` →
+    default headless True. Headed mode never installs or starts Xvfb; the
+    operator must already expose ``DISPLAY`` or ``WAYLAND_DISPLAY``.
+    """
+    if headless is not None:
+        return bool(headless)
+    for key in ("CLOAK_HEADLESS", "BROWSER_HEADLESS"):
+        parsed = _truthy_env(key)
+        if parsed is not None:
+            # Treat explicit headed aliases as False even if truthy-parsing would not.
+            raw = str(os.environ.get(key) or "").strip().lower()
+            if raw in {"headed", "headful"}:
+                return False
+            return parsed
+    return True
+
+
+def _ensure_display_for_headed(headless: bool) -> None:
+    if headless:
+        return
+    if os.environ.get("DISPLAY", "").strip() or os.environ.get("WAYLAND_DISPLAY", "").strip():
+        return
+    raise BrowserFetchError(
+        "headed CloakBrowser requires DISPLAY or WAYLAND_DISPLAY; "
+        "attach an existing X11/Wayland/Xvfb session yourself "
+        "(this package never installs or starts Xvfb)"
+    )
+
+
 @dataclass(frozen=True)
 class BrowserRenderedPage:
     final_url: str
@@ -119,8 +158,11 @@ async def fetch_with_cloak_async(
     timeout_seconds: float = 60.0,
     post_load_wait_ms: int = 8000,
     profile_dir: str = "",
+    headless: bool | None = None,
 ) -> BrowserRenderedPage:
     os.environ.setdefault("CLOAKBROWSER_SUPPRESS_FONT_WARNING", "1")
+    resolved_headless = resolve_headless(headless)
+    _ensure_display_for_headed(resolved_headless)
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             from cloakbrowser import ensure_binary, launch_context_async, launch_persistent_context_async
@@ -130,7 +172,7 @@ async def fetch_with_cloak_async(
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         await asyncio.to_thread(ensure_binary)
     launch_kwargs: dict[str, Any] = {
-        "headless": True,
+        "headless": resolved_headless,
         "locale": "fr-FR",
         "timezone": "Europe/Paris",
         "humanize": True,
@@ -173,6 +215,7 @@ def fetch_with_cloak(
     post_load_wait_ms: int = 8000,
     profile_dir: str = "",
     max_concurrency: int = 1,
+    headless: bool | None = None,
 ) -> BrowserRenderedPage:
     semaphore = _browser_semaphore(max_concurrency)
     acquired = semaphore.acquire(timeout=max(1.0, float(timeout_seconds)))
@@ -186,6 +229,7 @@ def fetch_with_cloak(
                     timeout_seconds=timeout_seconds,
                     post_load_wait_ms=post_load_wait_ms,
                     profile_dir=profile_dir,
+                    headless=headless,
                 )
             )
         except BrowserFetchError:

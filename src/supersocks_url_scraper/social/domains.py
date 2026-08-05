@@ -18,6 +18,7 @@ _PLATFORM_ROOTS: dict[str, frozenset[str]] = {
     "x": frozenset({"x.com", "twitter.com"}),
     "instagram": frozenset({"instagram.com", "instagr.am"}),
     "facebook": frozenset({"facebook.com", "fb.com", "fb.watch"}),
+    "reddit": frozenset({"reddit.com", "redd.it", "redditmedia.com"}),
 }
 
 
