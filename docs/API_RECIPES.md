@@ -36,14 +36,19 @@ The field is **absent** when there is no useful advice (default reads stay
 unchanged). Advice matching is **offline** (local recipe files + URL match
 only; no sockets).
 
+**State priority** (first match wins): `used` → `review_required` → `blocked`
+(recipe attempted but fell back) → `fixture_only` (`network.mode` in
+`fixture_only`/`off`/`disabled`/`never`) → `available_disabled` (active recipe,
+recipes off) → `suggested` (offline discovery).
+
 | Situation | `state` / `recommended` | What the agent should do |
 |-----------|-------------------------|--------------------------|
-| Known recipe, recipes disabled | `available_disabled` / `api_recipe` | Enable explicitly (`--api-recipes` / `API_RECIPES=1` / `api_recipes:true`) |
-| `network.mode=fixture_only` | `fixture_only` / `api_recipe` | Use fixture/demo or injected fetcher — **never** live |
-| `status=review_required` / candidate | `review_required` / `review_recipe` | Do not execute; review offline, then activate deliberately |
 | Recipe produced the result | `used` / `api_recipe` | Prefer the structured recipe output |
+| `status=review_required` / candidate | `review_required` / `review_recipe` | Do not execute; review offline, then activate deliberately |
 | Recipe blocked, pipeline fell back | `blocked` / `standard_pipeline` | Keep using fallback; do not auto-enable live |
-| No recipe + `recurrent_need` (HTML-like) | `suggested` / `api_discovery` | Capture HAR **manually**, then `--discover-har` offline |
+| `network.mode=fixture_only` (or `off`/`disabled`/`never`) | `fixture_only` / `api_recipe` | Use fixture/demo or injected fetcher — **never** live; **no** enable command |
+| Known active recipe, recipes disabled (`consent_required` / `open`, not fixture-only) | `available_disabled` / `api_recipe` | Enable explicitly (`--api-recipes` / `API_RECIPES=1` / `api_recipes:true`) |
+| No recipe + `recurrent_need` or costly fetch (`cloak`/`archive`/…) (HTML-like) | `suggested` / `api_discovery` | Capture HAR **manually**, then `--discover-har` offline |
 | PDF / image / social / non-HTML | *(no discovery advice)* | Stay on the standard pipeline |
 
 Flags:

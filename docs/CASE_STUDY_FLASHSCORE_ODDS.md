@@ -99,12 +99,12 @@ HAR → candidate → review → activation → execution → fallback.
 ```bash
 # API recipes are opt-in. Flashscore remains fixture_only — matching URLs
 # will not perform live odds GETs; the reader falls through to the normal pipeline.
-# route_advice.state will be fixture_only (never advises live access).
-supersocks-url-scraper --api-recipes https://www.flashscore.com/match/football/demo/?mid=Ab12Cd34
-
-# Without --api-recipes, the same URL still matches offline and surfaces
-# route_advice.state=available_disabled (enable explicitly to use the adapter).
+# Without --api-recipes: route_advice.state=fixture_only (fixture/demo only; never advises live enable).
 supersocks-url-scraper https://www.flashscore.com/match/football/demo/?mid=Ab12Cd34
+
+# With --api-recipes but no injected fetcher/live permission: recipe is attempted,
+# falls back, and route_advice.state=blocked (standard pipeline already used).
+supersocks-url-scraper --api-recipes https://www.flashscore.com/match/football/demo/?mid=Ab12Cd34
 ```
 
 Environment mirrors:

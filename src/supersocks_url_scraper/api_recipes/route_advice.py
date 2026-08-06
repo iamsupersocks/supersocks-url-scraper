@@ -27,7 +27,7 @@ STATE_BLOCKED = "blocked"
 STATE_SUGGESTED = "suggested"
 
 _BLOCKED_NETWORK_MODES = frozenset({"fixture_only", "off", "disabled", "never"})
-_COSTLY_FETCH_METHODS = frozenset({"cloak", "cloak-profile", "fallback"})
+_COSTLY_FETCH_METHODS = frozenset({"cloak", "cloak-profile", "fallback", "archive"})
 _NON_HTML_CONTENT = frozenset({"pdf", "image", "unknown"})
 _BINARY_SUFFIXES = (
     ".pdf",
@@ -160,43 +160,6 @@ def build_route_advice(
             "network_attempted": False,
         }
 
-    if matched is not None and not api_recipes_enabled:
-        requires = ["api_recipes=true", "API_RECIPES=1", "--api-recipes"]
-        reason = (
-            f"Known API recipe {matched.recipe_key} matches this URL but recipes are "
-            "disabled. Enable them explicitly to use the structured adapter."
-        )
-        if matched.network.mode in _BLOCKED_NETWORK_MODES:
-            reason += (
-                f" Note: network.mode={matched.network.mode} — even when enabled, "
-                "live GETs stay blocked; prefer fixture/demo paths."
-            )
-            requires.append("fixture_or_injected_fetcher")
-        return {
-            "recommended": RECOMMENDED_API_RECIPE,
-            "state": STATE_AVAILABLE_DISABLED,
-            "reason": reason,
-            "recipe": recipe_advice_meta(matched),
-            "requires": requires,
-            "next_command": _enable_command(),
-            "network_attempted": False,
-        }
-
-    if matched is not None and matched.network.mode in _BLOCKED_NETWORK_MODES:
-        # Enabled but fixture_only / off — never advise live.
-        return {
-            "recommended": RECOMMENDED_API_RECIPE,
-            "state": STATE_FIXTURE_ONLY,
-            "reason": (
-                f"Recipe {matched.recipe_key} is {matched.network.mode}: use fixture/demo "
-                "or an injected fetcher. Do not attempt live network access."
-            ),
-            "recipe": recipe_advice_meta(matched),
-            "requires": ["fixture_or_injected_fetcher"],
-            "next_command": _fixture_command(matched),
-            "network_attempted": False,
-        }
-
     if recipe_blocked_fallback and matched is not None:
         reason = block_reason or (
             f"Recipe {matched.recipe_key} was blocked; fell back to "
@@ -212,6 +175,35 @@ def build_route_advice(
                 f"# Fallback pipeline already used ({matched.fallback}). "
                 "Do not auto-enable live network."
             ),
+            "network_attempted": False,
+        }
+
+    if matched is not None and matched.network.mode in _BLOCKED_NETWORK_MODES:
+        # fixture_only / off / disabled / never — never advise live enablement.
+        return {
+            "recommended": RECOMMENDED_API_RECIPE,
+            "state": STATE_FIXTURE_ONLY,
+            "reason": (
+                f"Recipe {matched.recipe_key} is {matched.network.mode}: use fixture/demo "
+                "or an injected fetcher. Do not attempt live network access."
+            ),
+            "recipe": recipe_advice_meta(matched),
+            "requires": ["fixture_or_injected_fetcher"],
+            "next_command": _fixture_command(matched),
+            "network_attempted": False,
+        }
+
+    if matched is not None and not api_recipes_enabled:
+        return {
+            "recommended": RECOMMENDED_API_RECIPE,
+            "state": STATE_AVAILABLE_DISABLED,
+            "reason": (
+                f"Known API recipe {matched.recipe_key} matches this URL but recipes are "
+                "disabled. Enable them explicitly to use the structured adapter."
+            ),
+            "recipe": recipe_advice_meta(matched),
+            "requires": ["api_recipes=true", "API_RECIPES=1", "--api-recipes"],
+            "next_command": _enable_command(),
             "network_attempted": False,
         }
 

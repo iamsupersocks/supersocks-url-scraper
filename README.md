@@ -475,9 +475,12 @@ recipe, see [`docs/API_RECIPES.md`](docs/API_RECIPES.md). Discovery always emits
 a *disabled* candidate (`status: review_required`, `network.mode: fixture_only`)
 that never executes or promotes itself. The same doc explains **agent-first
 `route_advice`**: when `recurrent_need` / `--recurrent` is set (or a known
-recipe matches), `read_url` may attach discrete offline guidance
-(`available_disabled`, `fixture_only`, `review_required`, `used`, `blocked`,
-`suggested` / `api_discovery`) without sniffing or auto-activation:
+recipe matches), `read_url` may attach discrete offline guidance. States are
+unambiguous with priority: `used`, `review_required`, `blocked` (recipe
+fallback), `fixture_only` (blocked network modes — fixture/demo only, no live
+enable command), `available_disabled` (active recipe while recipes off),
+`suggested` / `api_discovery` (including after costly `archive`/`cloak` fetches)
+— without sniffing or auto-activation:
 
 ```bash
 # Offline: classify a local HAR, print report + disabled candidate recipe
@@ -530,7 +533,7 @@ Supported service environment variables:
 - `API_RECIPE_PATHS`: optional colon-separated extra recipe JSON files or directories.
 - `API_RECIPE_LIVE_ALLOWLIST` / `API_RECIPE_LIVE_CONSENT`: only for recipes with `network.mode=consent_required` and express written permission; ignored while Flashscore remains `fixture_only`.
 - Offline tooling: `--discover-har <file>` (classify a local HAR and emit a disabled candidate recipe), `--discovery-out-dir <dir>`, and `--validate-recipe <file>` (validate against the embedded JSON Schema v1 + runtime rules). See [`docs/API_RECIPES.md`](docs/API_RECIPES.md).
-- `--recurrent` / request field `recurrent_need` (default `false`): when set and no recipe matches a suitable HTML URL, attach discrete `route_advice` recommending manual HAR capture then offline `--discover-har`. Never auto-sniffs. Skipped for PDF/image/social.
+- `--recurrent` / request field `recurrent_need` (default `false`): when set and no recipe matches a suitable HTML URL, attach discrete `route_advice` recommending manual HAR capture then offline `--discover-har`. Also triggered when the fetch used a costly method (`cloak`, `archive`, etc.). Never auto-sniffs. Skipped for PDF/image/social.
 - `FETCH_STRATEGY_CACHE_PATH`: metadata-only domain strategy cache.
 - `SUMMARY_PROVIDER`: optional summary provider, default `local`. Supports `local`/`extractive`/`none` and generic `http`.
 - `SUMMARY_PROVIDER_URL`: endpoint for `SUMMARY_PROVIDER=http`; unset by default.

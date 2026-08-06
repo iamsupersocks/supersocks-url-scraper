@@ -116,6 +116,16 @@ def test_health_reports_runtime_configuration(monkeypatch, tmp_path, service):
     assert "TWITTER_AUTH_TOKEN" not in json.dumps(body)
 
 
+def test_service_recurrent_need_wired(service):
+    base, calls = service
+
+    status, body = post_json(base, {"url": "https://example.com/app", "recurrent_need": True})
+
+    assert status == 200
+    assert body["status"] == "ok"
+    assert calls[-1]["recurrent_need"] is True
+
+
 def test_openapi_schema_exposes_public_contract(service):
     base, _ = service
 
