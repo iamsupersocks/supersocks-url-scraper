@@ -27,6 +27,7 @@ from supersocks_url_scraper.api_recipes.security import (
     SafeGetResult,
     assert_safe_https_url,
     host_is_blocked,
+    safe_get,
     sanitize_request_headers,
 )
 from supersocks_url_scraper.reader import read_url, to_markdown
@@ -172,6 +173,94 @@ def test_read_url_falls_back_when_flashscore_live_blocked(monkeypatch: pytest.Mo
     warnings = " ".join(result.get("warnings") or [])
     assert "api recipe degraded" in warnings.lower()
     assert result.get("status") in {"ok", "partial"}
+
+
+class _FakeHttpResponse:
+    def __init__(
+        self,
+        *,
+        url: str,
+        status: int = 200,
+        body: bytes = b"",
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self._url = url
+        self.status = status
+        self.code = status
+        self.headers = headers or {"content-type": "application/json"}
+        self._body = body
+
+    def read(self, n: int = -1) -> bytes:
+        return self._body if n < 0 else self._body[:n]
+
+    def geturl(self) -> str:
+        return self._url
+
+    def __enter__(self) -> _FakeHttpResponse:
+        return self
+
+    def __exit__(self, *args: Any) -> bool:
+        return False
+
+
+class _CountingOpener:
+    def __init__(self, responses: list[_FakeHttpResponse]) -> None:
+        self.responses = list(responses)
+        self.calls: list[str] = []
+
+    def __call__(self, request: Any, timeout: int = 8) -> _FakeHttpResponse:
+        self.calls.append(request.full_url)
+        if not self.responses:
+            raise AssertionError("unexpected extra network call")
+        return self.responses.pop(0)
+
+
+@pytest.mark.parametrize(
+    "redirect_location",
+    [
+        "https://127.0.0.1/secret",
+        "https://evil.example.com/secret",
+    ],
+)
+def test_safe_get_blocks_redirect_before_second_network_call(redirect_location: str) -> None:
+    opener = _CountingOpener(
+        [
+            _FakeHttpResponse(
+                url="https://api.example.com/start",
+                status=302,
+                headers={"Location": redirect_location},
+            )
+        ]
+    )
+    with pytest.raises(ApiRecipeSecurityError):
+        safe_get(
+            "https://api.example.com/start",
+            allowed_hosts={"api.example.com"},
+            opener=opener,
+            resolve_dns=False,
+        )
+    assert len(opener.calls) == 1
+
+
+@pytest.mark.parametrize("status_code", [401, 403, 429])
+def test_safe_get_auth_and_rate_limit_statuses_raise_without_retry(status_code: int) -> None:
+    opener = _CountingOpener(
+        [
+            _FakeHttpResponse(
+                url="https://api.example.com/item",
+                status=status_code,
+                headers={"content-type": "application/json"},
+            )
+        ]
+    )
+    with pytest.raises(ApiRecipeSecurityError, match=str(status_code)):
+        safe_get(
+            "https://api.example.com/item",
+            allowed_hosts={"api.example.com"},
+            opener=opener,
+            resolve_dns=False,
+        )
+    assert len(opener.calls) == 1
 
 
 def test_security_blocks_private_hosts_and_auth_headers() -> None:
