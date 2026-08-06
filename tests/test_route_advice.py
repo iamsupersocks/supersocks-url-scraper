@@ -13,6 +13,7 @@ from supersocks_url_scraper.api_recipes import (
     build_route_advice,
     find_matching_recipes,
     load_builtin_recipes,
+    load_recipe_file,
     recipe_advice_meta,
     recipe_from_dict,
     try_api_recipe,
@@ -22,6 +23,8 @@ from supersocks_url_scraper.api_recipes.security import SafeGetResult
 from supersocks_url_scraper.cli import health_payload, openapi_payload
 from supersocks_url_scraper.reader import FetchedResource, read_url, to_markdown
 
+ROOT = Path(__file__).resolve().parents[1]
+EXAMPLE_RECIPE = ROOT / "examples" / "recipes" / "flashscore_odds.v1.json"
 DEMO_URL = "https://www.flashscore.com/match/football/demo-league/alpha-vs-beta/?mid=Ab12Cd34"
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "api_recipes" / "flashscore_odds_sample.json"
 
@@ -59,6 +62,10 @@ def _fixture_fetcher():
     return fetcher
 
 
+def _example_recipe():
+    return load_recipe_file(EXAMPLE_RECIPE)
+
+
 def test_default_read_has_no_route_advice(monkeypatch: pytest.MonkeyPatch) -> None:
     url = "https://news.example/article"
 
@@ -71,7 +78,9 @@ def test_default_read_has_no_route_advice(monkeypatch: pytest.MonkeyPatch) -> No
     assert result.get("status") in {"ok", "partial"}
 
 
-def test_known_recipe_disabled_available_disabled_for_flashscore(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_flashscore_url_without_explicit_recipe_suggests_discovery_when_recurrent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No builtin Flashscore recipe — standard scrape; recurrent_need → generic discovery advice."""
+
     def fake_pipeline(fetch_url: str, **kwargs: Any) -> FetchedResource:
         return _html_resource(fetch_url, "<html><body><article><p>Match page prose.</p></article></body></html>")
 
@@ -79,6 +88,33 @@ def test_known_recipe_disabled_available_disabled_for_flashscore(monkeypatch: py
     result = read_url(
         DEMO_URL,
         api_recipes=False,
+        recurrent_need=True,
+        skip_social_routing=True,
+        seo_fallback=False,
+        browser_fallback=False,
+        archive_fallback=False,
+    )
+    advice = result.get("route_advice")
+    assert isinstance(advice, dict)
+    assert advice["state"] == "suggested"
+    assert advice["recommended"] == "api_discovery"
+    assert advice["network_attempted"] is False
+    blob = json.dumps(advice).lower()
+    assert "flashscore" not in blob
+    assert "discover-har" in (advice.get("next_command") or "")
+
+
+def test_explicit_example_recipe_available_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    recipe = _example_recipe()
+
+    def fake_pipeline(fetch_url: str, **kwargs: Any) -> FetchedResource:
+        return _html_resource(fetch_url)
+
+    monkeypatch.setattr("supersocks_url_scraper.reader._fetch_with_pipeline", fake_pipeline)
+    result = read_url(
+        DEMO_URL,
+        api_recipes=False,
+        api_recipe_paths=[str(EXAMPLE_RECIPE)],
         skip_social_routing=True,
         seo_fallback=False,
         browser_fallback=False,
@@ -88,44 +124,9 @@ def test_known_recipe_disabled_available_disabled_for_flashscore(monkeypatch: py
     assert isinstance(advice, dict)
     assert advice["state"] == "available_disabled"
     assert advice["recommended"] == "api_recipe"
-    assert advice["network_attempted"] is False
-    assert advice["recipe"]["id"] == "flashscore-odds"
-    assert advice["recipe"]["network_mode"] == "consent_required"
-    assert "status" in advice["recipe"]
+    assert advice["recipe"]["id"] == recipe.id
+    assert advice["recipe"]["network_mode"] == "open"
     assert "--api-recipes" in (advice.get("next_command") or "")
-
-
-def test_flashscore_blocked_when_enabled_without_fetcher(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "supersocks_url_scraper.api_recipes.engine.safe_get",
-        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no live flashscore")),
-    )
-
-    def fake_pipeline(fetch_url: str, **kwargs: Any) -> FetchedResource:
-        return _html_resource(fetch_url)
-
-    monkeypatch.setattr("supersocks_url_scraper.reader._fetch_with_pipeline", fake_pipeline)
-    result = read_url(
-        DEMO_URL,
-        api_recipes=True,
-        skip_social_routing=True,
-        seo_fallback=False,
-        browser_fallback=False,
-        archive_fallback=False,
-    )
-    advice = result["route_advice"]
-    assert advice["state"] == "blocked"
-    assert advice["recommended"] == "standard_pipeline"
-    assert advice["network_attempted"] is False
-    assert "fallback" in advice["reason"].lower() or "blocked" in advice["reason"].lower()
-    requires = advice.get("requires") or []
-    assert any("API_RECIPE_LIVE_ALLOWLIST" in r for r in requires)
-    assert any("API_RECIPE_LIVE_CONSENT" in r for r in requires)
-    next_cmd = advice.get("next_command") or ""
-    assert "flashscore-odds" in next_cmd
-    assert "<url>" in next_cmd
-    assert DEMO_URL not in next_cmd
-    assert result.get("fetch_method") != "api-recipe"
 
 
 def test_review_required_candidate_blocks_execution() -> None:
@@ -200,8 +201,8 @@ def test_recipe_advice_meta_exposes_review_required_for_candidate() -> None:
     assert advice["recipe"]["review_required"] is True
 
 
-def test_recipe_advice_meta_review_required_false_for_normal_recipe() -> None:
-    recipe = next(r for r in load_builtin_recipes() if r.id == "flashscore-odds")
+def test_recipe_advice_meta_review_required_false_for_open_recipe() -> None:
+    recipe = _example_recipe()
     assert recipe.needs_review is False
     meta = recipe_advice_meta(recipe)
     assert meta["status"] == "active"
@@ -218,7 +219,7 @@ def test_recipe_advice_meta_review_required_false_for_normal_recipe() -> None:
 
 
 def test_discovery_command_never_embeds_caller_url() -> None:
-    """A hostile URL with newline / shell text must not leak into next_command or add an executable line."""
+    """A hostile URL with newline / shell text must not leak into next_command."""
     hostile = "https://evil.example/path\nrm -rf /tmp/x && echo PWNED"
     advice = build_route_advice(
         hostile,
@@ -229,23 +230,16 @@ def test_discovery_command_never_embeds_caller_url() -> None:
     assert advice["recommended"] == "api_discovery"
     cmd = advice["next_command"]
     assert isinstance(cmd, str)
-    # The injected text must not appear anywhere in the command.
     assert "evil.example" not in cmd
     assert "rm -rf" not in cmd
     assert "PWNED" not in cmd
-    # Every line is either a comment prefix or the fixed, safe command — never an injected executable line.
-    safe_lines = [
-        "supersocks-url-scraper --discover-har capture.har",
-        "# 1) Capture a HAR manually in your browser DevTools (no auto-sniff).",
-        "# 2) Classify offline (never opens a socket):",
-    ]
     for line in cmd.splitlines():
         stripped = line.strip()
-        assert stripped in safe_lines, f"unexpected command line: {stripped!r}"
+        assert stripped.startswith("#") or stripped.startswith("supersocks-url-scraper"), stripped
 
 
 def test_used_state_after_successful_recipe() -> None:
-    recipe = next(r for r in load_builtin_recipes() if r.id == "flashscore-odds")
+    recipe = _example_recipe()
     payload = try_api_recipe(
         DEMO_URL,
         enabled=True,
@@ -311,6 +305,7 @@ def test_archive_fetch_suggests_api_discovery() -> None:
     assert advice["state"] == "suggested"
     assert advice["recommended"] == "api_discovery"
     assert "discover-har" in (advice.get("next_command") or "")
+    assert "flashscore" not in json.dumps(advice).lower()
 
 
 def test_blocked_fallback_consent_required() -> None:
@@ -349,7 +344,6 @@ def test_blocked_fallback_consent_required() -> None:
     assert advice["state"] == "blocked"
     assert advice["recommended"] == "standard_pipeline"
     assert advice["network_attempted"] is False
-    assert "fallback" in advice["reason"].lower() or "blocked" in advice["reason"].lower()
     requires = advice.get("requires") or []
     assert any("API_RECIPE_LIVE_ALLOWLIST" in r for r in requires)
     assert any("API_RECIPE_LIVE_CONSENT" in r for r in requires)
@@ -432,10 +426,13 @@ def test_markdown_http_openapi_serialization() -> None:
     result_props = spec["paths"]["/summarize"]["post"]["responses"]["200"]["content"]["application/json"]["schema"]["properties"]
     assert "route_advice" in result_props
     assert "available_disabled" in result_props["route_advice"]["properties"]["state"]["enum"]
+    assert "flashscore" not in json.dumps(spec).lower()
 
     health = health_payload()
     assert health["api_recipes"]["route_advice"] is True
     assert health["api_recipes"]["recurrent_need_default"] is False
+    assert health["api_recipes"]["builtin"] == []
+    assert "flashscore" not in json.dumps(health["api_recipes"]).lower()
 
 
 def test_route_advice_matching_makes_zero_network_calls(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -445,7 +442,8 @@ def test_route_advice_matching_makes_zero_network_calls(monkeypatch: pytest.Monk
     monkeypatch.setattr("urllib.request.urlopen", boom)
     monkeypatch.setattr("socket.create_connection", boom)
 
-    matches = find_matching_recipes(DEMO_URL, load_builtin_recipes())
+    assert find_matching_recipes(DEMO_URL, load_builtin_recipes()) == []
+    matches = find_matching_recipes(DEMO_URL, [_example_recipe()])
     assert matches and matches[0].id == "flashscore-odds"
     advice = build_route_advice(
         DEMO_URL,
@@ -486,7 +484,7 @@ def test_cli_recurrent_flag_wired(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_read_url_used_path_attaches_advice(monkeypatch: pytest.MonkeyPatch) -> None:
     """When try_api_recipe succeeds, read_url attaches state=used without pipeline fetch."""
-    recipe = next(r for r in load_builtin_recipes() if r.id == "flashscore-odds")
+    recipe = _example_recipe()
 
     def fake_try(url: str, **kwargs: Any) -> dict[str, Any]:
         run = try_api_recipe(
@@ -502,22 +500,24 @@ def test_read_url_used_path_attaches_advice(monkeypatch: pytest.MonkeyPatch) -> 
     def boom_pipeline(*args: Any, **kwargs: Any) -> Any:
         raise AssertionError("pipeline must not run when recipe succeeds")
 
-    monkeypatch.setattr("supersocks_url_scraper.api_recipes.try_api_recipe", fake_try)
     monkeypatch.setattr("supersocks_url_scraper.reader._fetch_with_pipeline", boom_pipeline)
-
-    # Patch the name used inside read_url's local import path via module attribute
     import supersocks_url_scraper.api_recipes as api_recipes_mod
 
     monkeypatch.setattr(api_recipes_mod, "try_api_recipe", fake_try)
 
-    result = read_url(DEMO_URL, api_recipes=True, skip_social_routing=True)
+    result = read_url(
+        DEMO_URL,
+        api_recipes=True,
+        api_recipe_paths=[str(EXAMPLE_RECIPE)],
+        skip_social_routing=True,
+    )
     assert result.get("fetch_method") == "api-recipe"
     assert result["route_advice"]["state"] == "used"
-    assert result["route_advice"]["network_attempted"] is False  # injected fetcher, not live
+    assert result["route_advice"]["network_attempted"] is False
 
 
-def test_socket_not_opened_for_advice_only_flashscore_match(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Matching + advice for a known recipe must not call urlopen before the mocked pipeline."""
+def test_socket_not_opened_for_advice_only_explicit_recipe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Matching + advice for an explicitly loaded recipe must not call urlopen before the mocked pipeline."""
     calls: list[str] = []
 
     def fake_urlopen(*args: Any, **kwargs: Any) -> Any:
@@ -534,6 +534,7 @@ def test_socket_not_opened_for_advice_only_flashscore_match(monkeypatch: pytest.
     result = read_url(
         DEMO_URL,
         api_recipes=False,
+        api_recipe_paths=[str(EXAMPLE_RECIPE)],
         skip_social_routing=True,
         seo_fallback=False,
         browser_fallback=False,

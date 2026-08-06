@@ -1,185 +1,87 @@
-# Case study #3: Flashscore 1X2 odds (consent-gated, off by default)
+# Case study #3: Flashscore 1X2 odds (example only — not builtin)
 
-Public, share-safe example showing how `supersocks-url-scraper` exposes an
-**optional, versioned API-recipe layer**, then how an agent consumes a compact
-1X2 odds snapshot. **No live Flashscore connector runs without explicit
-allowlist + consent attestation.**
+This case study shows how the **general** API-recipe brick can adapt a
+match-style URL into a compact 1X2 odds snapshot. **Flashscore is not a
+builtin, not auto-loaded, and not a supported special integration** — the
+recipe and odds normalization live under `examples/`.
 
 Flashscore Terms of Use prohibit burdening their servers with automated requests
-and prohibit scraping / aggregating site content without express consent
-(https://www.flashscore.com/terms-of-use/). This case study is therefore
-**offline, fixture-driven, and non-network by default**. Synthetic odds values are
-fictional and **not betting advice**.
+and scraping without express consent
+(https://www.flashscore.com/terms-of-use/). Prefer offline fixtures. Live GETs
+via explicit recipe load are the operator's responsibility under current Terms.
+No live HAR or live odds data is committed.
 
-Companion code:
+## Artifacts
 
 - [`examples/flashscore_odds.py`](../examples/flashscore_odds.py)
 - [`examples/flashscore_odds_comparison.py`](../examples/flashscore_odds_comparison.py) — base HTML scraper vs JSON recipe (offline, deterministic)
-- [`src/supersocks_url_scraper/api_recipes/`](../src/supersocks_url_scraper/api_recipes/)
+- [`examples/recipes/flashscore_odds.v1.json`](../examples/recipes/flashscore_odds.v1.json) — explicit load only
+- [`examples/flashscore/odds_normalize.py`](../examples/flashscore/odds_normalize.py) — example-side normalization (not core)
+- Generic brick: [`src/supersocks_url_scraper/api_recipes/`](../src/supersocks_url_scraper/api_recipes/)
 - Fixture: [`tests/fixtures/api_recipes/flashscore_odds_sample.json`](../tests/fixtures/api_recipes/flashscore_odds_sample.json)
 - Fixture: [`tests/fixtures/api_recipes/flashscore_match_page.html`](../tests/fixtures/api_recipes/flashscore_match_page.html)
 - Layer docs: [`docs/API_RECIPES.md`](API_RECIPES.md)
 
-## Objectif
+## Architecture (general)
 
-Demonstrate a bounded pattern an agent can reuse:
-
-1. Match a public Flashscore-style match URL (`?mid=…`).
-2. Extract the event id.
-3. Normalize a small bookmaker set into `home` / `draw` / `away` (+ `opening` when present).
-4. Emit JSON/Markdown with `captured_at`, provenance, and a non-advice disclaimer.
-5. On recipe failure or network block, degrade to HTTP → SEO → Cloak → archive.
-
-The example never opens a live socket by default. Live HTTPS GET for this recipe
-requires `network.mode=consent_required` (the shipped default) **plus**
-`API_RECIPE_LIVE_ALLOWLIST` and `API_RECIPE_LIVE_CONSENT` when the operator
-possesses express written permission per current Terms.
-
-## Parcours
-
-### Install
-
-```bash
-python -m venv .venv
-. .venv/bin/activate
-pip install -e '.[test]'
+```text
+base scrape → route_advice → (optional) HAR discovery → review
+  → explicit API_RECIPE_PATHS load + --api-recipes → API fanout → fallback
 ```
 
-### Offline agent example (default)
+Core executes declarative HTTPS GET + bounded fanout (`params.bindings` /
+`params.fanout`). Odds-specific transforms stay in the example.
+
+## Observed browser pattern (example recipe)
+
+- Host: `2.ds.lsapp.eu`
+- Method/path: `GET /pq_graphql`
+- Query: `_hash=ole2`, `eventId={event_id}` (from page `?mid=`), bounded
+  `bookmakerId` fanout, `betType=HOME_DRAW_AWAY`, `betScope=FULL_TIME`
+- `network.mode=open` — with global `api_recipes` opt-in alone (no allowlist /
+  consent phrase). Still not auto-loaded.
+
+## Offline demos
 
 ```bash
 python examples/flashscore_odds.py
 python examples/flashscore_odds.py --markdown
 python examples/flashscore_odds.py --self-check
-python examples/flashscore_odds.py --demo-fallback
-```
+python examples/flashscore_odds.py --demo-fallback   # shows no builtin match
 
-Expected: structured JSON with `fetch_method: "api-recipe"`, several bookmaker
-rows, `api_recipe.id = flashscore-odds`, and the disclaimer. `--demo-fallback`
-shows that without allowlist/consent the recipe errors with a ToS/consent
-warning and signals fallback (`_api_recipe_fallback`).
-
-### Base HTML scraper vs JSON recipe (deterministic, offline)
-
-```bash
 python examples/flashscore_odds_comparison.py
 python examples/flashscore_odds_comparison.py --markdown
 python examples/flashscore_odds_comparison.py --markdown --show-fallback
 ```
 
-This runs the **same synthetic match case** through two read paths and prints a
-side-by-side comparison, with **no live benchmark**:
-
-- **Base HTML scraper** (`extract_article` on `flashscore_match_page.html`):
-  generic prose — the match title, team names, and odds appear only as inline
-  text (`Betclic 2.10 3.25 3.40 …`), with no `captured_at`, no typed structure,
-  and no provenance string.
-- **JSON recipe** (`execute_recipe` with the injected offline fetcher):
-  a typed, normalized 1X2 market — `home`/`draw`/`away` (+ `opening` when
-  present) per bookmaker, plus `provenance`, `captured_at`, a disclaimer, and a
-  fallback signal.
-
-The comparison uses deterministic synthetic fixture values; only the generated
-`captured_at` timestamp changes between runs. It shows the *shape* of the
-difference (generic prose versus a typed, normalized market) rather than real
-market data. `--show-fallback` additionally
-proves that without allowlist/consent the recipe errors and signals fallback
-(`_api_recipe_fallback = true`).
-
-### Discovery from a local HAR (offline, opt-in)
-
-The same adapter concept can be bootstrapped from a browser HAR capture with no
-network. `--discover-har` keeps only public HTTPS GET JSON exchanges, excludes
-auth/cookies/tokens / writes / private hosts / non-JSON / oversized bodies,
-redacts sensitive params and headers, and emits a classified report plus a
-**disabled** candidate recipe (`status: review_required`,
-`network.mode: fixture_only`). It never executes or promotes the candidate. See
-[`docs/API_RECIPES.md`](API_RECIPES.md) for the lifecycle
-HAR → candidate → review → activation → execution → fallback.
-
-### Opt-in reader flag (consent-gated live path)
+## Explicit activation (no auto-load)
 
 ```bash
-# API recipes are opt-in. Flashscore ships consent_required — matching URLs
-# perform no live odds GETs unless allowlist+consent env vars are set.
-# Without --api-recipes: route_advice.state=available_disabled (enable recipes first).
+# Standard read: no builtin Flashscore recipe → normal scrape pipeline
 supersocks-url-scraper https://www.flashscore.com/match/football/demo/?mid=Ab12Cd34
 
-# With --api-recipes but no allowlist/consent: recipe is attempted,
-# falls back, and route_advice.state=blocked (standard pipeline already used).
-supersocks-url-scraper --api-recipes https://www.flashscore.com/match/football/demo/?mid=Ab12Cd34
-
-# Authorized live path (only with express written permission):
-API_RECIPE_LIVE_ALLOWLIST=flashscore-odds \
-API_RECIPE_LIVE_CONSENT=I_HAVE_EXPRESS_WRITTEN_PERMISSION \
-supersocks-url-scraper --api-recipes https://www.flashscore.com/match/football/demo/?mid=Ab12Cd34
+# Explicit example load + global opt-in
+API_RECIPE_PATHS=examples/recipes/flashscore_odds.v1.json \
+  supersocks-url-scraper --api-recipes https://www.flashscore.com/match/football/demo/?mid=Ab12Cd34
 ```
 
-Environment mirrors:
+Environment reminders:
 
 - `API_RECIPES=0` (default) — recipes off
-- `API_RECIPE_PATHS` — extra recipe JSON files/dirs
-- Live gates for the shipped Flashscore recipe (`consent_required`):
-  - `API_RECIPE_LIVE_ALLOWLIST` — comma/space list of recipe ids (include `flashscore-odds`)
-  - `API_RECIPE_LIVE_CONSENT=I_HAVE_EXPRESS_WRITTEN_PERMISSION`
+- `API_RECIPE_PATHS` — colon-separated external recipe files/dirs (required for this example)
+- `network.mode=open` on the example recipe → no allowlist/consent phrase
+- `fixture_only` / `consent_required` remain available as **generic** optional policies
 
-Agent recurrence: pass `recurrent_need=True` / `--recurrent` on *other* HTML sites
-when you expect to revisit them; Flashscore already has a shipped consent-gated
-recipe, so advice points at that adapter instead of discovery. See
-[`docs/API_RECIPES.md`](API_RECIPES.md) § Agent-first route advice.
+## What the comparison shows
 
-### Historical endpoint shape (documentation only)
+- **Base HTML scraper** (`extract_article` on `flashscore_match_page.html`):
+  generic prose; odds appear only as inline text.
+- **JSON recipe** (explicit example path + injected fetcher + example normalizer):
+  typed `home`/`draw`/`away` (+ opening) per bookmaker, provenance, `captured_at`.
 
-Older internal notes described a public GET form:
+## Guardrails preserved
 
-`https://global.ds.lsapp.eu/odds/pq_graphql?_hash=ope2&eventId=…&bookmakerId=…&betType=HOME_DRAW_AWAY&betScope=FULL_TIME`
-
-That shape is undocumented and may change. **This repository does not benchmark
-it live** and does not enable automated access by default. Any latency claims
-from older experiments are hypotheses only and are intentionally omitted here.
-
-## Limites
-
-- Fixture values are synthetic; do not treat them as market prices.
-- No login, cookies, tokens, Authorization headers, CAPTCHA bypass, or private hosts.
-- StrategyCache still stores only `http` / `seo` / `cloak` / `archive` routes — never API recipes.
-- Flashscore ToS: automated requests / scraping without express consent are prohibited.
-- No live benchmark is published with this case study.
-
-## Résultats (fixture)
-
-Running `python examples/flashscore_odds.py --self-check` normalizes the synthetic
-bookmaker payloads offline. A typical fixture run yields multiple 1X2 rows (empty
-bookmaker stubs are skipped) plus:
-
-- `structured_data.kind = flashscore_odds_1x2`
-- `disclaimer` stating the snapshot is not betting advice
-- `provenance` noting consent-gated / ToS constraints
-
-Deterministic offline artifacts (committed under `docs/data/`):
-
-- [`docs/data/flashscore_base_vs_recipe_compare.md`](data/flashscore_base_vs_recipe_compare.md) — the base-HTML-scraper vs JSON-recipe comparison from `examples/flashscore_odds_comparison.py --markdown`.
-- [`docs/data/api-discovery-demo-*.md`](data/) — HAR discovery report and the disabled `review_required` candidate recipe for the synthetic HAR fixture.
-
-## Reproduction for agents
-
-```text
-goal: obtain compact 1X2 context for a match URL without scraping Flashscore live
-steps:
-  1. Prefer examples/flashscore_odds.py (fixture fetcher)
-  2. Or call execute_recipe(..., fetcher=offline_fetcher)
-  3. Never enable live Flashscore GETs unless you have express written permission
-     per current Terms AND set API_RECIPE_LIVE_ALLOWLIST + API_RECIPE_LIVE_CONSENT
-  4. Always surface disclaimer + captured_at; never present odds as a tip
-```
-
-## Sécurité (couche générique)
-
-The shared API-recipe engine enforces:
-
-- GET / HTTPS only
-- host allowlists + private/loopback / dangerous-redirect blocks
-- size / timeout / fanout / cadence bounds
-- sensitive header scrubbing; blocked Authorization/Cookie on requests
-- 401 / 403 / 429 surfaced without retry storms
-- automatic degradation to the standard reader pipeline
+GET/HTTPS, `allowed_hosts`, SSRF/DNS/redirect checks, response caps, forbidden
+header scrubbing, rate/fanout bounds, fallback to HTTP→SEO→Cloak→archive, no
+secrets. StrategyCache never stores API-recipe routes. `review_required`
+candidates remain a hard gate.

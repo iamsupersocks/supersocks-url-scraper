@@ -42,7 +42,7 @@ HTML_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "api_recipes" / "f
 ODDS_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "api_recipes" / "flashscore_odds_sample.json"
 RECIPE_FILE = (
     Path(__file__).resolve().parents[1]
-    / "src" / "supersocks_url_scraper" / "api_recipes" / "recipes" / "flashscore_odds.v1.json"
+    / "examples" / "recipes" / "flashscore_odds.v1.json"
 )
 SCHEMA_FILE = (
     Path(__file__).resolve().parents[1]
@@ -274,10 +274,12 @@ def test_schema_round_trips_and_matches_file() -> None:
     assert file_schema["properties"]["endpoint"]["properties"]["method"]["enum"] == ["GET"]
 
 
-def test_validate_recipe_schema_accepts_shipped_flashscore() -> None:
+def test_validate_recipe_schema_accepts_example_flashscore() -> None:
     raw = json.loads(RECIPE_FILE.read_text(encoding="utf-8"))
     assert validate_recipe_schema(raw) == []
     assert validate_recipe_dict(raw) == []
+    assert raw["network"]["mode"] == "open"
+    assert "2.ds.lsapp.eu" in raw["endpoint"]["allowed_hosts"]
 
 
 def test_validate_recipe_schema_rejects_bad_docs() -> None:
@@ -410,5 +412,5 @@ def test_comparison_example_markdown_and_fallback() -> None:
     )
     assert proc.returncode == 0, proc.stderr
     assert "Base HTML scraper vs JSON recipe" in proc.stdout
-    assert "network_blocked_triggers_fallback" in proc.stdout
+    assert "no_builtin_flashscore_match" in proc.stdout
     assert "flashscore_match_page.html" not in proc.stdout  # no secret leakage

@@ -1,12 +1,10 @@
 """Explicit consent / allowlist gates for network-using API recipes.
 
-Flashscore Terms of Use (clause covering automated requests / scraping without
-express consent — see https://www.flashscore.com/terms-of-use/) mean the
-shipped Flashscore odds recipe uses ``network.mode=consent_required`` and stays
-off by default. Live HTTPS GETs for consent-gated recipes require BOTH:
+Live HTTPS GETs are controlled by each recipe's ``network.mode``:
 
-1. API_RECIPE_LIVE_ALLOWLIST including the recipe id (comma/space separated)
-2. API_RECIPE_LIVE_CONSENT exactly equal to the required consent phrase
+- ``fixture_only`` / ``off`` / ``disabled`` / ``never`` — never live
+- ``consent_required`` / ``allowlist`` — needs allowlist + consent phrase
+- ``open`` / ``allow`` — permitted when the global API-recipes opt-in is on
 
 Injected fetchers (unit tests / offline fixtures) never touch the network and
 do not need consent.
@@ -19,15 +17,6 @@ from typing import Any
 
 # Exact phrase required — never soft-match, never default-enable.
 DEFAULT_CONSENT_PHRASE = "I_HAVE_EXPRESS_WRITTEN_PERMISSION"
-
-FLASHSCORE_TOS_WARNING = (
-    "Flashscore Terms of Use prohibit automated requests and scraping without "
-    "express consent (https://www.flashscore.com/terms-of-use/). Live network "
-    "access for recipe flashscore-odds is off by default and consent-gated: set "
-    "API_RECIPE_LIVE_ALLOWLIST to include flashscore-odds and "
-    f"API_RECIPE_LIVE_CONSENT={DEFAULT_CONSENT_PHRASE} only when you possess "
-    "express written permission per current Terms."
-)
 
 
 def _split_allowlist(raw: str | None) -> set[str]:
@@ -53,8 +42,8 @@ def live_network_permitted(
     if mode in {"off", "disabled", "fixture_only", "never"}:
         return False
     if mode in {"open", "allow"}:
-        # Reserved for non-Flashscore recipes that are intentionally public-safe.
-        # Still requires the global API recipes opt-in at the caller.
+        # Intentionally public-safe recipes still require the global API recipes
+        # opt-in at the caller (api_recipes=true / --api-recipes / API_RECIPES=1).
         return True
     if mode not in {"consent_required", "allowlist"}:
         return False
@@ -70,8 +59,16 @@ def live_network_permitted(
 
 def network_gate_message(recipe: Any) -> str:
     recipe_id = getattr(recipe, "id", None) or (recipe.get("id") if isinstance(recipe, dict) else "?")
-    if str(recipe_id) == "flashscore-odds":
-        return FLASHSCORE_TOS_WARNING
+    network = getattr(recipe, "network", None)
+    mode = getattr(network, "mode", None) if network is not None else None
+    if mode is None and isinstance(recipe, dict):
+        mode = (recipe.get("network") or {}).get("mode")
+    mode = str(mode or "consent_required").strip().lower()
+    if mode in {"fixture_only", "off", "disabled", "never"}:
+        return (
+            f"Live network for recipe {recipe_id} is blocked by network.mode={mode}; "
+            "use an injected fetcher or a fixture demo."
+        )
     return (
         f"Live network for recipe {recipe_id} is blocked: set API_RECIPE_LIVE_ALLOWLIST "
         f"to include '{recipe_id}' and API_RECIPE_LIVE_CONSENT={DEFAULT_CONSENT_PHRASE}."

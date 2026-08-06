@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -10,12 +11,11 @@ import pytest
 
 from supersocks_url_scraper.api_recipes import (
     DEFAULT_CONSENT_PHRASE,
-    FLASHSCORE_TOS_WARNING,
     execute_recipe,
-    extract_event_id,
     live_network_permitted,
     load_builtin_recipes,
-    normalize_prematch_1x2,
+    load_recipe_file,
+    load_recipes,
     recipe_from_dict,
     scrub_headers,
     try_api_recipe,
@@ -32,8 +32,19 @@ from supersocks_url_scraper.api_recipes.security import (
 )
 from supersocks_url_scraper.reader import read_url, to_markdown
 
+ROOT = Path(__file__).resolve().parents[1]
+EXAMPLE_RECIPE = ROOT / "examples" / "recipes" / "flashscore_odds.v1.json"
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "api_recipes" / "flashscore_odds_sample.json"
 DEMO_URL = "https://www.flashscore.com/match/football/demo-league/alpha-vs-beta/?mid=Ab12Cd34"
+CORE_MODULES = [
+    ROOT / "src" / "supersocks_url_scraper" / "api_recipes" / "engine.py",
+    ROOT / "src" / "supersocks_url_scraper" / "api_recipes" / "models.py",
+    ROOT / "src" / "supersocks_url_scraper" / "api_recipes" / "consent.py",
+    ROOT / "src" / "supersocks_url_scraper" / "api_recipes" / "route_advice.py",
+    ROOT / "src" / "supersocks_url_scraper" / "api_recipes" / "__init__.py",
+    ROOT / "src" / "supersocks_url_scraper" / "reader.py",
+    ROOT / "src" / "supersocks_url_scraper" / "cli.py",
+]
 
 
 def _fixture_fetcher(fixture_path: Path = FIXTURE):
@@ -58,63 +69,73 @@ def _fixture_fetcher(fixture_path: Path = FIXTURE):
     return fetcher
 
 
-def test_builtin_flashscore_recipe_is_consent_required() -> None:
-    recipes = [r for r in load_builtin_recipes() if r.id == "flashscore-odds"]
-    assert len(recipes) == 1
-    assert recipes[0].network.mode == "consent_required"
-    assert recipes[0].endpoint.method == "GET"
-    assert "Authorization" not in recipes[0].endpoint.headers
-    assert "Cookie" not in recipes[0].endpoint.headers
-    assert "Referer" not in recipes[0].endpoint.headers
+def test_no_flashscore_builtin() -> None:
+    builtins = load_builtin_recipes()
+    assert builtins == []
+    assert not any(r.id == "flashscore-odds" for r in builtins)
+    matches = try_api_recipe(DEMO_URL, enabled=True)
+    assert matches is None
 
 
-def test_extract_event_id_from_mid_query() -> None:
-    assert extract_event_id(DEMO_URL) == "Ab12Cd34"
-    assert extract_event_id("https://www.flashscore.fr/match/xyz/?mid=Zz99Aa11") == "Zz99Aa11"
-    # extract_event_id is host-agnostic; matching gates hosts separately.
-    assert extract_event_id("https://example.com/match/?mid=Ab12Cd34") == "Ab12Cd34"
-    assert extract_event_id("https://www.flashscore.com/football/") is None
-
-def test_normalize_prematch_1x2_from_fixture() -> None:
-    raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
-    row = normalize_prematch_1x2(raw["bookmakers"]["141"], bookmaker_id=141, bookmaker_name="Betclic")
-    assert row is not None
-    assert row["home"] == 2.1
-    assert row["draw"] == 3.25
-    assert row["away"] == 3.4
-    assert row["opening"]["home"] == 2.05
-    empty = normalize_prematch_1x2(raw["bookmakers"]["484"], bookmaker_id=484, bookmaker_name="ParionsSport")
-    assert empty is None
+def test_core_modules_have_no_flashscore_strings() -> None:
+    pattern = re.compile(r"flashscore|Flashscore|FLASHSCORE|lsapp\.eu", re.I)
+    offenders: list[str] = []
+    for path in CORE_MODULES:
+        text = path.read_text(encoding="utf-8")
+        if pattern.search(text):
+            offenders.append(str(path.relative_to(ROOT)))
+    assert offenders == []
 
 
-def test_execute_flashscore_with_fixture_fetcher() -> None:
-    recipe = next(r for r in load_builtin_recipes() if r.id == "flashscore-odds")
+def test_example_recipe_explicit_load_and_fixture_normalization() -> None:
+    recipe = load_recipe_file(EXAMPLE_RECIPE)
+    assert recipe.id == "flashscore-odds"
+    assert recipe.network.mode == "open"
+    assert "2.ds.lsapp.eu" in recipe.endpoint.allowed_hosts
+    assert "_hash=ole2" in recipe.endpoint.url_template
+    assert recipe.endpoint.method == "GET"
+    assert "Authorization" not in recipe.endpoint.headers
+    assert "Cookie" not in recipe.endpoint.headers
+
+    catalog = load_recipes(extra_paths=[str(EXAMPLE_RECIPE)])
+    assert any(r.id == "flashscore-odds" for r in catalog)
     run = execute_recipe(DEMO_URL, recipe, fetcher=_fixture_fetcher(), resolve_dns=False)
     assert run.status == "ok"
-    assert run.fetch_method == "api-recipe"
-    assert len(run.structured_data["bookmakers"]) >= 4
-    assert "not betting advice" in run.summary.lower() or "not betting advice" in run.structured_data["disclaimer"].lower()
-    md = to_markdown(run.as_reader_dict())
+    assert run.structured_data["kind"] == "api_recipe_fanout"
+    assert run.structured_data["bindings"]["event_id"] == "Ab12Cd34"
+    assert len(run.structured_data["items"]) >= 4
+    assert any(i.get("ok") for i in run.structured_data["items"])
+
+    # Example-side normalization (not core).
+    import sys
+
+    sys.path.insert(0, str(ROOT / "examples"))
+    from flashscore.odds_normalize import normalize_fanout_result
+
+    structured = normalize_fanout_result(match_url=DEMO_URL, fanout_structured=run.structured_data)
+    assert structured["kind"] == "flashscore_odds_1x2"
+    assert len(structured["bookmakers"]) >= 4
+    md = to_markdown({**run.as_reader_dict(), "structured_data": structured, "summary": "odds"})
     assert "Structured odds" in md
-    assert "not betting advice" in md.lower()
 
 
-def test_live_network_blocked_without_consent() -> None:
-    assert live_network_permitted("flashscore-odds", network_mode="fixture_only", env={}) is False
+def test_live_network_policies() -> None:
+    assert live_network_permitted("demo", network_mode="fixture_only", env={}) is False
+    assert live_network_permitted("demo", network_mode="open", env={}) is True
     assert (
         live_network_permitted(
-            "flashscore-odds",
+            "demo",
             network_mode="consent_required",
-            env={"API_RECIPE_LIVE_ALLOWLIST": "flashscore-odds"},
+            env={"API_RECIPE_LIVE_ALLOWLIST": "demo"},
         )
         is False
     )
     assert (
         consent_check(
-            "flashscore-odds",
+            "demo",
             network_mode="consent_required",
             env={
-                "API_RECIPE_LIVE_ALLOWLIST": "flashscore-odds,other",
+                "API_RECIPE_LIVE_ALLOWLIST": "demo,other",
                 "API_RECIPE_LIVE_CONSENT": DEFAULT_CONSENT_PHRASE,
             },
         )
@@ -122,45 +143,67 @@ def test_live_network_blocked_without_consent() -> None:
     )
 
 
-def test_try_api_recipe_flashscore_live_with_consent(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Authorized consent path uses mocked safe_get — never contacts Flashscore live."""
-    monkeypatch.setenv("API_RECIPE_LIVE_ALLOWLIST", "flashscore-odds")
-    monkeypatch.setenv("API_RECIPE_LIVE_CONSENT", DEFAULT_CONSENT_PHRASE)
+def test_open_recipe_executes_on_global_opt_in_with_mocked_safe_get(monkeypatch: pytest.MonkeyPatch) -> None:
+    recipe = load_recipe_file(EXAMPLE_RECIPE)
+    assert recipe.network.mode == "open"
     monkeypatch.setattr(
         "supersocks_url_scraper.api_recipes.engine.safe_get",
         _fixture_fetcher(),
     )
-    payload = try_api_recipe(DEMO_URL, enabled=True, resolve_dns=False)
+    payload = try_api_recipe(
+        DEMO_URL,
+        enabled=True,
+        recipes=[recipe],
+        resolve_dns=False,
+    )
     assert payload is not None
     assert payload.get("_api_recipe_fallback") is not True
     assert payload.get("status") == "ok"
     assert payload.get("_api_recipe_live_network") is True
+    assert "2.ds.lsapp.eu" in (payload.get("structured_data") or {}).get("items", [{}])[0].get("endpoint_url", "")
 
 
-def test_try_api_recipe_flashscore_forces_fallback_when_live_blocked() -> None:
-    payload = try_api_recipe(DEMO_URL, enabled=True)
+def test_disabled_default_no_api_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    def boom(url: str, *args: Any, **kwargs: Any) -> Any:
+        calls.append(url)
+        raise AssertionError("safe_get must not run when api recipes disabled")
+
+    monkeypatch.setattr("supersocks_url_scraper.api_recipes.engine.safe_get", boom)
+    assert try_api_recipe(DEMO_URL, enabled=False, recipes=[load_recipe_file(EXAMPLE_RECIPE)]) is None
+    assert calls == []
+
+
+def test_review_required_candidate_blocked() -> None:
+    recipe = recipe_from_dict(
+        {
+            "id": "candidate-demo",
+            "version": "1",
+            "status": "review_required",
+            "network": {"mode": "fixture_only"},
+            "match": {"host_roots": ["example.com"], "path_regex": "/x"},
+            "endpoint": {
+                "method": "GET",
+                "url_template": "https://api.example.com/x",
+                "allowed_hosts": ["api.example.com"],
+            },
+        }
+    )
+    payload = try_api_recipe("https://www.example.com/x", enabled=True, recipes=[recipe])
     assert payload is not None
+    assert payload.get("_api_recipe_review_blocked") is True
     assert payload.get("_api_recipe_fallback") is True
-    assert payload.get("status") == "error"
-    joined = " ".join(payload.get("warnings") or [])
-    assert "express consent" in joined.lower() or "Terms of Use" in joined
+    assert (payload.get("structured_data") or {}).get("execution_blocked") is True
 
 
-def test_read_url_falls_back_when_flashscore_live_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_read_url_falls_back_when_no_recipe_match(monkeypatch: pytest.MonkeyPatch) -> None:
     from supersocks_url_scraper.reader import FetchedResource
-
-    safe_get_calls: list[str] = []
-
-    def fake_safe_get(url: str, *args: Any, **kwargs: Any) -> Any:
-        safe_get_calls.append(url)
-        raise AssertionError("live safe_get must not be called without consent for flashscore")
-
-    monkeypatch.setattr("supersocks_url_scraper.api_recipes.engine.safe_get", fake_safe_get)
 
     def fake_pipeline(url: str, **kwargs: Any) -> FetchedResource:
         html = (
             "<html><head><title>Demo match</title></head>"
-            "<body><article><p>Synthetic match page used after API recipe fallback.</p></article></body></html>"
+            "<body><article><p>Synthetic match page used after no recipe match.</p></article></body></html>"
         )
         return FetchedResource(
             url=url,
@@ -172,7 +215,6 @@ def test_read_url_falls_back_when_flashscore_live_blocked(monkeypatch: pytest.Mo
         )
 
     monkeypatch.setattr("supersocks_url_scraper.reader._fetch_with_pipeline", fake_pipeline)
-
     result = read_url(
         DEMO_URL,
         api_recipes=True,
@@ -183,10 +225,7 @@ def test_read_url_falls_back_when_flashscore_live_blocked(monkeypatch: pytest.Mo
         include_content=False,
         length=200,
     )
-    assert safe_get_calls == []
     assert result.get("fetch_method") != "api-recipe"
-    warnings = " ".join(result.get("warnings") or [])
-    assert "api recipe degraded" in warnings.lower()
     assert result.get("status") in {"ok", "partial"}
 
 
@@ -312,13 +351,13 @@ def test_recipe_schema_rejects_auth_headers_and_http() -> None:
     assert any("Authorization" in e or "authorization" in e.lower() for e in errors)
 
 
-def test_generic_recipe_with_injected_fetcher() -> None:
+def test_generic_open_recipe_with_injected_fetcher() -> None:
     recipe = recipe_from_dict(
         {
             "id": "demo-json",
             "version": "1",
             "title": "Demo",
-            "network": {"mode": "consent_required"},
+            "network": {"mode": "open"},
             "match": {"host_roots": ["example.com"], "path_regex": "/item"},
             "endpoint": {
                 "method": "GET",
@@ -352,5 +391,21 @@ def test_try_api_recipe_disabled_returns_none() -> None:
     assert try_api_recipe(DEMO_URL, enabled=False) is None
 
 
-def test_flashscore_tos_warning_constant() -> None:
-    assert "flashscore.com/terms-of-use" in FLASHSCORE_TOS_WARNING
+def test_fixture_only_blocks_live_and_falls_back() -> None:
+    recipe = recipe_from_dict(
+        {
+            "id": "fixture-demo",
+            "version": "1",
+            "network": {"mode": "fixture_only"},
+            "match": {"host_roots": ["example.com"], "path_regex": "/x"},
+            "endpoint": {
+                "method": "GET",
+                "url_template": "https://api.example.com/x",
+                "allowed_hosts": ["api.example.com"],
+            },
+        }
+    )
+    payload = try_api_recipe("https://www.example.com/x", enabled=True, recipes=[recipe])
+    assert payload is not None
+    assert payload.get("_api_recipe_fallback") is True
+    assert payload.get("status") == "error"

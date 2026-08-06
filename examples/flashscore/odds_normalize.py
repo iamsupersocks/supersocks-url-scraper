@@ -1,13 +1,16 @@
-"""Flashscore match URL helpers and 1X2 odds normalization (fixture-oriented).
+"""Example-only Flashscore 1X2 odds normalization helpers.
 
-Historical public GET shape (undocumented, may change):
-  https://global.ds.lsapp.eu/odds/pq_graphql
-  ?_hash=ope2&eventId=…&bookmakerId=…&betType=HOME_DRAW_AWAY&betScope=FULL_TIME
+Not imported by the scraper runtime. Used by ``examples/flashscore_odds*.py``
+to turn generic API-recipe fanout payloads into a typed odds snapshot.
+
+Observed browser pattern (undocumented, may change; example only):
+  https://2.ds.lsapp.eu/pq_graphql
+  ?_hash=ole2&eventId=…&bookmakerId=…&betType=HOME_DRAW_AWAY&betScope=FULL_TIME
 
 Flashscore Terms of Use prohibit automated requests and scraping without express
-consent (https://www.flashscore.com/terms-of-use/). The shipped recipe is
-consent-gated and off by default; live network access requires allowlist +
-consent attestation and express written permission.
+consent (https://www.flashscore.com/terms-of-use/). This example is not a
+builtin/supported integration. Prefer offline fixtures; live GETs are the
+operator's responsibility under current Terms.
 
 Odds are informational snapshots, never betting advice.
 """
@@ -19,7 +22,7 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from ..social.domains import host_matches_root
+from supersocks_url_scraper.social.domains import host_matches_root
 
 FLASHSCORE_HOST_ROOTS = (
     "flashscore.com",
@@ -58,7 +61,6 @@ FLASHSCORE_HOST_ROOTS = (
     "flashscore.com.py",
 )
 
-# Bounded public bookmaker set used only by fixtures / consented operators.
 DEFAULT_BOOKMAKERS: tuple[dict[str, Any], ...] = (
     {"id": 141, "name": "Betclic"},
     {"id": 264, "name": "Winamax"},
@@ -68,10 +70,10 @@ DEFAULT_BOOKMAKERS: tuple[dict[str, Any], ...] = (
     {"id": 129, "name": "bwin"},
 )
 
-ODDS_ENDPOINT_HOST = "global.ds.lsapp.eu"
+ODDS_ENDPOINT_HOST = "2.ds.lsapp.eu"
 ODDS_URL_TEMPLATE = (
-    "https://global.ds.lsapp.eu/odds/pq_graphql"
-    "?_hash=ope2&eventId={event_id}&bookmakerId={bookmaker_id}"
+    "https://2.ds.lsapp.eu/pq_graphql"
+    "?_hash=ole2&eventId={event_id}&bookmakerId={bookmaker_id}"
     "&betType=HOME_DRAW_AWAY&betScope=FULL_TIME"
 )
 
@@ -84,11 +86,16 @@ DISCLAIMER = (
     "This is not betting advice and must not be presented as a tip or recommendation."
 )
 PROVENANCE = (
-    "Pattern: historical Flashscore-related odds GraphQL GET shape "
-    "(global.ds.lsapp.eu/odds/pq_graphql). Undocumented and unstable. "
-    "Shipped example is consent-gated (off by default) because Flashscore Terms of Use prohibit "
-    "automated requests/scraping without express consent "
+    "Pattern: observed Flashscore-related odds GraphQL GET shape "
+    "(2.ds.lsapp.eu/pq_graphql, _hash=ole2). Undocumented and unstable. "
+    "Example-only (not builtin/supported). Operators must respect Flashscore Terms of Use "
     "(https://www.flashscore.com/terms-of-use/)."
+)
+FLASHSCORE_TOS_WARNING = (
+    "Flashscore Terms of Use prohibit automated requests and scraping without "
+    "express consent (https://www.flashscore.com/terms-of-use/). This example "
+    "recipe is not auto-loaded; prefer offline fixtures. Live GETs via "
+    "API_RECIPE_PATHS + --api-recipes are the operator's responsibility."
 )
 
 
@@ -212,3 +219,44 @@ def compact_odds_summary(structured: dict[str, Any]) -> str:
         parts.append("No bookmaker odds normalized.")
     parts.append(f"Captured: {structured.get('captured_at') or 'unknown'}.")
     return " ".join(parts)
+
+
+def normalize_fanout_result(
+    *,
+    match_url: str,
+    fanout_structured: dict[str, Any],
+    warnings: list[str] | None = None,
+) -> dict[str, Any]:
+    """Turn a generic ``api_recipe_fanout`` payload into typed 1X2 odds."""
+    bindings = fanout_structured.get("bindings") if isinstance(fanout_structured, dict) else {}
+    event_id = ""
+    if isinstance(bindings, dict):
+        event_id = str(bindings.get("event_id") or "")
+    if not event_id:
+        event_id = extract_event_id(match_url) or "?"
+    rows: list[dict[str, Any]] = []
+    for item in (fanout_structured.get("items") or []) if isinstance(fanout_structured, dict) else []:
+        if not isinstance(item, dict) or not item.get("ok"):
+            continue
+        vars_ = item.get("vars") if isinstance(item.get("vars"), dict) else {}
+        try:
+            bookmaker_id = int(vars_.get("bookmaker_id") or vars_.get("id"))
+        except (TypeError, ValueError):
+            continue
+        name = str(vars_.get("bookmaker_name") or vars_.get("name") or bookmaker_id)
+        normalized = normalize_prematch_1x2(
+            item.get("payload"),
+            bookmaker_id=bookmaker_id,
+            bookmaker_name=name,
+        )
+        if normalized:
+            rows.append(normalized)
+    structured = build_structured_odds(
+        match_url=match_url,
+        event_id=event_id,
+        bookmaker_rows=rows,
+        warnings=list(warnings or []) + list(fanout_structured.get("warnings") or []),
+    )
+    if fanout_structured.get("captured_at"):
+        structured["captured_at"] = fanout_structured["captured_at"]
+    return structured

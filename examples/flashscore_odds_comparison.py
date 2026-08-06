@@ -5,18 +5,13 @@ Runs the SAME synthetic Flashscore match case through two read paths and prints
 a side-by-side comparison:
 
   1. Base HTML scraper   → generic page text (extract_article on a fixture page)
-  2. JSON recipe         → normalized 1X2 odds (flashscore-odds, injected offline fetcher)
+  2. JSON recipe         → normalized 1X2 odds via explicit example recipe + injected fetcher
 
-Both are fixture-driven and never touch the network. There is no live benchmark:
-every market value comes from a local synthetic fixture, so the data comparison
-is deterministic and reproducible (the capture timestamp changes per run). It
-shows the *shape* of the difference — generic
-prose versus a typed, normalized 1X2 market with provenance / captured_at /
-fallback — not real market data.
+Both are fixture-driven and never touch the network. Flashscore is example-only
+(not builtin/supported). Load deliberately:
 
-Flashscore Terms of Use prohibit automated requests/scraping without express
-consent (https://www.flashscore.com/terms-of-use/). This example never opens a
-live socket.
+  API_RECIPE_PATHS=examples/recipes/flashscore_odds.v1.json \\
+    supersocks-url-scraper --api-recipes '<match-url>'
 """
 from __future__ import annotations
 
@@ -25,28 +20,30 @@ import json
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
 if __package__ in {None, ""}:
-    SRC = Path(__file__).resolve().parents[1] / "src"
+    SRC = ROOT / "src"
     if SRC.exists():
         sys.path.insert(0, str(SRC))
+    sys.path.insert(0, str(ROOT / "examples"))
 
-from supersocks_url_scraper.api_recipes import (  # noqa: E402
+from flashscore.odds_normalize import (  # noqa: E402
     DISCLAIMER,
+    compact_odds_summary,
+    normalize_fanout_result,
+)
+from supersocks_url_scraper.api_recipes import (  # noqa: E402
     execute_recipe,
     load_builtin_recipes,
+    load_recipe_file,
     try_api_recipe,
 )
 from supersocks_url_scraper.api_recipes.security import SafeGetResult  # noqa: E402
 from supersocks_url_scraper.reader import extract_article, to_markdown  # noqa: E402
 
-FIXTURE_JSON = (
-    Path(__file__).resolve().parents[1]
-    / "tests" / "fixtures" / "api_recipes" / "flashscore_odds_sample.json"
-)
-FIXTURE_HTML = (
-    Path(__file__).resolve().parents[1]
-    / "tests" / "fixtures" / "api_recipes" / "flashscore_match_page.html"
-)
+FIXTURE_JSON = ROOT / "tests" / "fixtures" / "api_recipes" / "flashscore_odds_sample.json"
+FIXTURE_HTML = ROOT / "tests" / "fixtures" / "api_recipes" / "flashscore_match_page.html"
+RECIPE_PATH = ROOT / "examples" / "recipes" / "flashscore_odds.v1.json"
 DEMO_URL = "https://www.flashscore.com/match/football/demo-league/alpha-vs-beta/?mid=Ab12Cd34"
 
 
@@ -93,12 +90,10 @@ def run_base_html_scraper() -> dict:
     }
 
 
-def run_json_recipe() -> dict:
-    """Run the flashscore-odds JSON recipe with an injected offline fetcher."""
-    recipes = [r for r in load_builtin_recipes() if r.id == "flashscore-odds"]
-    if not recipes:
-        raise SystemExit("builtin flashscore-odds recipe missing")
-    recipe = recipes[0]
+def _normalized_recipe_payload() -> dict:
+    if any(r.id == "flashscore-odds" for r in load_builtin_recipes()):
+        raise SystemExit("flashscore-odds must not be a builtin recipe")
+    recipe = load_recipe_file(RECIPE_PATH)
     run = execute_recipe(
         DEMO_URL,
         recipe,
@@ -106,8 +101,22 @@ def run_json_recipe() -> dict:
         fetcher=_fixture_fetcher_factory(FIXTURE_JSON),
         resolve_dns=False,
     )
+    structured = normalize_fanout_result(
+        match_url=DEMO_URL,
+        fanout_structured=run.structured_data or {},
+        warnings=list(run.warnings),
+    )
     payload = run.as_reader_dict(include_content=True)
-    fallback = bool(payload.pop("_api_recipe_fallback", False))
+    payload["title"] = f"Flashscore odds {structured.get('event_id')}"
+    payload["summary"] = compact_odds_summary(structured)
+    payload["structured_data"] = structured
+    payload["content"] = json.dumps(structured, ensure_ascii=False, indent=2)
+    return payload
+
+
+def run_json_recipe() -> dict:
+    """Run the example flashscore-odds JSON recipe with an injected offline fetcher."""
+    payload = _normalized_recipe_payload()
     return {
         "path": "json_recipe",
         "fetch_method": payload.get("fetch_method"),
@@ -117,7 +126,7 @@ def run_json_recipe() -> dict:
         "provenance": payload.get("structured_data", {}).get("provenance"),
         "captured_at": (payload.get("api_recipe") or {}).get("captured_at"),
         "structured_data": payload.get("structured_data"),
-        "fallback_signal": fallback,
+        "fallback_signal": False,
         "note": "Typed, normalized 1X2 market with home/draw/away (+ opening) per bookmaker.",
     }
 
@@ -129,13 +138,15 @@ def compare(*, markdown: bool = False) -> dict:
         "demo": "flashscore_base_html_vs_json_recipe",
         "url": DEMO_URL,
         "offline": True,
+        "builtin": False,
+        "recipe_path": str(RECIPE_PATH.relative_to(ROOT)),
         "paths": {
             "base_html_scraper": base,
             "json_recipe": recipe,
         },
         "difference": {
             "base_html_scraper": "generic prose with odds as inline text",
-            "json_recipe": "typed 1X2 market (home/draw/away + opening) with provenance/captured_at/fallback",
+            "json_recipe": "typed 1X2 market (home/draw/away + opening) with provenance/captured_at",
         },
         "disclaimer": DISCLAIMER,
     }
@@ -147,6 +158,7 @@ def compare(*, markdown: bool = False) -> dict:
             "# Base HTML scraper vs JSON recipe (deterministic, offline)",
             "",
             f"URL: `{DEMO_URL}` — all values are synthetic fixtures, never live.",
+            f"Recipe path: `{RECIPE_PATH.relative_to(ROOT)}` (explicit load; not builtin).",
             "",
             "### 1. Base HTML scraper (generic text)",
             "",
@@ -173,57 +185,39 @@ def compare(*, markdown: bool = False) -> dict:
             "```",
             "",
         ]
-        # Render the recipe reader payload through to_markdown too for the odds table.
-        recipe_payload = _recipe_reader_payload()
-        if recipe_payload is not None:
-            lines += ["**Markdown render of the recipe payload:**", ""]
-            lines += [to_markdown(recipe_payload).rstrip(), ""]
+        recipe_payload = _normalized_recipe_payload()
+        lines += ["**Markdown render of the recipe payload:**", ""]
+        lines += [to_markdown(recipe_payload).rstrip(), ""]
         print("\n".join(lines), end="")
     else:
         print(json.dumps(comparison, ensure_ascii=False, indent=2))
     return comparison
 
 
-def _recipe_reader_payload():
-    recipes = [r for r in load_builtin_recipes() if r.id == "flashscore-odds"]
-    if not recipes:
-        return None
-    recipe = recipes[0]
-    run = execute_recipe(
-        DEMO_URL,
-        recipe,
-        include_content=True,
-        fetcher=_fixture_fetcher_factory(FIXTURE_JSON),
-        resolve_dns=False,
-    )
-    return run.as_reader_dict(include_content=True)
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Deterministic offline comparison: base HTML scraper vs JSON recipe for the same synthetic Flashscore case"
+        description="Deterministic offline comparison: base HTML vs explicit example recipe"
     )
     parser.add_argument("--markdown", action="store_true", help="Print markdown instead of JSON")
     parser.add_argument(
         "--show-fallback",
         action="store_true",
-        help="Also show that without an injected fetcher the recipe errors and signals fallback",
+        help="Also show that without an explicit recipe path there is no builtin match",
     )
     args = parser.parse_args()
 
-    comparison = compare(markdown=args.markdown)
+    compare(markdown=args.markdown)
 
     if args.show_fallback:
-        print("\n--- fallback demo (no injected fetcher) ---")
+        print("\n--- no builtin match demo ---")
         payload = try_api_recipe(DEMO_URL, enabled=True, include_content=False)
-        assert payload is not None and payload.get("_api_recipe_fallback") is True
+        assert payload is None
         print(
             json.dumps(
                 {
-                    "demo": "network_blocked_triggers_fallback",
-                    "status": payload.get("status"),
-                    "fallback": True,
-                    "warnings_head": (payload.get("warnings") or [])[:2],
+                    "demo": "no_builtin_flashscore_match",
+                    "matched": False,
+                    "hint": f"API_RECIPE_PATHS={RECIPE_PATH} supersocks-url-scraper --api-recipes <url>",
                 },
                 indent=2,
             )

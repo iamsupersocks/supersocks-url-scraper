@@ -85,17 +85,17 @@ def health_payload() -> dict:
         },
         "api_recipes": {
             "enabled_default": _truthy(os.environ.get("API_RECIPES"), False),
-            "builtin": ["flashscore-odds@v1"],
+            "builtin": [],
             "methods": ["GET"],
-            "flashscore_network_mode": "consent_required",
             "route_advice": True,
             "recurrent_need_default": False,
             "notes": (
                 "Opt-in structured HTTPS GET recipes with host allowlists; degrade to "
-                "HTTP→SEO→Cloak→archive. Flashscore odds ships consent-gated (off by default; ToS). "
-                "Live GETs require network.mode + API_RECIPE_LIVE_ALLOWLIST + API_RECIPE_LIVE_CONSENT. "
-                "Never stores cookies/tokens; StrategyCache stays http/seo/cloak/archive only. "
-                "Optional route_advice (offline) steers agents toward known recipes or manual HAR "
+                "HTTP→SEO→Cloak→archive. No site-specific builtins — load recipes via "
+                "API_RECIPE_PATHS / --api-recipe-path. network.mode=open runs with global "
+                "opt-in alone; consent_required needs allowlist + consent phrase; "
+                "fixture_only never lives. StrategyCache stays http/seo/cloak/archive only. "
+                "Optional route_advice (offline) steers agents toward loaded recipes or manual HAR "
                 "+ --discover-har when recurrent_need is set; never auto-sniffs or activates."
             ),
         },
@@ -153,9 +153,9 @@ def openapi_payload() -> dict:
                 "description": (
                     "Opt-in structured API recipes (HTTPS GET only, host-allowlisted). "
                     "Disabled by default. On failure, degrades to HTTP→SEO→Cloak→archive. "
-                    "Never sends Authorization/Cookie headers. Shipped flashscore-odds is "
-                    "consent-gated (off by default) and will not perform live Flashscore GETs "
-                    "without API_RECIPE_LIVE_ALLOWLIST + API_RECIPE_LIVE_CONSENT attestation."
+                    "Never sends Authorization/Cookie headers. Load external recipes via "
+                    "api_recipe_paths / API_RECIPE_PATHS. network.mode=open needs only this "
+                    "opt-in; consent_required also needs allowlist + consent attestation."
                 ),
             },
             "api_recipe_paths": {
@@ -238,7 +238,7 @@ def openapi_payload() -> dict:
             },
             "structured_data": {
                 "type": "object",
-                "description": "Optional sanitized structured payload (LinkedIn JSON-LD subset, or API recipe data such as Flashscore 1X2 odds).",
+                "description": "Optional sanitized structured payload (LinkedIn JSON-LD subset, or opt-in API recipe data).",
             },
             "api_recipe": {
                 "type": "object",
@@ -490,8 +490,8 @@ def main() -> int:
         action="store_true",
         help=(
             "Opt-in structured API recipes (HTTPS GET only). Disabled by default; "
-            "degrades to HTTP→SEO→Cloak→archive on failure. Shipped flashscore-odds "
-            "is consent-gated (no live Flashscore GETs without allowlist+consent attestation)"
+            "degrades to HTTP→SEO→Cloak→archive on failure. Load external recipes via "
+            "--api-recipe-path / API_RECIPE_PATHS (no site-specific builtins)"
         ),
     )
     parser.add_argument(

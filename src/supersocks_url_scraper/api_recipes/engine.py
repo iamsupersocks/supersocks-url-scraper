@@ -7,18 +7,11 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from ..social.backend import redact_secrets
 from ..social.domains import host_matches_root, is_safe_public_http_url, url_has_userinfo
-from .consent import FLASHSCORE_TOS_WARNING, live_network_permitted, network_gate_message
-from .flashscore_odds import (
-    build_structured_odds,
-    compact_odds_summary,
-    extract_event_id,
-    is_flashscore_match_url,
-    normalize_prematch_1x2,
-)
+from .consent import live_network_permitted, network_gate_message
 from .models import (
     ALLOWED_METHODS,
     ApiRecipe,
@@ -36,6 +29,9 @@ from .security import (
 )
 
 Fetcher = Callable[..., Any]
+
+_DEFAULT_EVENT_ID_KEYS = ("mid", "eventId", "event_id")
+_EVENT_ID_RE = re.compile(r"^[A-Za-z0-9]{4,32}$")
 
 
 def _recipes_dir() -> Path:
@@ -196,6 +192,87 @@ def load_recipes(*, extra_paths: list[str] | None = None) -> list[ApiRecipe]:
     return unique
 
 
+def _query_value(url: str, keys: tuple[str, ...] | list[str]) -> str | None:
+    parsed = urlparse(url)
+    qs = parse_qs(parsed.query or "")
+    for key in keys:
+        values = qs.get(key) or []
+        if values and str(values[0]).strip():
+            return str(values[0]).strip()
+    return None
+
+
+def resolve_bindings(url: str, recipe: ApiRecipe) -> dict[str, str] | None:
+    """Resolve declarative URL→template bindings from recipe.params.bindings.
+
+    Supported binding shapes (per template variable name):
+      {"query": "mid"}
+      {"query": ["mid", "eventId"]}
+      {"query": [...], "pattern": "^[A-Za-z0-9]{4,32}$"}
+
+    When the url_template references ``{event_id}`` and no explicit binding is
+    declared, fall back to common query keys (mid / eventId / event_id).
+    """
+    bindings_raw = recipe.params.get("bindings") if isinstance(recipe.params, dict) else None
+    bindings: dict[str, Any] = dict(bindings_raw) if isinstance(bindings_raw, dict) else {}
+    template = recipe.endpoint.url_template
+    if "{event_id}" in template and "event_id" not in bindings:
+        bindings["event_id"] = {"query": list(_DEFAULT_EVENT_ID_KEYS), "pattern": _EVENT_ID_RE.pattern}
+
+    resolved: dict[str, str] = {}
+    for name, spec in bindings.items():
+        if not isinstance(spec, dict):
+            return None
+        query_spec = spec.get("query")
+        if isinstance(query_spec, str):
+            keys: list[str] = [query_spec]
+        elif isinstance(query_spec, list):
+            keys = [str(k) for k in query_spec]
+        else:
+            return None
+        value = _query_value(url, keys)
+        if value is None:
+            return None
+        pattern = str(spec.get("pattern") or "").strip()
+        if pattern and re.fullmatch(pattern, value) is None:
+            return None
+        resolved[str(name)] = value
+
+    # Also expose declared match.query_keys as template vars when present.
+    for key in recipe.match.query_keys:
+        if key in resolved:
+            continue
+        value = _query_value(url, (key,))
+        if value is not None:
+            resolved[key] = value
+    return resolved
+
+
+def _fanout_items(recipe: ApiRecipe) -> list[dict[str, Any]]:
+    """Return bounded fanout rows from params.fanout / params.bookmakers."""
+    params = recipe.params if isinstance(recipe.params, dict) else {}
+    fanout = params.get("fanout") if isinstance(params.get("fanout"), dict) else {}
+    items_from = str(fanout.get("items_from") or "bookmakers")
+    raw_items = params.get(items_from) or fanout.get("items") or []
+    if not isinstance(raw_items, list):
+        return []
+    id_key = str(fanout.get("item_id_key") or "id")
+    name_key = str(fanout.get("item_name_key") or "name")
+    template_var = str(fanout.get("template_var") or "bookmaker_id")
+    name_var = str(fanout.get("name_var") or "bookmaker_name")
+    out: list[dict[str, Any]] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        try:
+            item_id = int(item.get(id_key))
+        except (TypeError, ValueError):
+            continue
+        name = str(item.get(name_key) or item_id)
+        out.append({template_var: item_id, name_var: name, "id": item_id, "name": name})
+    return out[: recipe.endpoint.max_fanout]
+
+
 def recipe_matches_url(recipe: ApiRecipe, url: str) -> bool:
     if not is_safe_public_http_url(url) or url_has_userinfo(url):
         return False
@@ -204,36 +281,31 @@ def recipe_matches_url(recipe: ApiRecipe, url: str) -> bool:
     if not any(host_matches_root(host, root) for root in recipe.match.host_roots):
         return False
     path = parsed.path or ""
+    query = (parsed.query or "").lower()
+    path_ok = True
     if recipe.match.path_regex:
-        if re.search(recipe.match.path_regex, path, re.I) is None and recipe.match.path_regex.lower() not in path.lower():
-            if not recipe.match.query_keys:
-                return False
-            query = (parsed.query or "").lower()
-            if not any(f"{key.lower()}=" in query for key in recipe.match.query_keys):
-                return False
-    if recipe.id == "flashscore-odds":
-        return is_flashscore_match_url(url) and extract_event_id(url) is not None
+        path_ok = (
+            re.search(recipe.match.path_regex, path, re.I) is not None
+            or recipe.match.path_regex.lower() in path.lower()
+        )
+    query_ok = True
+    if recipe.match.query_keys:
+        query_ok = any(f"{key.lower()}=" in query for key in recipe.match.query_keys)
+    if recipe.match.path_regex and recipe.match.query_keys:
+        if not (path_ok or query_ok):
+            return False
+    elif recipe.match.path_regex and not path_ok:
+        return False
+    elif recipe.match.query_keys and not query_ok:
+        return False
+    needs_bindings = isinstance(recipe.params.get("bindings"), dict) or "{event_id}" in recipe.endpoint.url_template
+    if needs_bindings and resolve_bindings(url, recipe) is None:
+        return False
     return True
-
 
 def find_matching_recipes(url: str, recipes: list[ApiRecipe] | None = None) -> list[ApiRecipe]:
     catalog = recipes if recipes is not None else load_recipes()
     return [recipe for recipe in catalog if recipe_matches_url(recipe, url)]
-
-
-def _bookmakers(recipe: ApiRecipe) -> list[dict[str, Any]]:
-    raw = recipe.params.get("bookmakers") or []
-    out: list[dict[str, Any]] = []
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
-        try:
-            bookmaker_id = int(item.get("id"))
-        except (TypeError, ValueError):
-            continue
-        name = str(item.get("name") or bookmaker_id)
-        out.append({"id": bookmaker_id, "name": name})
-    return out[: recipe.endpoint.max_fanout]
 
 
 def _can_use_live_fetcher(recipe: ApiRecipe, fetcher: Fetcher | None) -> bool:
@@ -247,152 +319,11 @@ def _can_use_live_fetcher(recipe: ApiRecipe, fetcher: Fetcher | None) -> bool:
     )
 
 
-def run_flashscore_odds_recipe(
-    url: str,
-    recipe: ApiRecipe,
-    *,
-    length: int = 900,
-    include_content: bool = False,
-    fetcher: Fetcher | None = None,
-    resolve_dns: bool = True,
-) -> RecipeRunResult:
-    warnings = [redact_secrets(w) for w in recipe.warnings]
-    event_id = extract_event_id(url)
-    captured_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-
-    def _error(extra: str, *, structured: dict[str, Any] | None = None) -> RecipeRunResult:
-        return RecipeRunResult(
-            status="error",
-            url=url,
-            recipe_id=recipe.id,
-            recipe_version=recipe.version,
-            fetch_method="api-recipe",
-            title=None,
-            summary="",
-            structured_data=structured or {},
-            warnings=warnings + [extra],
-            confidence=0.0,
-            captured_at=captured_at,
-            ttl_seconds=recipe.ttl_seconds,
-            length=length,
-        )
-
-    if not event_id:
-        return _error("flashscore recipe: could not extract event id from URL")
-
-    if not _can_use_live_fetcher(recipe, fetcher):
-        # Never open a live socket for Flashscore without explicit authorization.
-        msg = network_gate_message(recipe)
-        if FLASHSCORE_TOS_WARNING not in warnings:
-            warnings.append(FLASHSCORE_TOS_WARNING)
-        return _error(
-            msg,
-            structured={
-                "kind": "flashscore_odds_1x2",
-                "schema": "flashscore_prematch_1x2_v1",
-                "event_id": event_id,
-                "match_url": url,
-                "bookmakers": [],
-                "network_blocked": True,
-                "disclaimer": "Odds are not betting advice.",
-                "provenance": "consent-gated by default; live blocked pending allowlist+consent",
-            },
-        )
-
-    bookmakers = _bookmakers(recipe)
-    if not bookmakers:
-        return _error("flashscore recipe: no bookmakers configured")
-
-    limiter = RateLimiter(recipe.endpoint.min_interval_ms)
-    rows: list[dict[str, Any]] = []
-    fetch = fetcher or safe_get
-    rate_limited = False
-    forbidden = False
-
-    for bookmaker in bookmakers:
-        limiter.wait()
-        endpoint_url = recipe.endpoint.url_template.format(
-            event_id=event_id,
-            bookmaker_id=bookmaker["id"],
-        )
-        try:
-            result = fetch(
-                endpoint_url,
-                timeout=recipe.endpoint.timeout_seconds,
-                max_bytes=recipe.endpoint.max_bytes,
-                max_redirects=recipe.endpoint.max_redirects,
-                headers=dict(recipe.endpoint.headers),
-                allowed_hosts=frozenset(recipe.endpoint.allowed_hosts),
-                resolve_dns=resolve_dns,
-            )
-            payload = json.loads(result.content.decode("utf-8", errors="replace"))
-            normalized = normalize_prematch_1x2(
-                payload,
-                bookmaker_id=int(bookmaker["id"]),
-                bookmaker_name=str(bookmaker["name"]),
-            )
-            if normalized:
-                rows.append(normalized)
-        except ApiRecipeSecurityError as exc:
-            message = redact_secrets(str(exc))
-            if "429" in message:
-                rate_limited = True
-                warnings.append(f"bookmaker {bookmaker['name']}: {message}")
-                break
-            if "401" in message or "403" in message:
-                forbidden = True
-            warnings.append(f"bookmaker {bookmaker['name']}: {message}")
-        except Exception as exc:  # noqa: BLE001 — keep recipe resilient
-            warnings.append(f"bookmaker {bookmaker['name']}: {redact_secrets(type(exc).__name__)}")
-
-    structured = build_structured_odds(
-        match_url=url,
-        event_id=event_id,
-        bookmaker_rows=rows,
-        warnings=warnings,
-    )
-    structured["captured_at"] = captured_at
-    summary = compact_odds_summary(structured)
-    title = f"Flashscore odds {event_id}"
-
-    if rows:
-        status = "ok"
-        confidence = recipe.confidence
-    elif rate_limited or forbidden:
-        status = "error"
-        confidence = 0.0
-        summary = ""
-    else:
-        status = "partial"
-        confidence = max(0.0, recipe.confidence * 0.25)
-        warnings.append("flashscore recipe: no odds rows normalized; consider HTTP/SEO/Cloak/archive fallback")
-
-    result = RecipeRunResult(
-        status=status,
-        url=url,
-        recipe_id=recipe.id,
-        recipe_version=recipe.version,
-        fetch_method="api-recipe",
-        title=title if rows else None,
-        summary=summary,
-        structured_data=(
-            structured
-            if rows or status != "error"
-            else {
-                "event_id": event_id,
-                "bookmakers": [],
-                "disclaimer": structured.get("disclaimer"),
-                "provenance": structured.get("provenance"),
-            }
-        ),
-        warnings=warnings,
-        confidence=confidence,
-        captured_at=captured_at,
-        ttl_seconds=recipe.ttl_seconds,
-        length=length,
-    )
-    _ = include_content
-    return result
+def _format_endpoint(template: str, variables: dict[str, Any]) -> str:
+    try:
+        return template.format(**variables)
+    except (KeyError, ValueError) as exc:
+        raise ApiRecipeSecurityError(f"url_template substitution failed: {exc}") from exc
 
 
 def run_generic_get_recipe(
@@ -404,10 +335,11 @@ def run_generic_get_recipe(
     fetcher: Fetcher | None = None,
     resolve_dns: bool = True,
 ) -> RecipeRunResult:
-    """Single HTTPS GET recipe: return JSON body as structured_data when allowed."""
+    """HTTPS GET recipe with optional URL bindings and bounded fanout."""
     warnings = [redact_secrets(w) for w in recipe.warnings]
     captured_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    if not _can_use_live_fetcher(recipe, fetcher):
+
+    def _blocked(extra: str, structured: dict[str, Any] | None = None) -> RecipeRunResult:
         return RecipeRunResult(
             status="error",
             url=url,
@@ -416,26 +348,134 @@ def run_generic_get_recipe(
             fetch_method="api-recipe",
             title=None,
             summary="",
-            structured_data={"network_blocked": True},
-            warnings=warnings + [network_gate_message(recipe)],
+            structured_data=structured or {"network_blocked": True},
+            warnings=warnings + [extra],
             confidence=0.0,
             captured_at=captured_at,
             ttl_seconds=recipe.ttl_seconds,
             length=length,
         )
 
-    fetch = fetcher or safe_get
-    endpoint_url = recipe.endpoint.url_template
-    # Minimal template substitution from the page URL host/path when present.
+    if not _can_use_live_fetcher(recipe, fetcher):
+        return _blocked(network_gate_message(recipe))
+
+    bindings = resolve_bindings(url, recipe)
+    if bindings is None and (
+        isinstance(recipe.params.get("bindings"), dict)
+        or "{event_id}" in recipe.endpoint.url_template
+    ):
+        return _blocked("recipe bindings could not be resolved from URL")
+
     parsed = urlparse(url)
-    try:
-        endpoint_url = endpoint_url.format(
+    base_vars: dict[str, Any] = {
+        "url": url,
+        "host": parsed.hostname or "",
+        "path": parsed.path or "",
+    }
+    if bindings:
+        base_vars.update(bindings)
+
+    fanout_rows = _fanout_items(recipe)
+    needs_fanout = bool(fanout_rows) and (
+        "{bookmaker_id}" in recipe.endpoint.url_template
+        or (isinstance(recipe.params.get("fanout"), dict))
+    )
+
+    fetch = fetcher or safe_get
+    limiter = RateLimiter(recipe.endpoint.min_interval_ms)
+
+    if needs_fanout:
+        items: list[dict[str, Any]] = []
+        rate_limited = False
+        forbidden = False
+        for row in fanout_rows:
+            limiter.wait()
+            variables = {**base_vars, **row}
+            try:
+                endpoint_url = _format_endpoint(recipe.endpoint.url_template, variables)
+                result = fetch(
+                    endpoint_url,
+                    timeout=recipe.endpoint.timeout_seconds,
+                    max_bytes=recipe.endpoint.max_bytes,
+                    max_redirects=recipe.endpoint.max_redirects,
+                    headers=dict(recipe.endpoint.headers),
+                    allowed_hosts=frozenset(recipe.endpoint.allowed_hosts),
+                    resolve_dns=resolve_dns,
+                )
+                text = result.content.decode("utf-8", errors="replace")
+                try:
+                    body: Any = json.loads(text)
+                except json.JSONDecodeError:
+                    body = {"raw_text": text[:4000]}
+                items.append(
+                    {
+                        "vars": {k: row[k] for k in row if k in {"bookmaker_id", "bookmaker_name", "id", "name"}},
+                        "endpoint_url": endpoint_url,
+                        "payload": body,
+                        "ok": True,
+                    }
+                )
+            except ApiRecipeSecurityError as exc:
+                message = redact_secrets(str(exc))
+                if "429" in message:
+                    rate_limited = True
+                    warnings.append(f"fanout item {row.get('name')}: {message}")
+                    break
+                if "401" in message or "403" in message:
+                    forbidden = True
+                warnings.append(f"fanout item {row.get('name')}: {message}")
+                items.append({"vars": row, "payload": None, "ok": False, "error": message})
+            except Exception as exc:  # noqa: BLE001 — keep recipe resilient
+                message = redact_secrets(type(exc).__name__)
+                warnings.append(f"fanout item {row.get('name')}: {message}")
+                items.append({"vars": row, "payload": None, "ok": False, "error": message})
+
+        ok_items = [item for item in items if item.get("ok")]
+        structured = {
+            "kind": "api_recipe_fanout",
+            "schema": recipe.schema or "generic_fanout_v1",
+            "source_url": url,
+            "bindings": bindings or {},
+            "items": items,
+            "captured_at": captured_at,
+            "warnings": warnings,
+            "provenance": "Opt-in API recipe HTTPS GET fanout (read-only). Undocumented endpoints may change.",
+        }
+        if ok_items:
+            status = "ok"
+            confidence = recipe.confidence
+            summary = f"API recipe {recipe.recipe_key} returned {len(ok_items)} fanout item(s)."
+        elif rate_limited or forbidden:
+            status = "error"
+            confidence = 0.0
+            summary = ""
+        else:
+            status = "partial"
+            confidence = max(0.0, recipe.confidence * 0.25)
+            summary = f"API recipe {recipe.recipe_key} fanout produced no successful items."
+            warnings.append("fanout produced no successful items; consider HTTP/SEO/Cloak/archive fallback")
+        _ = include_content
+        return RecipeRunResult(
+            status=status,
             url=url,
-            host=parsed.hostname or "",
-            path=parsed.path or "",
+            recipe_id=recipe.id,
+            recipe_version=recipe.version,
+            fetch_method="api-recipe",
+            title=recipe.title if ok_items else None,
+            summary=summary,
+            structured_data=structured if ok_items or status != "error" else {"bindings": bindings or {}, "items": []},
+            warnings=warnings,
+            confidence=confidence,
+            captured_at=captured_at,
+            ttl_seconds=recipe.ttl_seconds,
+            length=length,
         )
-    except (KeyError, ValueError):
-        pass
+
+    # Single GET
+    try:
+        endpoint_url = _format_endpoint(recipe.endpoint.url_template, base_vars)
+    except ApiRecipeSecurityError as exc:
+        return _blocked(redact_secrets(str(exc)))
 
     try:
         result = fetch(
@@ -449,7 +489,7 @@ def run_generic_get_recipe(
         )
         text = result.content.decode("utf-8", errors="replace")
         try:
-            body: Any = json.loads(text)
+            body = json.loads(text)
         except json.JSONDecodeError:
             body = {"raw_text": text[:4000]}
         structured = {
@@ -457,11 +497,13 @@ def run_generic_get_recipe(
             "schema": recipe.schema or "generic_json_v1",
             "source_url": url,
             "endpoint_url": endpoint_url,
+            "bindings": bindings or {},
             "captured_at": captured_at,
             "payload": body,
             "warnings": warnings,
             "provenance": "Opt-in API recipe HTTPS GET (read-only). Undocumented endpoints may change.",
         }
+        _ = include_content
         return RecipeRunResult(
             status="ok",
             url=url,
@@ -493,8 +535,6 @@ def run_generic_get_recipe(
             ttl_seconds=recipe.ttl_seconds,
             length=length,
         )
-    finally:
-        _ = include_content
 
 
 def execute_recipe(
@@ -508,15 +548,6 @@ def execute_recipe(
 ) -> RecipeRunResult:
     if recipe.endpoint.method not in ALLOWED_METHODS:
         raise ApiRecipeSecurityError("only GET recipes are supported")
-    if recipe.id == "flashscore-odds":
-        return run_flashscore_odds_recipe(
-            url,
-            recipe,
-            length=length,
-            include_content=include_content,
-            fetcher=fetcher,
-            resolve_dns=resolve_dns,
-        )
     return run_generic_get_recipe(
         url,
         recipe,
@@ -586,7 +617,6 @@ def try_api_recipe(
         network_mode=recipe.network.mode,
         consent_phrase=recipe.network.consent_phrase,
     ):
-        # Surface a soft signal then force fallback (no live attempt).
         run = execute_recipe(
             url,
             recipe,
@@ -615,10 +645,12 @@ def try_api_recipe(
     )
     if run.status == "error":
         payload["_api_recipe_fallback"] = True
-    elif run.status == "partial" and not (run.structured_data or {}).get("bookmakers"):
-        # Flashscore partial-empty → fallback; generic partials keep payload.
-        if recipe.id == "flashscore-odds":
+    elif run.status == "partial":
+        items = (run.structured_data or {}).get("items")
+        if isinstance(items, list) and not any(isinstance(i, dict) and i.get("ok") for i in items):
             payload["_api_recipe_fallback"] = True
-    elif run.status in {"ok", "partial"} and live_used:
+        elif live_used:
+            payload["_api_recipe_live_network"] = True
+    elif run.status == "ok" and live_used:
         payload["_api_recipe_live_network"] = True
     return payload

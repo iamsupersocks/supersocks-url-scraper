@@ -1,23 +1,24 @@
 # Base HTML scraper vs JSON recipe (deterministic, offline)
 
 URL: `https://www.flashscore.com/match/football/demo-league/alpha-vs-beta/?mid=Ab12Cd34` — all values are synthetic fixtures, never live.
+Recipe path: `examples/recipes/flashscore_odds.v1.json` (explicit load; not builtin).
 
 ### 1. Base HTML scraper (generic text)
 
 - title: `Alpha vs Beta — Demo League`
-- extract method: `regex`
+- extract method: `trafilatura`
 - provenance: Generic HTML → article text extraction (no API recipe).
 - captured_at: `None`
 - fallback_signal: `False`
 
-**summary:** Alpha vs Beta — Demo League Alpha FC Beta United 2026-08-06 20:00 Betclic 2.10 3.25 3.40 Winamax 2.15 3.30 3.35 Unibet 2.08 3.20 3.45
+**summary:** Alpha FC Beta United 2026-08-06 20:00 Betclic 2.10 3.25 3.40 Winamax 2.15 3.30 3.35 Unibet 2.08 3.20 3.45
 
 ### 2. JSON recipe (normalized 1X2)
 
 - fetch_method: `api-recipe`
-- summary: Flashscore 1X2 odds for event Ab12Cd34 (not betting advice). Betclic: 2.1/3.25/3.4 Winamax: 2.15/3.3/3.35 Unibet: 2.08/3.2/3.45 Betsson: 2.12/3.28/3.38 bwin: 2.05/3.4/3.5 Captured: 2026-08-06T15:57:18+00:00.
-- provenance: Pattern: historical Flashscore-related odds GraphQL GET shape (global.ds.lsapp.eu/odds/pq_graphql). Undocumented and unstable. Shipped example is fixture-only because Flashscore Terms of Use prohibit automated requests/scraping without express consent (https://www.flashscore.com/terms-of-use/).
-- captured_at: `2026-08-06T15:57:18+00:00`
+- summary: Flashscore 1X2 odds for event Ab12Cd34 (not betting advice). Betclic: 2.1/3.25/3.4 Winamax: 2.15/3.3/3.35 Unibet: 2.08/3.2/3.45 Betsson: 2.12/3.28/3.38 bwin: 2.05/3.4/3.5 Captured: 2026-08-06T17:50:27+00:00.
+- provenance: Pattern: observed Flashscore-related odds GraphQL GET shape (2.ds.lsapp.eu/pq_graphql, _hash=ole2). Undocumented and unstable. Example-only (not builtin/supported). Operators must respect Flashscore Terms of Use (https://www.flashscore.com/terms-of-use/).
+- captured_at: `2026-08-06T17:50:27+00:00`
 - fallback_signal: `False`
 
 **structured_data:**
@@ -30,7 +31,7 @@ URL: `https://www.flashscore.com/match/football/demo-league/alpha-vs-beta/?mid=A
   "event_id": "Ab12Cd34",
   "market": "HOME_DRAW_AWAY",
   "scope": "FULL_TIME",
-  "captured_at": "2026-08-06T15:57:18+00:00",
+  "captured_at": "2026-08-06T17:50:27+00:00",
   "bookmakers": [
     {
       "bookmaker_id": 141,
@@ -104,10 +105,13 @@ URL: `https://www.flashscore.com/match/football/demo-league/alpha-vs-beta/?mid=A
     }
   ],
   "disclaimer": "Odds are a dated public snapshot for research/agent context only. This is not betting advice and must not be presented as a tip or recommendation.",
-  "provenance": "Pattern: historical Flashscore-related odds GraphQL GET shape (global.ds.lsapp.eu/odds/pq_graphql). Undocumented and unstable. Shipped example is fixture-only because Flashscore Terms of Use prohibit automated requests/scraping without express consent (https://www.flashscore.com/terms-of-use/).",
+  "provenance": "Pattern: observed Flashscore-related odds GraphQL GET shape (2.ds.lsapp.eu/pq_graphql, _hash=ole2). Undocumented and unstable. Example-only (not builtin/supported). Operators must respect Flashscore Terms of Use (https://www.flashscore.com/terms-of-use/).",
   "warnings": [
-    "Flashscore Terms of Use prohibit automated requests and scraping without express consent (https://www.flashscore.com/terms-of-use/). This recipe is fixture-only by default; no live connector is enabled.",
-    "Historical endpoint shape is undocumented/unstable and may change without notice.",
+    "Example-only (not builtin/supported). Flashscore Terms of Use prohibit automated requests and scraping without express consent (https://www.flashscore.com/terms-of-use/). Prefer offline fixtures; live GETs are the operator's responsibility.",
+    "Observed endpoint shape (2.ds.lsapp.eu /pq_graphql _hash=ole2) is undocumented/unstable and may change without notice.",
+    "Odds are a dated snapshot for research/agent context only — not betting advice.",
+    "Example-only (not builtin/supported). Flashscore Terms of Use prohibit automated requests and scraping without express consent (https://www.flashscore.com/terms-of-use/). Prefer offline fixtures; live GETs are the operator's responsibility.",
+    "Observed endpoint shape (2.ds.lsapp.eu /pq_graphql _hash=ole2) is undocumented/unstable and may change without notice.",
     "Odds are a dated snapshot for research/agent context only — not betting advice."
   ]
 }
@@ -121,17 +125,17 @@ URL: https://www.flashscore.com/match/football/demo-league/alpha-vs-beta/?mid=Ab
 Status: ok
 Content type: application/json
 Fetch method: api-recipe
-API recipe: flashscore-odds@v1 (confidence=0.55, ttl=300s, captured=2026-08-06T15:57:18+00:00)
+API recipe: flashscore-odds@v1 (confidence=0.55, ttl=300s, captured=2026-08-06T17:50:27+00:00)
 
 ## Warnings
 
-- Flashscore Terms of Use prohibit automated requests and scraping without express consent (https://www.flashscore.com/terms-of-use/). This recipe is fixture-only by default; no live connector is enabled.
-- Historical endpoint shape is undocumented/unstable and may change without notice.
+- Example-only (not builtin/supported). Flashscore Terms of Use prohibit automated requests and scraping without express consent (https://www.flashscore.com/terms-of-use/). Prefer offline fixtures; live GETs are the operator's responsibility.
+- Observed endpoint shape (2.ds.lsapp.eu /pq_graphql _hash=ole2) is undocumented/unstable and may change without notice.
 - Odds are a dated snapshot for research/agent context only — not betting advice.
 
 ## Summary
 
-Flashscore 1X2 odds for event Ab12Cd34 (not betting advice). Betclic: 2.1/3.25/3.4 Winamax: 2.15/3.3/3.35 Unibet: 2.08/3.2/3.45 Betsson: 2.12/3.28/3.38 bwin: 2.05/3.4/3.5 Captured: 2026-08-06T15:57:18+00:00.
+Flashscore 1X2 odds for event Ab12Cd34 (not betting advice). Betclic: 2.1/3.25/3.4 Winamax: 2.15/3.3/3.35 Unibet: 2.08/3.2/3.45 Betsson: 2.12/3.28/3.38 bwin: 2.05/3.4/3.5 Captured: 2026-08-06T17:50:27+00:00.
 
 ## Structured odds (not betting advice)
 
@@ -152,7 +156,7 @@ _Odds are a dated public snapshot for research/agent context only. This is not b
   "event_id": "Ab12Cd34",
   "market": "HOME_DRAW_AWAY",
   "scope": "FULL_TIME",
-  "captured_at": "2026-08-06T15:57:18+00:00",
+  "captured_at": "2026-08-06T17:50:27+00:00",
   "bookmakers": [
     {
       "bookmaker_id": 141,
@@ -226,10 +230,13 @@ _Odds are a dated public snapshot for research/agent context only. This is not b
     }
   ],
   "disclaimer": "Odds are a dated public snapshot for research/agent context only. This is not betting advice and must not be presented as a tip or recommendation.",
-  "provenance": "Pattern: historical Flashscore-related odds GraphQL GET shape (global.ds.lsapp.eu/odds/pq_graphql). Undocumented and unstable. Shipped example is fixture-only because Flashscore Terms of Use prohibit automated requests/scraping without express consent (https://www.flashscore.com/terms-of-use/).",
+  "provenance": "Pattern: observed Flashscore-related odds GraphQL GET shape (2.ds.lsapp.eu/pq_graphql, _hash=ole2). Undocumented and unstable. Example-only (not builtin/supported). Operators must respect Flashscore Terms of Use (https://www.flashscore.com/terms-of-use/).",
   "warnings": [
-    "Flashscore Terms of Use prohibit automated requests and scraping without express consent (https://www.flashscore.com/terms-of-use/). This recipe is fixture-only by default; no live connector is enabled.",
-    "Historical endpoint shape is undocumented/unstable and may change without notice.",
+    "Example-only (not builtin/supported). Flashscore Terms of Use prohibit automated requests and scraping without express consent (https://www.flashscore.com/terms-of-use/). Prefer offline fixtures; live GETs are the operator's responsibility.",
+    "Observed endpoint shape (2.ds.lsapp.eu /pq_graphql _hash=ole2) is undocumented/unstable and may change without notice.",
+    "Odds are a dated snapshot for research/agent context only — not betting advice.",
+    "Example-only (not builtin/supported). Flashscore Terms of Use prohibit automated requests and scraping without express consent (https://www.flashscore.com/terms-of-use/). Prefer offline fixtures; live GETs are the operator's responsibility.",
+    "Observed endpoint shape (2.ds.lsapp.eu /pq_graphql _hash=ole2) is undocumented/unstable and may change without notice.",
     "Odds are a dated snapshot for research/agent context only — not betting advice."
   ]
 }

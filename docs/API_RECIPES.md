@@ -64,7 +64,8 @@ read_url(url, api_recipes=True)   # may attach used / fixture_only / blocked / �
 
 # CLI
 supersocks-url-scraper --recurrent https://example.com/app
-supersocks-url-scraper --api-recipes 'https://www.flashscore.com/match/…/?mid=…'
+API_RECIPE_PATHS=examples/recipes/flashscore_odds.v1.json \
+  supersocks-url-scraper --api-recipes 'https://www.flashscore.com/match/…/?mid=…'
 
 # HTTP JSON
 {"url": "…", "recurrent_need": true}
@@ -94,17 +95,28 @@ fails and the reader falls back to the normal pipeline — it never fakes data.
 
 | Aspect | Current (this release) | Future (not shipped) |
 |--------|------------------------|-----------------------|
-| Shipped recipes | `flashscore-odds@v1` (consent-gated) | more opt-in adapters after review |
-| Live network | off by default (`API_RECIPES=0`); consent-gated for Flashscore | controlled per-recipe activation |
+| Builtin recipes | none (empty catalog) | optional reviewed builtins after deliberate ship |
+| External examples | `examples/recipes/` (e.g. Flashscore #3, not auto-loaded) | more example adapters |
+| Live network | off by default (`API_RECIPES=0`); per-recipe `network.mode` | controlled per-recipe activation |
 | Discovery | offline HAR classifier + disabled candidate | richer candidate field mapping |
-| Activation | manual, review-gated | guided review tooling |
-| Execution | via `--api-recipes` / `API_RECIPES=1` | same, plus per-recipe toggles |
+| Activation | manual, review-gated, explicit path load | guided review tooling |
+| Execution | via `--api-recipes` + optional `API_RECIPE_PATHS` | same, plus per-recipe toggles |
 
 ---
 
 ## Lifecycle diagram
 
 ```text
+  base scrape (HTTP → SEO → Cloak → archive)
+        │
+        ▼
+  route_advice? (offline; recurrent_need / costly / partial / loaded recipe)
+        │
+        ├─ available_disabled → enable --api-recipes (and load API_RECIPE_PATHS)
+        ├─ review_required    → validate offline; never auto-execute
+        ├─ suggested          → manual HAR → --discover-har
+        └─ used / blocked     → keep structured result or fallback pipeline
+        │
   local .har (browser capture)
         │  (offline, opt-in)
         ▼
@@ -114,12 +126,12 @@ fails and the reader falls back to the normal pipeline — it never fakes data.
   candidate recipe (disabled, status=review_required, network.mode=fixture_only)
         │
         ▼
-  review (human or agent reads the report; verifies endpoint is public &
-          read-only, within the site's terms; no credentials needed)
+  review (human or agent; verify endpoint is public & read-only; Terms OK)
         │
         ▼
-  activation (operator selects an appropriate network mode after review;
-              consent_required also needs allowlist + consent attestation)
+  explicit load + activation
+    API_RECIPE_PATHS=./recipe.v1.json  +  --api-recipes / API_RECIPES=1
+    (open → global opt-in alone; consent_required → allowlist+consent; fixture_only → never live)
         │
         ▼
   execution via read_url(api_recipes=True)  ──►  structured_data
@@ -129,7 +141,8 @@ fails and the reader falls back to the normal pipeline — it never fakes data.
 ```
 
 No step after **discovery** is automatic. A candidate recipe is always written
-disabled and can never execute or promote itself.
+disabled and can never execute or promote itself. Site demos under `examples/`
+are never auto-loaded builtins.
 
 ---
 
@@ -213,9 +226,11 @@ supersocks-url-scraper --validate-recipe my-recipe.v1.json
 | `match.host_roots` | host roots matched (exact or subdomain) |
 | `match.path_regex` / `query_keys` | further URL matching |
 | `endpoint.method` | `GET` only |
-| `endpoint.url_template` | `https://` endpoint (may use `{event_id}`-style placeholders) |
+| `endpoint.url_template` | `https://` endpoint (may use `{event_id}` / fanout placeholders) |
 | `endpoint.allowed_hosts` | host allowlist enforced at request time |
 | `endpoint.headers` | must never include Authorization/Cookie/token |
+| `params.bindings` | optional map of template vars from URL query keys (+ pattern) |
+| `params.fanout` / `params.bookmakers` | optional bounded fanout list for multi-GET recipes |
 | `network.mode` | `fixture_only`/`off`/`disabled` (blocked) · `consent_required` · `open`/`allow` |
 | `network.consent_phrase` | exact phrase required for consent-gated live use |
 | `confidence` | 0..1, surfaced in output |
@@ -229,22 +244,21 @@ supersocks-url-scraper --validate-recipe my-recipe.v1.json
 
 | Mode | Live GETs? | Meaning |
 |------|-----------|---------|
-| `fixture_only` / `off` / `disabled` / `never` | never | default; injected fetchers only |
-| `consent_required` / `allowlist` | only with allowlist + exact consent phrase | for gated sites (e.g. Flashscore) |
-| `open` / `allow` | yes (still opt-in) | for intentionally public endpoints |
+| `fixture_only` / `off` / `disabled` / `never` | never | injected fetchers / demos only |
+| `consent_required` / `allowlist` | only with allowlist + exact consent phrase | optional generic policy |
+| `open` / `allow` | yes (still needs global opt-in) | intentionally public endpoints |
 
 For `consent_required` / `allowlist`, live access additionally requires
 `API_RECIPE_LIVE_ALLOWLIST` to include the recipe id and
 `API_RECIPE_LIVE_CONSENT` to equal the consent phrase. `open` / `allow` does not
 use those two consent variables, but still requires the global recipes opt-in
 and all HTTPS/GET/host/DNS/redirect safety gates. Candidate recipes are never
-generated in an open mode. The shipped Flashscore recipe uses `consent_required`
-(off by default until allowlist + consent attestation).
+generated in an open mode.
 
 `status` and `review_required` document the review state for humans and agents;
-the hard runtime execution gate is `network.mode`. Discovery always combines
-the review markers with `network.mode: fixture_only` so a fresh candidate
-cannot perform a live request.
+the hard runtime execution gate is `network.mode` plus `review_required` /
+`disabled` status. Discovery always combines the review markers with
+`network.mode: fixture_only` so a fresh candidate cannot perform a live request.
 
 ## Agent commands
 
@@ -254,10 +268,11 @@ Agents interact with the recipe layer through the same public API as the CLI:
 - `classify_har_entry(entry)` → `CandidateEntry`
 - `build_candidate_recipe(entry)` → disabled recipe dict
 - `validate_recipe_schema(raw)` / `validate_recipe_dict(raw)` → error lists
-- `load_builtin_recipes()` → shipped recipes
+- `load_builtin_recipes()` → empty by default (no site builtins)
+- `load_recipes(extra_paths=[…])` → builtins + explicitly loaded paths
 - `execute_recipe(url, recipe, fetcher=…, resolve_dns=False)` → `RecipeRunResult`
-- `try_api_recipe(url, enabled=True)` → reader-shaped payload or `None`
-- `read_url(url, api_recipes=True)` → reader result (structured recipe or fallback)
+- `try_api_recipe(url, enabled=True, extra_recipe_paths=[…])` → reader-shaped payload or `None`
+- `read_url(url, api_recipes=True, api_recipe_paths=[…])` → reader result (structured recipe or fallback)
 - `read_url(url, recurrent_need=True)` → may attach offline `route_advice` (api_discovery when suitable)
 - `build_route_advice(...)` → discrete advice dict or `None` (no network)
 
@@ -273,11 +288,25 @@ Agents interact with the recipe layer through the same public API as the CLI:
 - Candidate recipes are always disabled (`review_required`, `fixture_only`).
 - `route_advice` never opens sockets, never captures HAR, never auto-activates.
 
-## Flashscore example
+## Example #3: Flashscore (not builtin / not supported)
 
-See [`examples/flashscore_odds.py`](../examples/flashscore_odds.py) (consent-gated
-recipe, offline fixture demo) and [`examples/flashscore_odds_comparison.py`](../examples/flashscore_odds_comparison.py)
-(offline, deterministic base-HTML-scraper vs JSON-recipe comparison of the same
-synthetic case). Flashscore ToS prohibit automated requests/scraping without
-express consent; live GETs require allowlist + consent env vars when the operator
-possesses express written permission.
+Flashscore is a **case study only**. The recipe and odds normalization live under
+`examples/` and are **not** imported or auto-loaded by the runtime.
+
+```bash
+# Offline fixture demo
+python examples/flashscore_odds.py
+python examples/flashscore_odds_comparison.py
+
+# Explicit load (example recipe uses network.mode=open — global opt-in alone)
+API_RECIPE_PATHS=examples/recipes/flashscore_odds.v1.json \
+  supersocks-url-scraper --api-recipes 'https://www.flashscore.com/match/…/?mid=…'
+```
+
+Observed browser pattern encoded in the example recipe (undocumented/unstable):
+host `2.ds.lsapp.eu`, `GET /pq_graphql`, `_hash=ole2`, `eventId` from query
+`mid`, bounded `bookmakerId` fanout, `betType=HOME_DRAW_AWAY`,
+`betScope=FULL_TIME`. Odds transforms stay in `examples/flashscore/`; core only
+runs the declarative GET/fanout executor. Prefer fixtures; live GETs are the
+operator's responsibility under Flashscore Terms of Use. See
+[`docs/CASE_STUDY_FLASHSCORE_ODDS.md`](CASE_STUDY_FLASHSCORE_ODDS.md).

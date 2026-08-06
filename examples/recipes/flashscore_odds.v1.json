@@ -1,14 +1,13 @@
 {
   "id": "flashscore-odds",
   "version": "1",
-  "title": "Flashscore 1X2 odds pattern (consent-gated by default)",
+  "title": "Flashscore 1X2 odds pattern (example only — not builtin)",
   "schema": "flashscore_prematch_1x2_v1",
   "confidence": 0.55,
   "ttl_seconds": 300,
   "network": {
-    "mode": "consent_required",
-    "consent_phrase": "I_HAVE_EXPRESS_WRITTEN_PERMISSION",
-    "notes": "Flashscore ToS prohibit automated requests/scraping without express consent. Shipped mode is consent_required (off by default). Live GETs require API_RECIPES=1, API_RECIPE_LIVE_ALLOWLIST including flashscore-odds, and API_RECIPE_LIVE_CONSENT matching consent_phrase — only when the operator possesses express written permission."
+    "mode": "open",
+    "notes": "Example-only recipe. Not auto-loaded by the runtime. Load explicitly via API_RECIPE_PATHS / --api-recipe-path. With network.mode=open, global api_recipes opt-in alone permits live GETs (no allowlist/consent phrase). Operators must respect Flashscore Terms of Use. Prefer offline fixtures for demos."
   },
   "match": {
     "host_roots": [
@@ -52,8 +51,8 @@
   },
   "endpoint": {
     "method": "GET",
-    "url_template": "https://global.ds.lsapp.eu/odds/pq_graphql?_hash=ope2&eventId={event_id}&bookmakerId={bookmaker_id}&betType=HOME_DRAW_AWAY&betScope=FULL_TIME",
-    "allowed_hosts": ["global.ds.lsapp.eu"],
+    "url_template": "https://2.ds.lsapp.eu/pq_graphql?_hash=ole2&eventId={event_id}&bookmakerId={bookmaker_id}&betType=HOME_DRAW_AWAY&betScope=FULL_TIME",
+    "allowed_hosts": ["2.ds.lsapp.eu"],
     "timeout_seconds": 5,
     "max_bytes": 65536,
     "max_fanout": 6,
@@ -64,6 +63,19 @@
     }
   },
   "params": {
+    "bindings": {
+      "event_id": {
+        "query": ["mid", "eventId", "event_id"],
+        "pattern": "^[A-Za-z0-9]{4,32}$"
+      }
+    },
+    "fanout": {
+      "template_var": "bookmaker_id",
+      "name_var": "bookmaker_name",
+      "items_from": "bookmakers",
+      "item_id_key": "id",
+      "item_name_key": "name"
+    },
     "bet_type": "HOME_DRAW_AWAY",
     "bet_scope": "FULL_TIME",
     "bookmakers": [
@@ -80,8 +92,8 @@
     "schema": "flashscore_prematch_1x2_v1"
   },
   "warnings": [
-    "Flashscore Terms of Use prohibit automated requests and scraping without express consent (https://www.flashscore.com/terms-of-use/). This recipe is off by default and consent-gated; live GETs require allowlist + consent attestation and express written permission per current Terms.",
-    "Historical endpoint shape is undocumented/unstable and may change without notice.",
+    "Example-only (not builtin/supported). Flashscore Terms of Use prohibit automated requests and scraping without express consent (https://www.flashscore.com/terms-of-use/). Prefer offline fixtures; live GETs are the operator's responsibility.",
+    "Observed endpoint shape (2.ds.lsapp.eu /pq_graphql _hash=ole2) is undocumented/unstable and may change without notice.",
     "Odds are a dated snapshot for research/agent context only — not betting advice."
   ],
   "fallback": "http_seo_cloak_archive"

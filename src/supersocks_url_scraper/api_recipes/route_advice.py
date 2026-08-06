@@ -97,11 +97,16 @@ def _discovery_command() -> str:
         "# 1) Capture a HAR manually in your browser DevTools (no auto-sniff).\n"
         "# 2) Classify offline (never opens a socket):\n"
         "supersocks-url-scraper --discover-har capture.har\n"
+        "# 3) Review the disabled candidate, then load deliberately:\n"
+        "# API_RECIPE_PATHS=./candidate-recipe.v1.json supersocks-url-scraper --api-recipes <url>\n"
     )
 
 
 def _enable_command() -> str:
-    return "supersocks-url-scraper --api-recipes <url>   # or API_RECIPES=1 / api_recipes:true"
+    return (
+        "supersocks-url-scraper --api-recipes <url>   # or API_RECIPES=1 / api_recipes:true\n"
+        "# Load external recipes explicitly via API_RECIPE_PATHS=… or --api-recipe-path"
+    )
 
 
 def _consent_required_requires(recipe: ApiRecipe) -> list[str]:
@@ -124,11 +129,9 @@ def _consent_activation_command(recipe: ApiRecipe) -> str:
 
 
 def _fixture_command(recipe: ApiRecipe) -> str:
-    if recipe.id == "flashscore-odds":
-        return "python examples/flashscore_odds.py   # offline fixture demo; live is consent-gated"
     return (
         f"# Recipe {recipe.recipe_key} is fixture_only — use an injected fetcher in tests/demos; "
-        "do not attempt live GETs."
+        "do not attempt live GETs. Load external recipes via API_RECIPE_PATHS / --api-recipe-path."
     )
 
 
@@ -246,7 +249,7 @@ def build_route_advice(
         if unsuitable_for_api_discovery(url, content_type=content_type, platform=platform):
             return None
         why = (
-            "Recurrent need flagged and no shipped recipe matches this URL."
+            "Recurrent need flagged and no loaded recipe matches this URL."
             if recurrent_need
             else "Route looked costly or partial; a stable JSON adapter may help if one exists."
         )
