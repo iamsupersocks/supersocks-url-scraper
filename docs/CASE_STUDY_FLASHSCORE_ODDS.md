@@ -13,8 +13,11 @@ fictional and **not betting advice**.
 Companion code:
 
 - [`examples/flashscore_odds.py`](../examples/flashscore_odds.py)
+- [`examples/flashscore_odds_comparison.py`](../examples/flashscore_odds_comparison.py) — base HTML scraper vs JSON recipe (offline, deterministic)
 - [`src/supersocks_url_scraper/api_recipes/`](../src/supersocks_url_scraper/api_recipes/)
 - Fixture: [`tests/fixtures/api_recipes/flashscore_odds_sample.json`](../tests/fixtures/api_recipes/flashscore_odds_sample.json)
+- Fixture: [`tests/fixtures/api_recipes/flashscore_match_page.html`](../tests/fixtures/api_recipes/flashscore_match_page.html)
+- Layer docs: [`docs/API_RECIPES.md`](API_RECIPES.md)
 
 ## Objectif
 
@@ -52,6 +55,43 @@ Expected: structured JSON with `fetch_method: "api-recipe"`, several bookmaker
 rows, `api_recipe.id = flashscore-odds`, and the disclaimer. `--demo-fallback`
 shows that without an injected fetcher the recipe errors with a ToS/consent
 warning and signals fallback (`_api_recipe_fallback`).
+
+### Base HTML scraper vs JSON recipe (deterministic, offline)
+
+```bash
+python examples/flashscore_odds_comparison.py
+python examples/flashscore_odds_comparison.py --markdown
+python examples/flashscore_odds_comparison.py --markdown --show-fallback
+```
+
+This runs the **same synthetic match case** through two read paths and prints a
+side-by-side comparison, with **no live benchmark**:
+
+- **Base HTML scraper** (`extract_article` on `flashscore_match_page.html`):
+  generic prose — the match title, team names, and odds appear only as inline
+  text (`Betclic 2.10 3.25 3.40 …`), with no `captured_at`, no typed structure,
+  and no provenance string.
+- **JSON recipe** (`execute_recipe` with the injected offline fetcher):
+  a typed, normalized 1X2 market — `home`/`draw`/`away` (+ `opening` when
+  present) per bookmaker, plus `provenance`, `captured_at`, a disclaimer, and a
+  fallback signal.
+
+The comparison is deterministic because every value comes from local synthetic
+fixtures; it shows the *shape* of the difference (generic prose versus a typed,
+normalized market) rather than real market data. `--show-fallback` additionally
+proves that without an injected fetcher the recipe errors and signals fallback
+(`_api_recipe_fallback = true`).
+
+### Discovery from a local HAR (offline, opt-in)
+
+The same adapter concept can be bootstrapped from a browser HAR capture with no
+network. `--discover-har` keeps only public HTTPS GET JSON exchanges, excludes
+auth/cookies/tokens / writes / private hosts / non-JSON / oversized bodies,
+redacts sensitive params and headers, and emits a classified report plus a
+**disabled** candidate recipe (`status: review_required`,
+`network.mode: fixture_only`). It never executes or promotes the candidate. See
+[`docs/API_RECIPES.md`](API_RECIPES.md) for the lifecycle
+HAR → candidate → review → activation → execution → fallback.
 
 ### Opt-in reader flag (still no live Flashscore)
 
@@ -96,6 +136,11 @@ bookmaker stubs are skipped) plus:
 - `structured_data.kind = flashscore_odds_1x2`
 - `disclaimer` stating the snapshot is not betting advice
 - `provenance` noting fixture-only / ToS constraints
+
+Deterministic offline artifacts (committed under `docs/data/`):
+
+- [`docs/data/flashscore_base_vs_recipe_compare.md`](data/flashscore_base_vs_recipe_compare.md) — the base-HTML-scraper vs JSON-recipe comparison from `examples/flashscore_odds_comparison.py --markdown`.
+- [`docs/data/api-discovery-demo-*.md`](data/) — HAR discovery report and the disabled `review_required` candidate recipe for the synthetic HAR fixture.
 
 ## Reproduction for agents
 

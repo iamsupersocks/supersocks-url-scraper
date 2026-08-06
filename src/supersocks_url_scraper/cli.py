@@ -10,6 +10,11 @@ from pathlib import Path
 
 from .reader import read_url, to_markdown
 
+from .api_recipes.discovery import (
+    DEFAULT_MAX_ENTRY_BYTES,
+    DEFAULT_MAX_REPORT_CANDIDATES,
+)
+
 
 def _truthy(value: object, default: bool = False) -> bool:
     if value is None:
@@ -295,6 +300,73 @@ class Handler(BaseHTTPRequestHandler):
         return
 
 
+def run_discover_har(args: argparse.Namespace) -> int:
+    """Offline HAR discovery: classify exchanges and emit a disabled candidate recipe."""
+    import sys
+
+    from .api_recipes.discovery import (
+        discover_from_har,
+        render_report_json,
+        render_report_markdown,
+        write_report,
+    )
+
+    input_path = args.discover_har
+    if not input_path:
+        raise SystemExit("--discover-har requires a path to a local .har file")
+    report = discover_from_har(
+        input_path,
+        max_bytes=args.discovery_max_bytes,
+        max_candidates=args.discovery_max_candidates,
+    )
+    if args.discovery_out_dir:
+        written = write_report(report, out_dir=args.discovery_out_dir, prefix=args.discovery_prefix)
+        for kind in ("json", "markdown", "recipe"):
+            if kind in written:
+                print(f"{kind}: {written[kind]}")
+        return 0
+    if args.markdown:
+        sys.stdout.write(render_report_markdown(report))
+    else:
+        sys.stdout.write(render_report_json(report) + "\n")
+    return 0
+
+
+def run_validate_recipe(args: argparse.Namespace) -> int:
+    """Offline recipe validation: check a recipe file against the v1 schema + runtime rules."""
+    import sys
+
+    from .api_recipes.engine import validate_recipe_dict
+    from .api_recipes.schema import validate_recipe_schema
+
+    paths = args.validate_recipe or []
+    if not paths:
+        raise SystemExit("--validate-recipe requires at least one recipe JSON path")
+    all_ok = True
+    for raw_path in paths:
+        import json
+        from pathlib import Path
+
+        path = Path(raw_path).expanduser()
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            print(f"{raw_path}: VALIDATION FAILED (unreadable): {exc}")
+            all_ok = False
+            continue
+        schema_errors = validate_recipe_schema(raw)
+        runtime_errors = validate_recipe_dict(raw)
+        errors = schema_errors + [e for e in runtime_errors if e not in schema_errors]
+        if errors:
+            all_ok = False
+            print(f"{raw_path}: VALIDATION FAILED")
+            for e in errors:
+                print(f"  - {e}")
+        else:
+            print(f"{raw_path}: OK")
+    return 0 if all_ok else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fetch and summarize web URLs without JavaScript execution.")
     parser.add_argument("url", nargs="?", help="Fetch one URL and print JSON")
@@ -336,7 +408,27 @@ def main() -> int:
     parser.add_argument("--serve", action="store_true", help="Run HTTP service with /health, /summarize, /read, /markdown")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8768)
+    parser.add_argument(
+        "--discover-har",
+        default="",
+        help="Offline API discovery from a local .har file (no network). Emits a classified report and a disabled review_required candidate recipe.",
+    )
+    parser.add_argument("--discovery-out-dir", default="", help="When set, write JSON/Markdown report + candidate recipe to this directory")
+    parser.add_argument("--discovery-prefix", default="discovery", help="Output filename prefix for --discovery-out-dir")
+    parser.add_argument("--discovery-max-bytes", type=int, default=DEFAULT_MAX_ENTRY_BYTES, help="Max response body bytes to keep as a candidate")
+    parser.add_argument("--discovery-max-candidates", type=int, default=DEFAULT_MAX_REPORT_CANDIDATES, help="Max candidate entries in the report")
+    parser.add_argument(
+        "--validate-recipe",
+        action="append",
+        default=[],
+        help="Validate a recipe JSON file against the v1 schema and runtime rules (repeatable, offline)",
+    )
     args = parser.parse_args()
+
+    if args.discover_har:
+        return run_discover_har(args)
+    if args.validate_recipe:
+        return run_validate_recipe(args)
 
     if args.serve:
         server = ThreadingHTTPServer((args.host, args.port), Handler)

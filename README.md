@@ -72,7 +72,7 @@ curl -s http://127.0.0.1:8768/summarize \
 - Recognized consent dialogs are dismissed through an explicit reject/continue-without-accepting control before browser extraction.
 - Layered fallback pipeline: HTTP → SEO variants → CloakBrowser → public archive/cache snapshots, including retry when HTTP returns only a teaser/paywall/cookie wall.
 - Optional per-domain JSON strategy cache storing only routing metadata.
-- Optional opt-in API recipes (HTTPS GET, host-allowlisted, versioned) for structured agent outputs; Flashscore 1X2 example is fixture-only by default (ToS). Degrade to HTTP→SEO→Cloak→archive on failure. Off by default.
+- Optional opt-in API recipes (HTTPS GET, host-allowlisted, versioned) for structured agent outputs; Flashscore 1X2 example is fixture-only by default (ToS). Degrade to HTTP→SEO→Cloak→archive on failure. Off by default. Offline HAR discovery (`--discover-har`) classifies a local capture and emits a disabled `review_required` candidate recipe; embedded JSON Schema v1 + `--validate-recipe` validate recipe files offline.
 - Markdown output.
 - Returns warnings for partial extraction, boilerplate, paywalls, and placeholders.
 - Safe to run locally or in cron/server contexts.
@@ -462,6 +462,27 @@ XHR endpoints into `StrategyCache`, does not log in or store cookies/tokens,
 and labels odds as dated snapshots — **not betting advice**. On failure or
 live block it degrades to HTTP → SEO → Cloak → archive.
 
+[`examples/flashscore_odds_comparison.py`](examples/flashscore_odds_comparison.py)
+runs the **same synthetic case** through the base HTML scraper and the JSON
+recipe, offline and deterministically, showing generic prose versus a normalized
+1X2 market (with provenance / `captured_at` / fallback signal) — no live
+benchmark.
+
+For how an endpoint adapter is **discovered** from a local HAR (offline,
+opt-in, classified, redacted) and how a candidate becomes a reviewed, activated
+recipe, see [`docs/API_RECIPES.md`](docs/API_RECIPES.md). Discovery always emits
+a *disabled* candidate (`status: review_required`, `network.mode: fixture_only`)
+that never executes or promotes itself:
+
+```bash
+# Offline: classify a local HAR, print report + disabled candidate recipe
+supersocks-url-scraper --discover-har capture.har
+# Write JSON/Markdown report + candidate recipe to a directory
+supersocks-url-scraper --discover-har capture.har --discovery-out-dir ./out
+# Validate a recipe against the embedded v1 schema + runtime rules
+supersocks-url-scraper --validate-recipe my-recipe.v1.json
+```
+
 ## HTTP service
 
 Start the service:
@@ -501,6 +522,7 @@ Supported service environment variables:
 - `API_RECIPES`: opt-in structured API recipes (HTTPS GET only, host-allowlisted). Disabled by default. Flashscore odds ships fixture-only (ToS). On failure/live block, degrades to HTTP→SEO→Cloak→archive. Never sends Authorization/Cookie headers.
 - `API_RECIPE_PATHS`: optional colon-separated extra recipe JSON files or directories.
 - `API_RECIPE_LIVE_ALLOWLIST` / `API_RECIPE_LIVE_CONSENT`: only for recipes with `network.mode=consent_required` and express written permission; ignored while Flashscore remains `fixture_only`.
+- Offline tooling: `--discover-har <file>` (classify a local HAR and emit a disabled candidate recipe), `--discovery-out-dir <dir>`, and `--validate-recipe <file>` (validate against the embedded JSON Schema v1 + runtime rules). See [`docs/API_RECIPES.md`](docs/API_RECIPES.md).
 - `FETCH_STRATEGY_CACHE_PATH`: metadata-only domain strategy cache.
 - `SUMMARY_PROVIDER`: optional summary provider, default `local`. Supports `local`/`extractive`/`none` and generic `http`.
 - `SUMMARY_PROVIDER_URL`: endpoint for `SUMMARY_PROVIDER=http`; unset by default.
