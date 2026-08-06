@@ -6,6 +6,7 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from string import Formatter
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
@@ -30,12 +31,28 @@ from .security import (
 
 Fetcher = Callable[..., Any]
 
-_DEFAULT_EVENT_ID_KEYS = ("mid", "eventId", "event_id")
-_EVENT_ID_RE = re.compile(r"^[A-Za-z0-9]{4,32}$")
+_FORMATTER = Formatter()
+_BUILTIN_TEMPLATE_VARS = frozenset({"url", "host", "path"})
 
 
 def _recipes_dir() -> Path:
     return Path(__file__).resolve().parent / "recipes"
+
+
+def template_fields(template: str) -> frozenset[str]:
+    """Return placeholder names referenced by a url_template."""
+    names: set[str] = set()
+    for _literal, field_name, _format_spec, _conversion in _FORMATTER.parse(template):
+        if field_name is None:
+            continue
+        root = field_name.split(".")[0].split("[")[0]
+        if root:
+            names.add(root)
+    return frozenset(names)
+
+
+def declared_template_vars(recipe: ApiRecipe) -> frozenset[str]:
+    return template_fields(recipe.endpoint.url_template) - _BUILTIN_TEMPLATE_VARS
 
 
 def validate_recipe_dict(raw: dict[str, Any]) -> list[str]:
@@ -202,25 +219,36 @@ def _query_value(url: str, keys: tuple[str, ...] | list[str]) -> str | None:
     return None
 
 
+def _fanout_config(recipe: ApiRecipe) -> dict[str, Any]:
+    params = recipe.params if isinstance(recipe.params, dict) else {}
+    fanout = params.get("fanout")
+    return fanout if isinstance(fanout, dict) else {}
+
+
+def _fanout_var_names(recipe: ApiRecipe) -> frozenset[str]:
+    fanout = _fanout_config(recipe)
+    names: set[str] = set()
+    for key in ("template_var", "name_var"):
+        value = fanout.get(key)
+        if value is not None and str(value).strip():
+            names.add(str(value).strip())
+    return frozenset(names)
+
+
 def resolve_bindings(url: str, recipe: ApiRecipe) -> dict[str, str] | None:
-    """Resolve declarative URL→template bindings from recipe.params.bindings.
+    """Resolve declarative URL→template bindings from recipe.params.bindings only.
 
     Supported binding shapes (per template variable name):
       {"query": "mid"}
       {"query": ["mid", "eventId"]}
       {"query": [...], "pattern": "^[A-Za-z0-9]{4,32}$"}
-
-    When the url_template references ``{event_id}`` and no explicit binding is
-    declared, fall back to common query keys (mid / eventId / event_id).
     """
     bindings_raw = recipe.params.get("bindings") if isinstance(recipe.params, dict) else None
-    bindings: dict[str, Any] = dict(bindings_raw) if isinstance(bindings_raw, dict) else {}
-    template = recipe.endpoint.url_template
-    if "{event_id}" in template and "event_id" not in bindings:
-        bindings["event_id"] = {"query": list(_DEFAULT_EVENT_ID_KEYS), "pattern": _EVENT_ID_RE.pattern}
+    if not isinstance(bindings_raw, dict) or not bindings_raw:
+        return {}
 
     resolved: dict[str, str] = {}
-    for name, spec in bindings.items():
+    for name, spec in bindings_raw.items():
         if not isinstance(spec, dict):
             return None
         query_spec = spec.get("query")
@@ -235,42 +263,65 @@ def resolve_bindings(url: str, recipe: ApiRecipe) -> dict[str, str] | None:
             return None
         pattern = str(spec.get("pattern") or "").strip()
         if pattern and re.fullmatch(pattern, value) is None:
-            return None
+                return None
         resolved[str(name)] = value
-
-    # Also expose declared match.query_keys as template vars when present.
-    for key in recipe.match.query_keys:
-        if key in resolved:
-            continue
-        value = _query_value(url, (key,))
-        if value is not None:
-            resolved[key] = value
     return resolved
 
 
 def _fanout_items(recipe: ApiRecipe) -> list[dict[str, Any]]:
-    """Return bounded fanout rows from params.fanout / params.bookmakers."""
+    """Return bounded fanout rows declared by params.fanout."""
+    fanout = _fanout_config(recipe)
+    if not fanout:
+        return []
+
     params = recipe.params if isinstance(recipe.params, dict) else {}
-    fanout = params.get("fanout") if isinstance(params.get("fanout"), dict) else {}
-    items_from = str(fanout.get("items_from") or "bookmakers")
-    raw_items = params.get(items_from) or fanout.get("items") or []
+    raw_items = fanout.get("items")
+    if raw_items is None:
+        items_from = fanout.get("items_from")
+        if items_from is None:
+            return []
+        source = params.get(str(items_from))
+        raw_items = source if isinstance(source, list) else []
     if not isinstance(raw_items, list):
         return []
-    id_key = str(fanout.get("item_id_key") or "id")
-    name_key = str(fanout.get("item_name_key") or "name")
-    template_var = str(fanout.get("template_var") or "bookmaker_id")
-    name_var = str(fanout.get("name_var") or "bookmaker_name")
+
+    template_var = str(fanout["template_var"]).strip() if fanout.get("template_var") is not None else ""
+    name_var = str(fanout["name_var"]).strip() if fanout.get("name_var") is not None else ""
+    item_id_key = str(fanout.get("item_id_key") or "id")
+    item_name_key = str(fanout.get("item_name_key") or "name")
+
     out: list[dict[str, Any]] = []
     for item in raw_items:
-        if not isinstance(item, dict):
+        row: dict[str, Any] = {}
+        if isinstance(item, dict):
+            for key, value in item.items():
+                row[str(key)] = value
+            if template_var and item_id_key in item:
+                row[template_var] = item[item_id_key]
+            if name_var and item_name_key in item:
+                row[name_var] = item[item_name_key]
+        elif isinstance(item, (str, int, float, bool)):
+            if template_var:
+                row[template_var] = item
+            else:
+                row["value"] = item
+        else:
             continue
-        try:
-            item_id = int(item.get(id_key))
-        except (TypeError, ValueError):
-            continue
-        name = str(item.get(name_key) or item_id)
-        out.append({template_var: item_id, name_var: name, "id": item_id, "name": name})
+        if row:
+            out.append(row)
     return out[: recipe.endpoint.max_fanout]
+
+
+def _binding_var_names(recipe: ApiRecipe) -> frozenset[str]:
+    params = recipe.params if isinstance(recipe.params, dict) else {}
+    bindings = params.get("bindings")
+    if not isinstance(bindings, dict):
+        return frozenset()
+    return frozenset(str(name) for name in bindings)
+
+
+def _required_binding_vars(recipe: ApiRecipe) -> frozenset[str]:
+    return declared_template_vars(recipe) - _fanout_var_names(recipe) - _BUILTIN_TEMPLATE_VARS
 
 
 def recipe_matches_url(recipe: ApiRecipe, url: str) -> bool:
@@ -298,10 +349,14 @@ def recipe_matches_url(recipe: ApiRecipe, url: str) -> bool:
         return False
     elif recipe.match.query_keys and not query_ok:
         return False
-    needs_bindings = isinstance(recipe.params.get("bindings"), dict) or "{event_id}" in recipe.endpoint.url_template
-    if needs_bindings and resolve_bindings(url, recipe) is None:
-        return False
+
+    required_bindings = _required_binding_vars(recipe)
+    if required_bindings:
+        resolved = resolve_bindings(url, recipe)
+        if resolved is None or not required_bindings.issubset(resolved.keys()):
+            return False
     return True
+
 
 def find_matching_recipes(url: str, recipes: list[ApiRecipe] | None = None) -> list[ApiRecipe]:
     catalog = recipes if recipes is not None else load_recipes()
@@ -324,6 +379,11 @@ def _format_endpoint(template: str, variables: dict[str, Any]) -> str:
         return template.format(**variables)
     except (KeyError, ValueError) as exc:
         raise ApiRecipeSecurityError(f"url_template substitution failed: {exc}") from exc
+
+
+def _unresolved_template_vars(recipe: ApiRecipe, variables: dict[str, Any]) -> list[str]:
+    missing = sorted(name for name in declared_template_vars(recipe) if name not in variables)
+    return missing
 
 
 def run_generic_get_recipe(
@@ -360,10 +420,11 @@ def run_generic_get_recipe(
         return _blocked(network_gate_message(recipe))
 
     bindings = resolve_bindings(url, recipe)
-    if bindings is None and (
-        isinstance(recipe.params.get("bindings"), dict)
-        or "{event_id}" in recipe.endpoint.url_template
-    ):
+    if bindings is None:
+        return _blocked("recipe bindings could not be resolved from URL")
+
+    required_bindings = _required_binding_vars(recipe)
+    if required_bindings and not required_bindings.issubset((bindings or {}).keys()):
         return _blocked("recipe bindings could not be resolved from URL")
 
     parsed = urlparse(url)
@@ -376,10 +437,8 @@ def run_generic_get_recipe(
         base_vars.update(bindings)
 
     fanout_rows = _fanout_items(recipe)
-    needs_fanout = bool(fanout_rows) and (
-        "{bookmaker_id}" in recipe.endpoint.url_template
-        or (isinstance(recipe.params.get("fanout"), dict))
-    )
+    fanout_vars = _fanout_var_names(recipe)
+    needs_fanout = bool(fanout_rows) and bool(fanout_vars & declared_template_vars(recipe))
 
     fetch = fetcher or safe_get
     limiter = RateLimiter(recipe.endpoint.min_interval_ms)
@@ -391,6 +450,12 @@ def run_generic_get_recipe(
         for row in fanout_rows:
             limiter.wait()
             variables = {**base_vars, **row}
+            missing = _unresolved_template_vars(recipe, variables)
+            if missing:
+                message = f"unresolved template placeholders: {', '.join(missing)}"
+                warnings.append(f"fanout item skipped: {message}")
+                items.append({"vars": row, "payload": None, "ok": False, "error": message})
+                continue
             try:
                 endpoint_url = _format_endpoint(recipe.endpoint.url_template, variables)
                 result = fetch(
@@ -407,9 +472,10 @@ def run_generic_get_recipe(
                     body: Any = json.loads(text)
                 except json.JSONDecodeError:
                     body = {"raw_text": text[:4000]}
+                preserved = {k: row[k] for k in row if k in fanout_vars or k in _binding_var_names(recipe)}
                 items.append(
                     {
-                        "vars": {k: row[k] for k in row if k in {"bookmaker_id", "bookmaker_name", "id", "name"}},
+                        "vars": preserved,
                         "endpoint_url": endpoint_url,
                         "payload": body,
                         "ok": True,
@@ -417,17 +483,19 @@ def run_generic_get_recipe(
                 )
             except ApiRecipeSecurityError as exc:
                 message = redact_secrets(str(exc))
+                item_label = next((row.get(name) for name in fanout_vars if name in row), row)
                 if "429" in message:
                     rate_limited = True
-                    warnings.append(f"fanout item {row.get('name')}: {message}")
+                    warnings.append(f"fanout item {item_label}: {message}")
                     break
                 if "401" in message or "403" in message:
                     forbidden = True
-                warnings.append(f"fanout item {row.get('name')}: {message}")
+                warnings.append(f"fanout item {item_label}: {message}")
                 items.append({"vars": row, "payload": None, "ok": False, "error": message})
             except Exception as exc:  # noqa: BLE001 — keep recipe resilient
                 message = redact_secrets(type(exc).__name__)
-                warnings.append(f"fanout item {row.get('name')}: {message}")
+                item_label = next((row.get(name) for name in fanout_vars if name in row), row)
+                warnings.append(f"fanout item {item_label}: {message}")
                 items.append({"vars": row, "payload": None, "ok": False, "error": message})
 
         ok_items = [item for item in items if item.get("ok")]
@@ -469,6 +537,13 @@ def run_generic_get_recipe(
             captured_at=captured_at,
             ttl_seconds=recipe.ttl_seconds,
             length=length,
+        )
+
+    missing = _unresolved_template_vars(recipe, base_vars)
+    if missing:
+        return _blocked(
+            f"unresolved template placeholders: {', '.join(missing)}",
+            structured={"unresolved_placeholders": missing},
         )
 
     # Single GET

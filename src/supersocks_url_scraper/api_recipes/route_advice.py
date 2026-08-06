@@ -96,7 +96,7 @@ def _discovery_command() -> str:
     return (
         "# 1) Capture a HAR manually in your browser DevTools (no auto-sniff).\n"
         "# 2) Classify offline (never opens a socket):\n"
-        "supersocks-url-scraper --discover-har capture.har\n"
+        "supersocks-url-scraper --discover-har capture.har --discovery-source-url <url>\n"
         "# 3) Review the disabled candidate, then load deliberately:\n"
         "# API_RECIPE_PATHS=./candidate-recipe.v1.json supersocks-url-scraper --api-recipes <url>\n"
     )

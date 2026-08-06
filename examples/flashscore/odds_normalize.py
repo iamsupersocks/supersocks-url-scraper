@@ -65,9 +65,9 @@ DEFAULT_BOOKMAKERS: tuple[dict[str, Any], ...] = (
     {"id": 141, "name": "Betclic"},
     {"id": 264, "name": "Winamax"},
     {"id": 160, "name": "Unibet"},
-    {"id": 484, "name": "ParionsSport"},
+    {"id": 1195, "name": "Pmu"},
     {"id": 905, "name": "Betsson"},
-    {"id": 129, "name": "bwin"},
+    {"id": 1243, "name": "Bet365"},
 )
 
 ODDS_ENDPOINT_HOST = "2.ds.lsapp.eu"
@@ -183,6 +183,47 @@ def normalize_prematch_1x2(payload: object, *, bookmaker_id: int, bookmaker_name
     }
 
 
+def normalize_live_1x2(payload: object, *, bookmaker_id: int, bookmaker_name: str) -> dict[str, Any] | None:
+    """Normalize findLiveOddsForBookmaker.eventOddsOverview into home/draw/away (+ opening)."""
+    if not isinstance(payload, dict):
+        return None
+    data = payload.get("data") if "data" in payload else payload
+    if not isinstance(data, dict):
+        return None
+    live = data.get("findLiveOddsForBookmaker")
+    if not isinstance(live, dict):
+        return None
+    odds = live.get("eventOddsOverview")
+    if not isinstance(odds, dict) or not odds:
+        return None
+    home = _outcome_block(odds.get("home"))
+    draw = _outcome_block(odds.get("draw"))
+    away = _outcome_block(odds.get("away"))
+    if home["value"] is None or draw["value"] is None or away["value"] is None:
+        return None
+    return {
+        "bookmaker_id": int(bookmaker_id),
+        "bookmaker": bookmaker_name,
+        "market": "1X2",
+        "scope": "FULL_TIME",
+        "home": home["value"],
+        "draw": draw["value"],
+        "away": away["value"],
+        "opening": {
+            "home": home["opening"],
+            "draw": draw["opening"],
+            "away": away["opening"],
+        },
+    }
+
+
+def normalize_odds_payload(payload: object, *, bookmaker_id: int, bookmaker_name: str) -> dict[str, Any] | None:
+    """Normalize prematch or live Flashscore odds payloads."""
+    return normalize_prematch_1x2(
+        payload, bookmaker_id=bookmaker_id, bookmaker_name=bookmaker_name
+    ) or normalize_live_1x2(payload, bookmaker_id=bookmaker_id, bookmaker_name=bookmaker_name)
+
+
 def build_structured_odds(
     *,
     match_url: str,
@@ -244,7 +285,7 @@ def normalize_fanout_result(
         except (TypeError, ValueError):
             continue
         name = str(vars_.get("bookmaker_name") or vars_.get("name") or bookmaker_id)
-        normalized = normalize_prematch_1x2(
+        normalized = normalize_odds_payload(
             item.get("payload"),
             bookmaker_id=bookmaker_id,
             bookmaker_name=name,

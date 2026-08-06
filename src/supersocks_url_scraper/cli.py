@@ -420,6 +420,7 @@ def run_discover_har(args: argparse.Namespace) -> int:
         raise SystemExit("--discover-har requires a path to a local .har file")
     report = discover_from_har(
         input_path,
+        source_url=(args.discovery_source_url or "").strip() or None,
         max_bytes=args.discovery_max_bytes,
         max_candidates=args.discovery_max_candidates,
     )
@@ -533,6 +534,7 @@ def main() -> int:
         help="Offline API discovery from a local .har file (no network). Emits a classified report and a disabled review_required candidate recipe.",
     )
     parser.add_argument("--discovery-out-dir", default="", help="When set, write JSON/Markdown report + candidate recipe to this directory")
+    parser.add_argument("--discovery-source-url", default="", help="Optional page URL used to rank HAR candidates (offline heuristic only)")
     parser.add_argument("--discovery-prefix", default="discovery", help="Output filename prefix for --discovery-out-dir")
     parser.add_argument("--discovery-max-bytes", type=int, default=DEFAULT_MAX_ENTRY_BYTES, help="Max response body bytes to keep as a candidate")
     parser.add_argument("--discovery-max-candidates", type=int, default=DEFAULT_MAX_REPORT_CANDIDATES, help="Max candidate entries in the report")

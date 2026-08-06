@@ -1393,22 +1393,7 @@ def to_markdown(result: dict[str, Any]) -> str:
         lines += ["", "## Summary", "", str(result["summary"])]
     structured = result.get("structured_data")
     if isinstance(structured, dict) and structured:
-        bookmakers = structured.get("bookmakers")
-        if isinstance(bookmakers, list) and bookmakers:
-            lines += ["", "## Structured odds (not betting advice)", ""]
-            for row in bookmakers:
-                if not isinstance(row, dict):
-                    continue
-                opening = row.get("opening") if isinstance(row.get("opening"), dict) else {}
-                open_bits = ""
-                if opening and any(opening.get(k) is not None for k in ("home", "draw", "away")):
-                    open_bits = f" (open {opening.get('home')}/{opening.get('draw')}/{opening.get('away')})"
-                lines.append(
-                    f"- {row.get('bookmaker')}: {row.get('home')}/{row.get('draw')}/{row.get('away')}{open_bits}"
-                )
-            if structured.get("disclaimer"):
-                lines += ["", f"_{structured['disclaimer']}_"]
-        elif structured.get("kind") or structured.get("schema"):
+        if structured.get("kind") or structured.get("schema"):
             lines += ["", "## Structured data", "", f"- kind: {structured.get('kind')}", f"- schema: {structured.get('schema')}"]
     if result.get("transcript"):
         lines += ["", "## Transcript", "", str(result["transcript"])]

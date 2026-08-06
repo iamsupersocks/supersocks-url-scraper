@@ -22,6 +22,7 @@ from supersocks_url_scraper.api_recipes.discovery import (
     build_candidate_recipe,
     classify_har_entry,
     discover_from_har,
+    infer_source_url_from_har,
     iter_har_entries,
     load_har,
     redact_query,
@@ -261,6 +262,61 @@ def test_iter_har_entries_handles_non_har() -> None:
     assert list(iter_har_entries({"log": {"entries": []}})) == []
     assert list(iter_har_entries({})) == []
     assert list(iter_har_entries({"log": {}})) == []
+
+
+def test_ranking_prefers_source_linked_family_over_cookie_blob(tmp_path: Path) -> None:
+    source_id = "SRC-7788"
+    source_url = f"https://www.example.com/app?source_id={source_id}"
+    cookie_body = json.dumps({"consent": True, "cookies": [{"name": f"c{i}", "value": "x" * 200} for i in range(40)]})
+    har = {
+        "log": {
+            "version": "1.2",
+            "entries": [
+                _entry(
+                    url="https://cdn.example.com/consent/cookie-banner.json",
+                    body=cookie_body,
+                    size=len(cookie_body),
+                ),
+                _entry(
+                    url=f"https://api.example.com/v1/catalog?entity={source_id}&page=1",
+                    body='{"items":[1]}',
+                ),
+                _entry(
+                    url=f"https://api.example.com/v1/catalog?entity={source_id}&page=2",
+                    body='{"items":[2]}',
+                ),
+            ],
+        }
+    }
+    path = tmp_path / "ranking.har"
+    path.write_text(json.dumps(har), encoding="utf-8")
+    report = discover_from_har(path, source_url=source_url)
+    assert report.candidates
+    top = report.candidates[0]
+    assert "catalog" in (top.redacted_url or top.url)
+    assert top.score > report.candidates[-1].score
+    assert any("source_value_match" in reason for reason in top.score_reasons)
+
+
+def test_infer_source_url_from_har_document() -> None:
+    har = {
+        "log": {
+            "entries": [
+                {
+                    "request": {
+                        "method": "GET",
+                        "url": "https://www.example.com/page?source_id=ABC",
+                    },
+                    "response": {
+                        "status": 200,
+                        "content": {"mimeType": "text/html", "text": "<html></html>", "size": 13},
+                    },
+                    "_resourceType": "document",
+                }
+            ]
+        }
+    }
+    assert infer_source_url_from_har(har) == "https://www.example.com/page?source_id=ABC"
 
 
 # --- JSON Schema v1 ---

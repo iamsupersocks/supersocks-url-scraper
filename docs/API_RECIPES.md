@@ -52,7 +52,7 @@ recipes off) → `suggested` (offline discovery).
 | Recipe blocked (consent missing), pipeline fell back | `blocked` / `standard_pipeline` | Keep using fallback; set allowlist + consent if authorized |
 | `network.mode=fixture_only` (or `off`/`disabled`/`never`) | `fixture_only` / `api_recipe` | Use fixture/demo or injected fetcher — **never** live; **no** enable command |
 | Known active recipe, recipes disabled (`consent_required` / `open`, not fixture-only) | `available_disabled` / `api_recipe` | Enable explicitly (`--api-recipes` / `API_RECIPES=1` / `api_recipes:true`) |
-| No recipe + `recurrent_need` or costly fetch (`cloak`/`archive`/…) (HTML-like) | `suggested` / `api_discovery` | Capture HAR **manually**, then `--discover-har` offline |
+| No recipe + `recurrent_need` or costly fetch (`cloak`/`archive`/…) (HTML-like) | `suggested` / `api_discovery` | Capture HAR **manually**, then `--discover-har --discovery-source-url <url>` offline |
 | PDF / image / social / non-HTML | *(no discovery advice)* | Stay on the standard pipeline |
 
 Flags:
@@ -148,8 +148,20 @@ are never auto-loaded builtins.
 
 ## Offline HAR discovery
 
-`discover_from_har(path)` reads a local HAR file and classifies every exchange.
-It never opens a socket.
+`discover_from_har(path, source_url=None)` reads a local HAR file and classifies
+every exchange. It never opens a socket. When `source_url` is omitted, the
+classifier tries to infer a document/page URL from the HAR (`_resourceType=document`
+or the first HTTPS HTML GET).
+
+Candidates are ranked with a **non-blocking heuristic** (not size-only):
+
+- strong bonus when a non-sensitive query value from `source_url` appears in the
+  endpoint URL (even under a different param name),
+- bonus for repeated host+path families with variable segments,
+- penalty for noisy tokens (`consent`, `cookie`, `ads`, `analytics`, `collect`,
+  `telemetry`, `metrics`, `geolocation`, `manifest`, `banner`).
+
+Each candidate includes `score` and `score_reasons` in JSON/Markdown reports.
 
 ### Keeping / exclusion rules
 
@@ -209,10 +221,10 @@ one or more recipe files offline against both.
 
 ```bash
 # Discover from a local HAR, print JSON report + candidate recipe
-supersocks-url-scraper --discover-har capture.har
+supersocks-url-scraper --discover-har capture.har --discovery-source-url <url>
 
 # Write report files to a directory
-supersocks-url-scraper --discover-har capture.har --discovery-out-dir ./out
+supersocks-url-scraper --discover-har capture.har --discovery-out-dir ./out --discovery-source-url <url>
 
 # Validate a recipe file against schema v1 + runtime rules
 supersocks-url-scraper --validate-recipe my-recipe.v1.json
@@ -226,11 +238,11 @@ supersocks-url-scraper --validate-recipe my-recipe.v1.json
 | `match.host_roots` | host roots matched (exact or subdomain) |
 | `match.path_regex` / `query_keys` | further URL matching |
 | `endpoint.method` | `GET` only |
-| `endpoint.url_template` | `https://` endpoint (may use `{event_id}` / fanout placeholders) |
+| `endpoint.url_template` | `https://` endpoint (placeholders resolved only via `params.bindings` / `params.fanout`) |
 | `endpoint.allowed_hosts` | host allowlist enforced at request time |
 | `endpoint.headers` | must never include Authorization/Cookie/token |
 | `params.bindings` | optional map of template vars from URL query keys (+ pattern) |
-| `params.fanout` / `params.bookmakers` | optional bounded fanout list for multi-GET recipes |
+| `params.fanout` | optional bounded fanout list (strings, numbers, or objects) |
 | `network.mode` | `fixture_only`/`off`/`disabled` (blocked) · `consent_required` · `open`/`allow` |
 | `network.consent_phrase` | exact phrase required for consent-gated live use |
 | `confidence` | 0..1, surfaced in output |
@@ -264,7 +276,7 @@ the hard runtime execution gate is `network.mode` plus `review_required` /
 
 Agents interact with the recipe layer through the same public API as the CLI:
 
-- `discover_from_har(path)` → `DiscoveryReport`
+- `discover_from_har(path, source_url=None)` → `DiscoveryReport`
 - `classify_har_entry(entry)` → `CandidateEntry`
 - `build_candidate_recipe(entry)` → disabled recipe dict
 - `validate_recipe_schema(raw)` / `validate_recipe_dict(raw)` → error lists

@@ -513,9 +513,9 @@ enable command), `available_disabled` (active recipe while recipes off),
 
 ```bash
 # Offline: classify a local HAR, print report + disabled candidate recipe
-supersocks-url-scraper --discover-har capture.har
+supersocks-url-scraper --discover-har capture.har --discovery-source-url <url>
 # Write JSON/Markdown report + candidate recipe to a directory
-supersocks-url-scraper --discover-har capture.har --discovery-out-dir ./out
+supersocks-url-scraper --discover-har capture.har --discovery-out-dir ./out --discovery-source-url <url>
 # Validate a recipe against the embedded v1 schema + runtime rules
 supersocks-url-scraper --validate-recipe my-recipe.v1.json
 # Flag a recurrent need (suggest offline discovery when no recipe matches)
@@ -561,7 +561,7 @@ Supported service environment variables:
 - `API_RECIPES`: opt-in structured API recipes (HTTPS GET only, host-allowlisted). Disabled by default. No site-specific builtins. On failure/live block, degrades to HTTP→SEO→Cloak→archive. Never sends Authorization/Cookie headers.
 - `API_RECIPE_PATHS`: optional colon-separated extra recipe JSON files or directories (e.g. `examples/recipes/flashscore_odds.v1.json`).
 - `API_RECIPE_LIVE_ALLOWLIST` / `API_RECIPE_LIVE_CONSENT`: required for live GETs on recipes with `network.mode=consent_required`. Recipes with `network.mode=open` need only the global opt-in.
-- Offline tooling: `--discover-har <file>` (classify a local HAR and emit a disabled candidate recipe), `--discovery-out-dir <dir>`, and `--validate-recipe <file>` (validate against the embedded JSON Schema v1 + runtime rules). See [`docs/API_RECIPES.md`](docs/API_RECIPES.md).
+- Offline tooling: `--discover-har <file>` (classify a local HAR and emit a disabled candidate recipe), `--discovery-source-url <url>` (offline ranking hint), `--discovery-out-dir <dir>`, and `--validate-recipe <file>` (validate against the embedded JSON Schema v1 + runtime rules). See [`docs/API_RECIPES.md`](docs/API_RECIPES.md).
 - `--recurrent` / request field `recurrent_need` (default `false`): when set and no recipe matches a suitable HTML URL, attach discrete `route_advice` recommending manual HAR capture then offline `--discover-har`. Also triggered when the fetch used a costly method (`cloak`, `archive`, etc.). Never auto-sniffs. Skipped for PDF/image/social.
 - `FETCH_STRATEGY_CACHE_PATH`: metadata-only domain strategy cache.
 - `SUMMARY_PROVIDER`: optional summary provider, default `local`. Supports `local`/`extractive`/`none` and generic `http`.

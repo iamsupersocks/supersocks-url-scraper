@@ -102,6 +102,7 @@ def test_flashscore_url_without_explicit_recipe_suggests_discovery_when_recurren
     blob = json.dumps(advice).lower()
     assert "flashscore" not in blob
     assert "discover-har" in (advice.get("next_command") or "")
+    assert "--discovery-source-url <url>" in (advice.get("next_command") or "")
 
 
 def test_explicit_example_recipe_available_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -305,6 +306,7 @@ def test_archive_fetch_suggests_api_discovery() -> None:
     assert advice["state"] == "suggested"
     assert advice["recommended"] == "api_discovery"
     assert "discover-har" in (advice.get("next_command") or "")
+    assert "--discovery-source-url <url>" in (advice.get("next_command") or "")
     assert "flashscore" not in json.dumps(advice).lower()
 
 
@@ -371,6 +373,7 @@ def test_recurrent_need_suggests_api_discovery(monkeypatch: pytest.MonkeyPatch) 
     assert advice["recommended"] == "api_discovery"
     assert advice["network_attempted"] is False
     assert "discover-har" in (advice.get("next_command") or "")
+    assert "--discovery-source-url <url>" in (advice.get("next_command") or "")
     assert "manual" in " ".join(advice.get("requires") or []).lower() or "har" in " ".join(advice.get("requires") or []).lower()
 
 
@@ -401,7 +404,7 @@ def test_markdown_http_openapi_serialization() -> None:
         "state": "suggested",
         "reason": "Recurrent need; capture HAR manually then discover offline.",
         "requires": ["manual_har_capture", "offline_discover_har"],
-        "next_command": "supersocks-url-scraper --discover-har capture.har",
+        "next_command": "supersocks-url-scraper --discover-har capture.har --discovery-source-url <url>",
         "network_attempted": False,
     }
     md = to_markdown(

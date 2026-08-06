@@ -41,6 +41,7 @@ CORE_MODULES = [
     ROOT / "src" / "supersocks_url_scraper" / "api_recipes" / "models.py",
     ROOT / "src" / "supersocks_url_scraper" / "api_recipes" / "consent.py",
     ROOT / "src" / "supersocks_url_scraper" / "api_recipes" / "route_advice.py",
+    ROOT / "src" / "supersocks_url_scraper" / "api_recipes" / "discovery.py",
     ROOT / "src" / "supersocks_url_scraper" / "api_recipes" / "__init__.py",
     ROOT / "src" / "supersocks_url_scraper" / "reader.py",
     ROOT / "src" / "supersocks_url_scraper" / "cli.py",
@@ -78,7 +79,7 @@ def test_no_flashscore_builtin() -> None:
 
 
 def test_core_modules_have_no_flashscore_strings() -> None:
-    pattern = re.compile(r"flashscore|Flashscore|FLASHSCORE|lsapp\.eu", re.I)
+    pattern = re.compile(r"flashscore|Flashscore|FLASHSCORE|lsapp\.eu|bookmaker|event_id", re.I)
     offenders: list[str] = []
     for path in CORE_MODULES:
         text = path.read_text(encoding="utf-8")
@@ -116,7 +117,8 @@ def test_example_recipe_explicit_load_and_fixture_normalization() -> None:
     assert structured["kind"] == "flashscore_odds_1x2"
     assert len(structured["bookmakers"]) >= 4
     md = to_markdown({**run.as_reader_dict(), "structured_data": structured, "summary": "odds"})
-    assert "Structured odds" in md
+    assert "Structured data" in md
+    assert "flashscore_odds_1x2" in md
 
 
 def test_live_network_policies() -> None:
@@ -389,6 +391,81 @@ def test_generic_open_recipe_with_injected_fetcher() -> None:
 
 def test_try_api_recipe_disabled_returns_none() -> None:
     assert try_api_recipe(DEMO_URL, enabled=False) is None
+
+
+def test_generic_recipe_source_id_and_region_fanout() -> None:
+    recipe = recipe_from_dict(
+        {
+            "id": "demo-regions",
+            "version": "1",
+            "network": {"mode": "open"},
+            "match": {"host_roots": ["example.com"], "query_keys": ["source_id"]},
+            "endpoint": {
+                "method": "GET",
+                "url_template": "https://api.example.com/v1/prices?source_id={source_id}&region={region}",
+                "allowed_hosts": ["api.example.com"],
+                "max_fanout": 3,
+            },
+            "params": {
+                "bindings": {
+                    "source_id": {"query": "source_id", "pattern": "^[A-Za-z0-9]+$"},
+                },
+                "fanout": {
+                    "template_var": "region",
+                    "items": ["eu", "us", "apac"],
+                },
+            },
+        }
+    )
+    calls: list[str] = []
+
+    def fetcher(url: str, **kwargs: Any) -> SafeGetResult:
+        calls.append(url)
+        return SafeGetResult(
+            url=url,
+            final_url=url,
+            status_code=200,
+            content=b'{"ok": true}',
+            content_type="application/json",
+            headers={"content-type": "application/json"},
+            elapsed_ms=1,
+        )
+
+    run = execute_recipe(
+        "https://www.example.com/app?source_id=SKU42",
+        recipe,
+        fetcher=fetcher,
+        resolve_dns=False,
+    )
+    assert run.status == "ok"
+    assert run.structured_data["bindings"]["source_id"] == "SKU42"
+    assert len(run.structured_data["items"]) == 3
+    assert all("region=" in url for url in calls)
+    assert all("source_id=SKU42" in url for url in calls)
+
+
+def test_unresolved_placeholder_blocks_with_fallback() -> None:
+    recipe = recipe_from_dict(
+        {
+            "id": "missing-binding",
+            "version": "1",
+            "network": {"mode": "open"},
+            "match": {"host_roots": ["example.com"]},
+            "endpoint": {
+                "method": "GET",
+                "url_template": "https://api.example.com/v1/item/{missing}",
+                "allowed_hosts": ["api.example.com"],
+            },
+        }
+    )
+    run = execute_recipe("https://www.example.com/page", recipe, resolve_dns=False)
+    assert run.status == "error"
+    assert any(
+        "unresolved template placeholders" in w or "bindings could not be resolved" in w
+        for w in run.warnings
+    )
+    payload = try_api_recipe("https://www.example.com/page", enabled=True, recipes=[recipe], resolve_dns=False)
+    assert payload is None
 
 
 def test_fixture_only_blocks_live_and_falls_back() -> None:

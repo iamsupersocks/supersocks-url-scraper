@@ -141,6 +141,8 @@ class CandidateEntry:
     sensitive_query_keys: tuple[str, ...] = ()
     sensitive_headers: tuple[str, ...] = ()
     json_keys: tuple[str, ...] = ()
+    score: float = 0.0
+    score_reasons: tuple[str, ...] = ()
 
 
 @dataclass
@@ -153,6 +155,7 @@ class DiscoveryReport:
     candidates: list[CandidateEntry] = field(default_factory=list)
     excluded: list[CandidateEntry] = field(default_factory=list)
     candidate_recipe: dict[str, Any] | None = None
+    source_url: str | None = None
 
     def counts(self) -> dict[str, int]:
         return {
@@ -160,6 +163,153 @@ class DiscoveryReport:
             "candidates": len(self.candidates),
             "excluded": len(self.excluded),
         }
+
+
+_NOISE_TOKENS = (
+    "consent",
+    "cookie",
+    "ads",
+    "analytics",
+    "collect",
+    "telemetry",
+    "metrics",
+    "geolocation",
+    "manifest",
+    "banner",
+)
+
+
+def infer_source_url_from_har(har: dict[str, Any]) -> str | None:
+    """Infer a page/document URL from HAR metadata when none was supplied."""
+    for entry in iter_har_entries(har):
+        if str(entry.get("_resourceType") or "").lower() == "document":
+            req = entry.get("request")
+            if isinstance(req, dict):
+                url = str(req.get("url") or "").strip()
+                if url.startswith("https://"):
+                    return url
+    for entry in iter_har_entries(har):
+        req = entry.get("request")
+        if not isinstance(req, dict) or str(req.get("method") or "").upper() != "GET":
+            continue
+        url = str(req.get("url") or "").strip()
+        if not url.startswith("https://"):
+            continue
+        resp = entry.get("response")
+        content = resp.get("content") if isinstance(resp, dict) else {}
+        mime = _norm_content_type(str(content.get("mimeType") or "") if isinstance(content, dict) else "")
+        if "text/html" in mime:
+            return url
+    return None
+
+
+def _family_key(url: str) -> tuple[str, str]:
+    parsed = urlparse(url)
+    segments: list[str] = []
+    for segment in (parsed.path or "").split("/"):
+        if not segment:
+            continue
+        if segment.isdigit() or len(segment) >= 8 or re.fullmatch(r"[A-Za-z0-9_-]{6,}", segment):
+            segments.append("{}")
+        else:
+            segments.append(segment.lower())
+    return (parsed.hostname or "", "/".join(segments))
+
+
+def _family_counts(candidates: list[CandidateEntry]) -> dict[tuple[str, str], int]:
+    counts: dict[tuple[str, str], int] = {}
+    for entry in candidates:
+        key = _family_key(entry.url or entry.redacted_url)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _non_sensitive_query_values(source_url: str) -> list[str]:
+    parsed = urlparse(source_url)
+    values: list[str] = []
+    for key, value in parse_qsl(parsed.query or "", keep_blank_values=True):
+        if key.lower() in SENSITIVE_PARAM_NAMES or SENSITIVE_PARAM_RE.search(key):
+            continue
+        text = str(value).strip()
+        if len(text) >= 2:
+            values.append(text)
+    return values
+
+
+def score_candidate(
+    entry: CandidateEntry,
+    *,
+    source_url: str | None = None,
+    family_counts: dict[tuple[str, str], int] | None = None,
+) -> tuple[float, list[str]]:
+    """Non-blocking heuristic ranking for API-like HAR candidates."""
+    score = 0.0
+    reasons: list[str] = []
+    url = entry.redacted_url or entry.url
+    parsed = urlparse(url)
+    haystack = f"{parsed.path}?{parsed.query}".lower()
+
+    for token in _NOISE_TOKENS:
+        if token in haystack:
+            score -= 40.0
+            reasons.append(f"penalty:{token}")
+
+    if source_url:
+        endpoint_text = url.lower()
+        endpoint_qs = dict(parse_qsl(parsed.query or "", keep_blank_values=True))
+        for value in _non_sensitive_query_values(source_url):
+            if value.lower() in endpoint_text:
+                score += 120.0
+                reasons.append(f"source_value_match:{value[:24]}")
+                break
+            if any(value == str(existing) for existing in endpoint_qs.values()):
+                score += 120.0
+                reasons.append(f"source_value_match:{value[:24]}")
+                break
+
+    if family_counts:
+        family = _family_key(url)
+        repeat = family_counts.get(family, 0)
+        if repeat >= 2:
+            bonus = 35.0 * float(repeat - 1)
+            score += bonus
+            reasons.append(f"family_repeat:{repeat}")
+
+    score += min(entry.size_bytes / 20000.0, 5.0)
+    return score, reasons
+
+
+def rank_candidates(
+    candidates: list[CandidateEntry],
+    *,
+    source_url: str | None = None,
+) -> list[CandidateEntry]:
+    """Return candidates sorted by score (desc), then size (desc)."""
+    families = _family_counts(candidates)
+    ranked: list[CandidateEntry] = []
+    for entry in candidates:
+        score, reasons = score_candidate(entry, source_url=source_url, family_counts=families)
+        ranked.append(
+            CandidateEntry(
+                url=entry.url,
+                method=entry.method,
+                status_code=entry.status_code,
+                content_type=entry.content_type,
+                size_bytes=entry.size_bytes,
+                classification=entry.classification,
+                reason=entry.reason,
+                host=entry.host,
+                redacted_url=entry.redacted_url,
+                redacted_headers=entry.redacted_headers,
+                sensitive_query_keys=entry.sensitive_query_keys,
+                sensitive_headers=entry.sensitive_headers,
+                json_keys=entry.json_keys,
+                score=score,
+                score_reasons=tuple(reasons),
+            )
+        )
+    ranked.sort(key=lambda item: (item.score, item.size_bytes), reverse=True)
+    return ranked
 
 
 def _norm_content_type(raw: str) -> str:
@@ -508,12 +658,14 @@ def build_candidate_recipe(entry: CandidateEntry) -> dict[str, Any]:
 def discover_from_har(
     path: str | Path,
     *,
+    source_url: str | None = None,
     max_bytes: int = DEFAULT_MAX_ENTRY_BYTES,
     max_candidates: int = DEFAULT_MAX_REPORT_CANDIDATES,
     build_recipe: bool = True,
 ) -> DiscoveryReport:
     """Run offline discovery over a HAR file and return a classified report."""
     har = load_har(path)
+    inferred_source = (source_url or "").strip() or infer_source_url_from_har(har)
     candidates: list[CandidateEntry] = []
     excluded: list[CandidateEntry] = []
     total = 0
@@ -525,7 +677,7 @@ def discover_from_har(
         else:
             excluded.append(classified)
 
-    candidates.sort(key=lambda c: c.size_bytes, reverse=True)
+    candidates = rank_candidates(candidates, source_url=inferred_source or None)
     candidates = candidates[: max(0, int(max_candidates))]
 
     report = DiscoveryReport(
@@ -534,6 +686,7 @@ def discover_from_har(
         total_entries=total,
         candidates=candidates,
         excluded=excluded,
+        source_url=inferred_source or None,
     )
     if build_recipe and candidates:
         report.candidate_recipe = build_candidate_recipe(candidates[0])
@@ -545,6 +698,7 @@ def render_report_json(report: DiscoveryReport) -> str:
     payload = {
         "source_har": report.source_har,
         "generated_at": report.generated_at,
+        "source_url": report.source_url,
         "counts": report.counts(),
         "candidates": [
             {
@@ -555,6 +709,8 @@ def render_report_json(report: DiscoveryReport) -> str:
                 "content_type": c.content_type,
                 "size_bytes": c.size_bytes,
                 "json_keys": list(c.json_keys),
+                "score": c.score,
+                "score_reasons": list(c.score_reasons),
             }
             for c in report.candidates
         ],
@@ -583,6 +739,8 @@ def render_report_markdown(report: DiscoveryReport) -> str:
     lines.append("")
     lines.append(f"- Source HAR: `{_md_escape(report.source_har)}`")
     lines.append(f"- Generated: `{report.generated_at}`")
+    if report.source_url:
+        lines.append(f"- Source URL: `{_md_escape(report.source_url)}`")
     lines.append(f"- Entries scanned: **{report.total_entries}**")
     lines.append(f"- Candidates kept: **{len(report.candidates)}**")
     lines.append(f"- Excluded: **{len(report.excluded)}**")
@@ -592,13 +750,13 @@ def render_report_markdown(report: DiscoveryReport) -> str:
     if not report.candidates:
         lines.append("_No safe candidates found._")
     else:
-        lines.append("| # | Host | Method | Status | Size | Content-Type | JSON keys |")
-        lines.append("|---|------|--------|--------|------|--------------|-----------|")
+        lines.append("| # | Host | Method | Status | Size | Score | Content-Type | JSON keys |")
+        lines.append("|---|------|--------|--------|------|-------|--------------|-----------|")
         for i, c in enumerate(report.candidates, 1):
             keys = ", ".join(c.json_keys[:6]) if c.json_keys else "—"
             lines.append(
                 f"| {i} | `{_md_escape(c.host)}` | {c.method} | {c.status_code} | "
-                f"{c.size_bytes} | {_md_escape(c.content_type)} | `{_md_escape(keys)}` |"
+                f"{c.size_bytes} | {c.score:.1f} | {_md_escape(c.content_type)} | `{_md_escape(keys)}` |"
             )
         lines.append("")
         lines.append("### Candidate URLs (query params redacted)")

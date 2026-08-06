@@ -36,8 +36,9 @@ Core executes declarative HTTPS GET + bounded fanout (`params.bindings` /
 
 - Host: `2.ds.lsapp.eu`
 - Method/path: `GET /pq_graphql`
-- Query: `_hash=ole2`, `eventId={event_id}` (from page `?mid=`), bounded
-  `bookmakerId` fanout, `betType=HOME_DRAW_AWAY`, `betScope=FULL_TIME`
+- Query: `_hash=ole2`, `eventId={event_id}` (declared in `params.bindings`), bounded
+  `bookmakerId` fanout (`params.fanout` + example `bookmakers` list), `betType=HOME_DRAW_AWAY`,
+  `betScope=FULL_TIME`
 - `network.mode=open` — with global `api_recipes` opt-in alone (no allowlist /
   consent phrase). Still not auto-loaded.
 
