@@ -72,7 +72,7 @@ curl -s http://127.0.0.1:8768/summarize \
 - Recognized consent dialogs are dismissed through an explicit reject/continue-without-accepting control before browser extraction.
 - Layered fallback pipeline: HTTP → SEO variants → CloakBrowser → public archive/cache snapshots, including retry when HTTP returns only a teaser/paywall/cookie wall.
 - Optional per-domain JSON strategy cache storing only routing metadata.
-- Optional opt-in API recipes (HTTPS GET, host-allowlisted, versioned) for structured agent outputs such as Flashscore 1X2 odds; degrade to HTTP→SEO→Cloak→archive on failure. Off by default.
+- Optional opt-in API recipes (HTTPS GET, host-allowlisted, versioned) for structured agent outputs; Flashscore 1X2 example is fixture-only by default (ToS). Degrade to HTTP→SEO→Cloak→archive on failure. Off by default.
 - Markdown output.
 - Returns warnings for partial extraction, boilerplate, paywalls, and placeholders.
 - Safe to run locally or in cron/server contexts.
