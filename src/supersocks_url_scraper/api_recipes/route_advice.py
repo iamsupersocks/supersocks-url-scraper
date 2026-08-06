@@ -60,6 +60,7 @@ def recipe_advice_meta(recipe: ApiRecipe) -> dict[str, Any]:
         "version": recipe.version,
         "network_mode": recipe.network.mode,
         "status": recipe.status,
+        "review_required": recipe.needs_review,
     }
 
 
@@ -90,12 +91,11 @@ def _is_costly_or_partial(result: dict[str, Any] | None) -> bool:
     return str(result.get("status") or "") == "partial"
 
 
-def _discovery_command(url: str) -> str:
+def _discovery_command() -> str:
     return (
         "# 1) Capture a HAR manually in your browser DevTools (no auto-sniff).\n"
         "# 2) Classify offline (never opens a socket):\n"
         "supersocks-url-scraper --discover-har capture.har\n"
-        f"# Context URL (not fetched by discovery): {url}"
     )
 
 
@@ -227,7 +227,7 @@ def build_route_advice(
                 "`--discover-har` (no auto-sniff, no live activation)."
             ),
             "requires": ["manual_har_capture", "offline_discover_har", "human_review"],
-            "next_command": _discovery_command(url),
+            "next_command": _discovery_command(),
             "network_attempted": False,
         }
 

@@ -13,6 +13,7 @@ from supersocks_url_scraper.api_recipes import (
     build_route_advice,
     find_matching_recipes,
     load_builtin_recipes,
+    recipe_advice_meta,
     recipe_from_dict,
     try_api_recipe,
     unsuitable_for_api_discovery,
@@ -159,6 +160,82 @@ def test_review_required_candidate_blocks_execution() -> None:
     assert advice["state"] == "review_required"
     assert advice["recommended"] == "review_recipe"
     assert advice["network_attempted"] is False
+
+
+def test_recipe_advice_meta_exposes_review_required_for_candidate() -> None:
+    recipe = recipe_from_dict(
+        {
+            "id": "har-example-com-api",
+            "version": "1",
+            "title": "Candidate",
+            "status": "review_required",
+            "review_required": True,
+            "network": {"mode": "fixture_only"},
+            "match": {"host_roots": ["example.com"], "path_regex": "/dashboard"},
+            "endpoint": {
+                "method": "GET",
+                "url_template": "https://api.example.com/v1/data",
+                "allowed_hosts": ["api.example.com"],
+            },
+        }
+    )
+    assert recipe.needs_review is True
+    meta = recipe_advice_meta(recipe)
+    assert meta["status"] == "review_required"
+    assert meta["review_required"] is True
+
+    advice = build_route_advice(
+        "https://www.example.com/dashboard",
+        matched=recipe,
+        api_recipes_enabled=True,
+        recipe_used=True,
+    )
+    assert advice is not None
+    assert advice["recipe"]["review_required"] is True
+
+
+def test_recipe_advice_meta_review_required_false_for_normal_recipe() -> None:
+    recipe = next(r for r in load_builtin_recipes() if r.id == "flashscore-odds")
+    assert recipe.needs_review is False
+    meta = recipe_advice_meta(recipe)
+    assert meta["status"] == "active"
+    assert meta["review_required"] is False
+
+    advice = build_route_advice(
+        DEMO_URL,
+        matched=recipe,
+        api_recipes_enabled=True,
+        recipe_used=True,
+    )
+    assert advice is not None
+    assert advice["recipe"]["review_required"] is False
+
+
+def test_discovery_command_never_embeds_caller_url() -> None:
+    """A hostile URL with newline / shell text must not leak into next_command or add an executable line."""
+    hostile = "https://evil.example/path\nrm -rf /tmp/x && echo PWNED"
+    advice = build_route_advice(
+        hostile,
+        recurrent_need=True,
+        result={"content_type": "article", "status": "ok", "fetch_method": "archive"},
+    )
+    assert advice is not None
+    assert advice["recommended"] == "api_discovery"
+    cmd = advice["next_command"]
+    assert isinstance(cmd, str)
+    # The injected text must not appear anywhere in the command.
+    assert "evil.example" not in cmd
+    assert "rm -rf" not in cmd
+    assert "PWNED" not in cmd
+    # Every line is either a comment prefix or the fixed, safe command — never an injected executable line.
+    safe_lines = [
+        "supersocks-url-scraper --discover-har capture.har",
+        "# 1) Capture a HAR manually in your browser DevTools (no auto-sniff).",
+        "# 2) Classify offline (never opens a socket):",
+    ]
+    for line in cmd.splitlines():
+        stripped = line.strip()
+        assert stripped in safe_lines, f"unexpected command line: {stripped!r}"
 
 
 def test_used_state_after_successful_recipe() -> None:

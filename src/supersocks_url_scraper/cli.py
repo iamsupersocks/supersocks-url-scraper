@@ -211,7 +211,8 @@ def openapi_payload() -> dict:
                     "Optional machine-readable agent guidance (absent when no useful advice). "
                     "Stable fields: recommended (api_recipe|review_recipe|api_discovery|standard_pipeline), "
                     "state (available_disabled|fixture_only|review_required|used|blocked|suggested), "
-                    "reason, recipe?, requires?, next_command?, network_attempted. Computed offline."
+                    "reason, recipe?, requires?, next_command?, network_attempted. Computed offline. "
+                    "recipe.review_required is an explicit boolean (true for candidate / review_required / disabled)."
                 ),
                 "properties": {
                     "recommended": {
@@ -237,6 +238,10 @@ def openapi_payload() -> dict:
                             "version": {"type": "string"},
                             "network_mode": {"type": "string"},
                             "status": {"type": "string"},
+                            "review_required": {
+                                "type": "boolean",
+                                "description": "True when the recipe must be reviewed before any execution (candidate / review_required / disabled).",
+                            },
                         },
                     },
                     "requires": {"type": "array", "items": {"type": "string"}},

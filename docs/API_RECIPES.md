@@ -25,12 +25,16 @@ route_advice = {
   recommended: api_recipe | review_recipe | api_discovery | standard_pipeline,
   state: available_disabled | fixture_only | review_required | used | blocked | suggested,
   reason: string,
-  recipe?: {id, version, network_mode, status},
+  recipe?: {id, version, network_mode, status, review_required},
   requires?: [string],
   next_command?: string,
   network_attempted: false | true
 }
 ```
+
+`recipe.review_required` is an explicit boolean mirroring `recipe.needs_review`:
+`true` for `status=review_required`, `review_required=True`, or `disabled` recipes —
+the agent must review before any execution.
 
 The field is **absent** when there is no useful advice (default reads stay
 unchanged). Advice matching is **offline** (local recipe files + URL match
