@@ -72,6 +72,13 @@ def health_payload() -> dict:
             "archive_default": _truthy(os.environ.get("ARCHIVE_FALLBACK"), True),
             "jina_default": _truthy(os.environ.get("JINA_FALLBACK"), False),
         },
+        "api_recipes": {
+            "enabled_default": _truthy(os.environ.get("API_RECIPES"), False),
+            "builtin": ["flashscore-odds@v1"],
+            "methods": ["GET"],
+            "flashscore_network_mode": "fixture_only",
+            "notes": "Opt-in structured HTTPS GET recipes with host allowlists; degrade to HTTP→SEO→Cloak→archive. Flashscore odds ships fixture-only (ToS). Live GETs require network.mode + API_RECIPE_LIVE_ALLOWLIST + API_RECIPE_LIVE_CONSENT. Never stores cookies/tokens; StrategyCache stays http/seo/cloak/archive only.",
+        },
         "social": {
             "youtube_extra_installed": importlib.util.find_spec("yt_dlp") is not None,
             "js_runtime_available": _js_runtime_available(),
@@ -113,6 +120,22 @@ def openapi_payload() -> dict:
             "browser_max_concurrency": {"type": "integer", "default": max(1, _env_int("BROWSER_MAX_CONCURRENCY", 1))},
             "archive_fallback": {"type": "boolean", "default": _truthy(os.environ.get("ARCHIVE_FALLBACK"), True)},
             "jina_fallback": {"type": "boolean", "default": _truthy(os.environ.get("JINA_FALLBACK"), False), "description": "Opt-in LinkedIn/public external reader fallback via Jina Reader. Disabled by default. Never used for credentialed, local, or private URLs."},
+            "api_recipes": {
+                "type": "boolean",
+                "default": _truthy(os.environ.get("API_RECIPES"), False),
+                "description": (
+                    "Opt-in structured API recipes (HTTPS GET only, host-allowlisted). "
+                    "Disabled by default. On failure, degrades to HTTP→SEO→Cloak→archive. "
+                    "Never sends Authorization/Cookie headers. Shipped flashscore-odds is "
+                    "fixture-only and will not perform live Flashscore GETs without an "
+                    "explicit network-mode change plus allowlist/consent gates."
+                ),
+            },
+            "api_recipe_paths": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional extra recipe JSON files or directories (versioned, schema-validated).",
+            },
             "strategy_cache_path": {"type": "string"},
             "summary_provider": {
                 "type": "string",
@@ -136,7 +159,7 @@ def openapi_payload() -> dict:
             "title": {"type": "string"},
             "summary": {"type": "string"},
             "length": {"type": "integer"},
-            "fetch_method": {"type": "string", "enum": ["http", "seo", "cloak", "cloak-profile", "archive", "fallback", "yt-dlp", "jina", "twitter-cli", "opencli", "rdt-cli"]},
+            "fetch_method": {"type": "string", "enum": ["http", "seo", "cloak", "cloak-profile", "archive", "fallback", "yt-dlp", "jina", "twitter-cli", "opencli", "rdt-cli", "api-recipe"]},
             "warnings": {"type": "array", "items": {"type": "string"}},
             "content": {"type": "string"},
             "image_url": {"type": "string"},
@@ -153,7 +176,11 @@ def openapi_payload() -> dict:
             },
             "structured_data": {
                 "type": "object",
-                "description": "Optional sanitized JSON-LD subset from public LinkedIn pages (JobPosting/Person/Organization/Article).",
+                "description": "Optional sanitized structured payload (LinkedIn JSON-LD subset, or API recipe data such as Flashscore 1X2 odds).",
+            },
+            "api_recipe": {
+                "type": "object",
+                "description": "Present when an opt-in API recipe produced the result (id, version, confidence, ttl, captured_at).",
             },
         },
     }
@@ -213,6 +240,15 @@ class Handler(BaseHTTPRequestHandler):
         browser_fallback = _truthy(payload.get("browser_fallback"), _truthy(os.environ.get("BROWSER_FALLBACK"), False))
         archive_fallback = _truthy(payload.get("archive_fallback"), _truthy(os.environ.get("ARCHIVE_FALLBACK"), True))
         jina_fallback = _truthy(payload.get("jina_fallback"), _truthy(os.environ.get("JINA_FALLBACK"), False))
+        api_recipes = _truthy(payload.get("api_recipes"), _truthy(os.environ.get("API_RECIPES"), False))
+        recipe_paths_raw = payload.get("api_recipe_paths")
+        if isinstance(recipe_paths_raw, str) and recipe_paths_raw.strip():
+            api_recipe_paths = [recipe_paths_raw.strip()]
+        elif isinstance(recipe_paths_raw, list):
+            api_recipe_paths = [str(p) for p in recipe_paths_raw if str(p).strip()]
+        else:
+            env_paths = os.environ.get("API_RECIPE_PATHS", "").strip()
+            api_recipe_paths = [p.strip() for p in env_paths.split(":") if p.strip()] if env_paths else None
         summary_provider = str(payload.get("summary_provider") or os.environ.get("SUMMARY_PROVIDER") or "local")
         summary_provider_url = str(payload.get("summary_provider_url") or os.environ.get("SUMMARY_PROVIDER_URL") or "")
         summary_provider_token = str(payload.get("summary_provider_token") or os.environ.get("SUMMARY_PROVIDER_TOKEN") or "")
@@ -228,6 +264,8 @@ class Handler(BaseHTTPRequestHandler):
             browser_max_concurrency=int(payload.get("browser_max_concurrency") or _env_int("BROWSER_MAX_CONCURRENCY", 1)),
             archive_fallback=archive_fallback,
             jina_fallback=jina_fallback,
+            api_recipes=api_recipes,
+            api_recipe_paths=api_recipe_paths,
             summary_provider=summary_provider,
             summary_provider_url=summary_provider_url,
             summary_provider_token=summary_provider_token,
@@ -272,6 +310,21 @@ def main() -> int:
     parser.add_argument("--no-archive-fallback", action="store_true", help="Disable public archive/cache fallback after HTTP/SEO/browser failures or paywall teasers")
     parser.add_argument("--jina-fallback", action="store_true", help="Opt-in Jina Reader fallback for LinkedIn/public pages after the generic pipeline returns error/partial (disabled by default)")
     parser.add_argument(
+        "--api-recipes",
+        action="store_true",
+        help=(
+            "Opt-in structured API recipes (HTTPS GET only). Disabled by default; "
+            "degrades to HTTP→SEO→Cloak→archive on failure. Shipped flashscore-odds "
+            "is fixture-only (no live Flashscore GETs by default)"
+        ),
+    )
+    parser.add_argument(
+        "--api-recipe-path",
+        action="append",
+        default=[],
+        help="Optional extra recipe JSON file or directory (repeatable)",
+    )
+    parser.add_argument(
         "--summary-provider",
         default=os.environ.get("SUMMARY_PROVIDER", "local") or "local",
         choices=["local", "extractive", "none", "http"],
@@ -293,6 +346,7 @@ def main() -> int:
 
     if not args.url:
         parser.error("provide a URL or use --serve")
+    env_recipe_paths = [p.strip() for p in os.environ.get("API_RECIPE_PATHS", "").split(":") if p.strip()]
     result = read_url(
         args.url,
         length=args.length,
@@ -305,6 +359,8 @@ def main() -> int:
         browser_max_concurrency=args.browser_max_concurrency,
         archive_fallback=not args.no_archive_fallback,
         jina_fallback=args.jina_fallback or _truthy(os.environ.get("JINA_FALLBACK"), False),
+        api_recipes=args.api_recipes or _truthy(os.environ.get("API_RECIPES"), False),
+        api_recipe_paths=(args.api_recipe_path or env_recipe_paths or None),
         summary_provider=args.summary_provider,
         summary_provider_url=args.summary_provider_url or os.environ.get("SUMMARY_PROVIDER_URL") or "",
         summary_provider_token=args.summary_provider_token or os.environ.get("SUMMARY_PROVIDER_TOKEN") or "",

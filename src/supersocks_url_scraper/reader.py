@@ -892,12 +892,33 @@ def read_url(
     summary_provider_timeout: int = 30,
     jina_fallback: bool = False,
     skip_social_routing: bool = False,
+    api_recipes: bool = False,
+    api_recipe_paths: list[str] | None = None,
 ) -> dict[str, Any]:
     warnings: list[str] = []
     max_chars = max(50, min(int(length or 900), 10_000))
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return {"url": url, "content_type": "unknown", "title": None, "summary": "", "length": max_chars, "fetch_method": "http", "status": "error", "warnings": ["invalid http(s) URL"]}
+
+    if api_recipes:
+        from .api_recipes import try_api_recipe
+
+        recipe_result = try_api_recipe(
+            url,
+            enabled=True,
+            length=max_chars,
+            include_content=include_content,
+            extra_recipe_paths=api_recipe_paths,
+        )
+        if recipe_result is not None:
+            fallback = bool(recipe_result.pop("_api_recipe_fallback", False))
+            if not fallback and recipe_result.get("status") in {"ok", "partial"}:
+                # Successful structured recipe — do not promote into StrategyCache
+                # (cache remains http/seo/cloak/archive only).
+                return recipe_result
+            warnings.extend(str(w) for w in (recipe_result.get("warnings") or []))
+            warnings.append("api recipe degraded; falling back to HTTP→SEO→Cloak→archive pipeline")
 
     social_platform = None
     if not skip_social_routing:
@@ -1140,10 +1161,37 @@ def to_markdown(result: dict[str, Any]) -> str:
         lines.append(f"Published: {result['published_at']}")
     if result.get("duration") is not None:
         lines.append(f"Duration: {result['duration']}s")
+    api_recipe = result.get("api_recipe")
+    if isinstance(api_recipe, dict) and api_recipe:
+        lines.append(
+            "API recipe: "
+            f"{api_recipe.get('id')}@v{api_recipe.get('version')} "
+            f"(confidence={api_recipe.get('confidence')}, ttl={api_recipe.get('ttl_seconds')}s, "
+            f"captured={api_recipe.get('captured_at')})"
+        )
     if result.get("warnings"):
         lines += ["", "## Warnings", ""] + [f"- {w}" for w in result["warnings"]]
     if result.get("summary"):
         lines += ["", "## Summary", "", str(result["summary"])]
+    structured = result.get("structured_data")
+    if isinstance(structured, dict) and structured:
+        bookmakers = structured.get("bookmakers")
+        if isinstance(bookmakers, list) and bookmakers:
+            lines += ["", "## Structured odds (not betting advice)", ""]
+            for row in bookmakers:
+                if not isinstance(row, dict):
+                    continue
+                opening = row.get("opening") if isinstance(row.get("opening"), dict) else {}
+                open_bits = ""
+                if opening and any(opening.get(k) is not None for k in ("home", "draw", "away")):
+                    open_bits = f" (open {opening.get('home')}/{opening.get('draw')}/{opening.get('away')})"
+                lines.append(
+                    f"- {row.get('bookmaker')}: {row.get('home')}/{row.get('draw')}/{row.get('away')}{open_bits}"
+                )
+            if structured.get("disclaimer"):
+                lines += ["", f"_{structured['disclaimer']}_"]
+        elif structured.get("kind") or structured.get("schema"):
+            lines += ["", "## Structured data", "", f"- kind: {structured.get('kind')}", f"- schema: {structured.get('schema')}"]
     if result.get("transcript"):
         lines += ["", "## Transcript", "", str(result["transcript"])]
         if result.get("transcript_source"):
