@@ -28,11 +28,3 @@ class DocumentDependencyError(RuntimeError):
 
 class DocumentParseError(RuntimeError):
     pass
-
-
-class FirecrawlOcrError(RuntimeError):
-    """Cloud OCR failed; caller may fall back to partial local result."""
-
-    def __init__(self, message: str, *, kind: str = "error") -> None:
-        super().__init__(message)
-        self.kind = kind  # auth | quota | network | timeout | malformed | blocked | error

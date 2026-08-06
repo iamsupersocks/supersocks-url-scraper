@@ -3,16 +3,13 @@
 Local path (default):
   - Office/EPUB/CSV/RTF → anydoc
   - PDF → pdf-inspector classify+extract, then PyMuPDF compatibility fallback
-
-Cloud OCR (strictly opt-in via DOCUMENT_MODE=auto|firecrawl + FIRECRAWL_API_KEY):
-  - Only for PDF scanned / image_based / mixed, or when local extraction is unusable
-  - Stdlib HTTP to Firecrawl v2 scrape/parse; never activated by key presence alone
+  - No cloud OCR; scanned/image_based/mixed without text return partial with warnings
 """
 
 from __future__ import annotations
 
 import os
-from typing import Any, Callable
+from typing import Any
 
 from .detect import (
     ALL_DOCUMENT_FORMATS,
@@ -20,17 +17,11 @@ from .detect import (
     detect_document_format,
     title_from_markdown,
 )
-from .firecrawl import (
-    DEFAULT_MAX_PAGES,
-    firecrawl_api_key,
-    firecrawl_ocr_allowed,
-    firecrawl_scrape_url,
-    resolve_document_mode,
-    scrape_pdf_ocr,
-)
-from .models import DocumentContent, DocumentDependencyError, DocumentParseError, FirecrawlOcrError
+from .models import DocumentContent, DocumentDependencyError, DocumentParseError
 
 PDF_NEEDS_OCR = frozenset({"scanned", "image_based", "mixed"})
+DEFAULT_MAX_PAGES = 50
+NO_LOCAL_OCR_WARNING = "No local OCR configured; install a local OCR engine to extract text from scans"
 
 
 def anydoc_available() -> bool:
@@ -184,14 +175,6 @@ def extract_pdf_pymupdf(data: bytes, *, max_pages: int | None = None) -> Documen
         doc.close()
 
 
-def _local_pdf_unusable(content: DocumentContent | None) -> bool:
-    if content is None:
-        return True
-    if content.pdf_classification in PDF_NEEDS_OCR:
-        return True
-    return not (content.text or "").strip()
-
-
 def _best_local_pdf_content(
     inspector: DocumentContent | None,
     pymupdf_result: DocumentContent | None,
@@ -244,42 +227,37 @@ def _best_local_pdf_content(
     return None
 
 
-def _ocr_enabled(mode: str, *, api_key: str, allow_ocr: bool | None) -> bool:
-    """Cloud OCR requires explicit mode (auto|firecrawl) AND key; allow_ocr cannot bypass local mode."""
-    if allow_ocr is False:
-        return False
-    return firecrawl_ocr_allowed(mode, api_key=api_key)
+def _local_pdf_warnings(local: DocumentContent) -> list[str]:
+    extra: list[str] = []
+    if not local.text.strip():
+        if local.pdf_classification in PDF_NEEDS_OCR:
+            extra.append(
+                f"PDF classified as {local.pdf_classification}; no extractable text without OCR"
+            )
+        else:
+            extra.append("PDF looks like a scan without OCR; no extractable text")
+        extra.append(NO_LOCAL_OCR_WARNING)
+    elif local.pdf_classification in PDF_NEEDS_OCR:
+        extra.append(f"PDF classified as {local.pdf_classification}; using local text layer only")
+        extra.append(NO_LOCAL_OCR_WARNING)
+    return extra
 
 
 class DocumentProvider:
-    """Orchestrates local document engines and optional Firecrawl OCR."""
+    """Orchestrates local document engines (anydoc, pdf-inspector, PyMuPDF)."""
 
     def __init__(
         self,
         *,
-        mode: str | None = None,
-        api_key: str | None = None,
-        scrape_endpoint: str | None = None,
         max_pages: int | None = None,
-        ocr_timeout: int | None = None,
         environ: dict[str, str] | None = None,
-        firecrawl_opener: Callable[..., Any] | None = None,
     ) -> None:
         env = environ if environ is not None else os.environ
-        self.mode = resolve_document_mode(mode, environ=env)
-        self.api_key = (api_key if api_key is not None else firecrawl_api_key(env)).strip()
-        self.scrape_endpoint = (scrape_endpoint or firecrawl_scrape_url(env)).strip()
         try:
             default_pages = int(env.get("DOCUMENT_MAX_PAGES", str(DEFAULT_MAX_PAGES)))
         except (TypeError, ValueError):
             default_pages = DEFAULT_MAX_PAGES
         self.max_pages = max(1, int(max_pages if max_pages is not None else default_pages))
-        try:
-            default_timeout = int(env.get("FIRECRAWL_TIMEOUT", "60"))
-        except (TypeError, ValueError):
-            default_timeout = 60
-        self.ocr_timeout = max(1, int(ocr_timeout if ocr_timeout is not None else default_timeout))
-        self.firecrawl_opener = firecrawl_opener
 
     def extract_document(self, data: bytes, *, format_hint: str | None = None) -> DocumentContent:
         hint = format_hint if format_hint in ALL_DOCUMENT_FORMATS else None
@@ -295,8 +273,8 @@ class DocumentProvider:
         *,
         source_url: str | None = None,
         final_url: str | None = None,
-        allow_ocr: bool | None = None,
     ) -> DocumentContent:
+        del source_url, final_url  # kept for API compatibility; no cloud OCR uses URLs
         warnings: list[str] = []
         inspector: DocumentContent | None = None
         pymupdf_result: DocumentContent | None = None
@@ -314,7 +292,7 @@ class DocumentProvider:
         else:
             warnings.append("pdf-inspector not installed; trying PyMuPDF")
 
-        # 2) PyMuPDF compatibility fallback (best local text; may still need cloud OCR)
+        # 2) PyMuPDF compatibility fallback (best local text)
         try:
             pymupdf_result = extract_pdf_pymupdf(data, max_pages=self.max_pages)
         except DocumentDependencyError as exc:
@@ -326,76 +304,7 @@ class DocumentProvider:
 
         local = _best_local_pdf_content(inspector, pymupdf_result, warnings)
 
-        # 3) Optional Firecrawl OCR
-        ocr_ok = _ocr_enabled(self.mode, api_key=self.api_key, allow_ocr=allow_ocr)
-        needs_ocr = _local_pdf_unusable(local)
-
-        if ocr_ok and needs_ocr and (source_url or final_url):
-            try:
-                ocr = scrape_pdf_ocr(
-                    source_url or final_url or "",
-                    api_key=self.api_key,
-                    max_pages=self.max_pages,
-                    timeout=self.ocr_timeout,
-                    scrape_endpoint=self.scrape_endpoint,
-                    final_url=final_url,
-                    opener=self.firecrawl_opener,
-                )
-                classification = local.pdf_classification if local else None
-                return DocumentContent(
-                    title=ocr.title or (local.title if local else None),
-                    text=ocr.text,
-                    format="pdf",
-                    method="firecrawl",
-                    page_count=ocr.page_count or (local.page_count if local else None),
-                    pdf_classification=classification,
-                    ocr_used=True,
-                    ocr_provider="firecrawl",
-                    warnings=tuple(warnings) + ocr.warnings,
-                )
-            except FirecrawlOcrError as exc:
-                warnings.append(str(exc))
-                if local is not None:
-                    extra: list[str] = [
-                        f"PDF classified as {local.pdf_classification}; OCR fallback failed ({exc.kind})"
-                        if local.pdf_classification in PDF_NEEDS_OCR
-                        else f"PDF local extraction incomplete; OCR fallback documented as {exc.kind}"
-                    ]
-                    if local.text.strip() and local.pdf_classification in PDF_NEEDS_OCR:
-                        extra.append("Returning best available local text layer from PyMuPDF")
-                    return DocumentContent(
-                        title=local.title,
-                        text=local.text,
-                        format="pdf",
-                        method=local.method,
-                        page_count=local.page_count,
-                        pdf_classification=local.pdf_classification,
-                        ocr_used=False,
-                        ocr_provider=None,
-                        warnings=tuple(warnings) + tuple(extra),
-                    )
-                raise DocumentParseError(str(exc)) from exc
-
         if local is not None:
-            extra: list[str] = []
-            if not local.text.strip():
-                if local.pdf_classification in PDF_NEEDS_OCR:
-                    extra.append(
-                        f"PDF classified as {local.pdf_classification}; no extractable text without OCR"
-                    )
-                else:
-                    extra.append("PDF looks like a scan without OCR; no extractable text")
-                if not ocr_ok:
-                    extra.append(
-                        "Firecrawl OCR disabled (set DOCUMENT_MODE=auto|firecrawl and FIRECRAWL_API_KEY to enable)"
-                    )
-            elif local.pdf_classification in PDF_NEEDS_OCR and not ocr_ok:
-                extra.append(
-                    f"PDF classified as {local.pdf_classification}; using local text layer only"
-                )
-                extra.append(
-                    "Firecrawl OCR disabled (set DOCUMENT_MODE=auto|firecrawl and FIRECRAWL_API_KEY to enable)"
-                )
             return DocumentContent(
                 title=local.title,
                 text=local.text,
@@ -405,7 +314,7 @@ class DocumentProvider:
                 pdf_classification=local.pdf_classification,
                 ocr_used=False,
                 ocr_provider=None,
-                warnings=tuple(warnings) + tuple(extra),
+                warnings=tuple(warnings) + tuple(_local_pdf_warnings(local)),
             )
 
         if isinstance(local_error, DocumentParseError):

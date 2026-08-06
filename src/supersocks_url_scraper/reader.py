@@ -923,10 +923,7 @@ def read_url(
     summary_provider_timeout: int = 30,
     jina_fallback: bool = False,
     skip_social_routing: bool = False,
-    document_mode: str | None = None,
     document_max_pages: int | None = None,
-    firecrawl_api_key: str | None = None,
-    firecrawl_timeout: int | None = None,
 ) -> dict[str, Any]:
     warnings: list[str] = []
     max_chars = max(50, min(int(length or 900), 10_000))
@@ -1114,12 +1111,7 @@ def read_url(
         return payload
 
     if content_type == "pdf":
-        provider = DocumentProvider(
-            mode=document_mode,
-            api_key=firecrawl_api_key,
-            max_pages=document_max_pages,
-            ocr_timeout=firecrawl_timeout,
-        )
+        provider = DocumentProvider(max_pages=document_max_pages)
         try:
             pdf = extract_pdf_with_fallback(
                 resource.content,

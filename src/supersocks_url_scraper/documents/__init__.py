@@ -1,4 +1,4 @@
-"""Optional documentary extraction: anydoc + pdf-inspector + PyMuPDF + Firecrawl OCR."""
+"""Optional documentary extraction: anydoc + pdf-inspector + PyMuPDF (local OSS only)."""
 
 from __future__ import annotations
 
@@ -9,14 +9,7 @@ from .detect import (
     format_from_zip_package,
     title_from_markdown,
 )
-from .firecrawl import (
-    assert_safe_cloud_url,
-    firecrawl_api_key,
-    firecrawl_ocr_allowed,
-    resolve_document_mode,
-    scrape_pdf_ocr,
-)
-from .models import DocumentContent, DocumentDependencyError, DocumentParseError, FirecrawlOcrError
+from .models import DocumentContent, DocumentDependencyError, DocumentParseError
 from .provider import (
     DocumentProvider,
     anydoc_available,
@@ -55,23 +48,17 @@ __all__ = [
     "DocumentDependencyError",
     "DocumentParseError",
     "DocumentProvider",
-    "FirecrawlOcrError",
     "_format_from_zip_package",
     "anydoc_available",
-    "assert_safe_cloud_url",
     "default_provider",
     "detect_document_format",
     "extract_document_markdown",
     "extract_office_markdown",
     "extract_pdf_pymupdf",
     "extract_pdf_with_fallback",
-    "firecrawl_api_key",
-    "firecrawl_ocr_allowed",
     "format_from_zip_package",
     "pdf_inspector_available",
     "provenance_fields",
     "pymupdf_available",
-    "resolve_document_mode",
-    "scrape_pdf_ocr",
     "title_from_markdown",
 ]

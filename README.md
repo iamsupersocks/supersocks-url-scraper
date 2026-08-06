@@ -11,7 +11,7 @@ Give the package an HTTP(S) URL and get back a small JSON or Markdown contract w
 
 🌐 [Repository](https://github.com/iamsupersocks/supersocks-url-scraper) · 🧩 JSON + Markdown · 🔒 Local-first by default · 📄 MIT
 
-It starts dependency-light for normal pages, then can opt into article/PDF extraction, office-document Markdown via AnyDoc, local pdf-inspector classification, optional Firecrawl OCR, CloakBrowser rendering, public archive/cache lookups, a metadata-only routing strategy cache, and a tiny HTTP service. It is not a hosted bypass service and ships no credentials, browser profiles, vendor-specific LLM SDK, or universal paywall guarantee.
+It starts dependency-light for normal pages, then can opt into article/PDF extraction, office-document Markdown via AnyDoc, local pdf-inspector classification, CloakBrowser rendering, public archive/cache lookups, a metadata-only routing strategy cache, and a tiny HTTP service. It is not a hosted bypass service and ships no credentials, browser profiles, vendor-specific LLM SDK, or universal paywall guarantee.
 
 ## Quick start
 
@@ -65,7 +65,7 @@ curl -s http://127.0.0.1:8768/summarize \
   - JSON-LD article objects
   - trafilatura/readability/BeautifulSoup when optional article extras are installed
   - readable `<p>` paragraphs or regex fallback without extras
-- PDF text extraction via optional pdf-inspector + PyMuPDF, with strictly opt-in Firecrawl OCR for scanned/mixed PDFs.
+- PDF text extraction via optional pdf-inspector + PyMuPDF (local OSS only; no cloud OCR).
 - Office/document conversion to GitHub-Flavored Markdown via optional `firecrawl-anydoc` (`documents` extra).
 - Deterministic placeholder descriptions for images when no vision model is configured.
 - SEO-style HTTP fallback variants: Googlebot, Bingbot, Google/Facebook/t.co referers.
@@ -114,7 +114,7 @@ flowchart TD
     K1 -->|Failed| Z1
     L --> M{"Resource type"}
     M -->|Article| N[Extract article text]
-    M -->|PDF| O[pdf-inspector then PyMuPDF; optional Firecrawl OCR]
+    M -->|PDF| O[pdf-inspector then PyMuPDF local extraction]
     M -->|Document| OD[AnyDoc to GFM Markdown]
     M -->|Image| P[Placeholder image summary]
     M -->|Unknown| Z2[error: unsupported type]
@@ -305,14 +305,12 @@ supersocks-url-scraper --no-archive-fallback https://example.com/article
 Optional documentary extraction stays out of the base install (no required deps).
 
 - **Office documents** (`doc`/`docx`, `ppt`/`pptx`, `xls`/`xlsx`, ODT/ODS/ODP, RTF, EPUB, CSV): install the `documents` extra (`firecrawl-anydoc`). Bytes convert to GitHub-Flavored Markdown; `content_type` is `document` and `document_format` carries the detected format.
-- **PDFs**: `pdf-inspector` classifies (`text_based` / `scanned` / `image_based` / `mixed`) and extracts textual PDFs locally; **PyMuPDF** remains the compatibility fallback (`pdf` extra). Provenance fields: `extraction_engine`, `document_format`, `pdf_classification`, `ocr_used`, `ocr_provider` (never secrets).
-- **Firecrawl OCR** (strictly opt-in): set `DOCUMENT_MODE=auto|firecrawl` **and** `FIRECRAWL_API_KEY`. A key alone never enables cloud OCR. Used only for scanned/image_based/mixed PDFs or when local extraction is unusable. Calls Firecrawl v2 scrape/parse over stdlib HTTP (no SDK). Blocks credentialed, localhost, private/internal, and non-HTTP(S) URLs before and after redirect. Network/auth/quota failures become documented fallback/`partial`. Cap pages with `DOCUMENT_MAX_PAGES` / `--document-max-pages`.
+- **PDFs**: `pdf-inspector` classifies (`text_based` / `scanned` / `image_based` / `mixed`) and extracts textual PDFs locally; **PyMuPDF** remains the compatibility fallback (`pdf` extra`). Scanned/image-based PDFs without a text layer return `partial` with classification and an explicit warning that no local OCR is configured. Provenance fields: `extraction_engine`, `document_format`, `pdf_classification`, `ocr_used` (always false), `ocr_provider` (always null).
 
 ```bash
 pip install -e '.[documents,pdf]'
-supersocks-url-scraper --document-mode local https://files.example/report.pdf
-# OCR only when explicitly enabled:
-# DOCUMENT_MODE=auto FIRECRAWL_API_KEY=… supersocks-url-scraper --document-mode auto https://files.example/scan.pdf
+supersocks-url-scraper https://files.example/report.pdf
+# Cap pages with DOCUMENT_MAX_PAGES / --document-max-pages
 ```
 
 ### Social routing (YouTube / LinkedIn / X / Instagram / Facebook / Reddit)
@@ -607,7 +605,7 @@ This public repo includes a standalone URL-reading core suitable for agent/news 
 - HTTP fetching with timeout and size guards.
 - Article/PDF/document/image detection (content-first, then MIME/URL/Content-Disposition for AnyDoc formats).
 - Article extraction with metadata, JSON-LD, trafilatura, readability, BeautifulSoup, and regex fallback.
-- PDF extraction via pdf-inspector with PyMuPDF fallback; optional Firecrawl OCR; office documents via AnyDoc GFM.
+- PDF extraction via pdf-inspector with PyMuPDF fallback (local OSS only); office documents via AnyDoc GFM.
 - Local extractive summaries plus optional full cleaned content (Markdown for documents).
 - Optional generic HTTP summary-provider adapter for external summaries; disabled by default and no private keys shipped.
 - SEO-style requests: Googlebot, Bingbot, and search/social referer variants.

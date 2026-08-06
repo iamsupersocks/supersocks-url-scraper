@@ -50,10 +50,8 @@ def health_payload() -> dict:
     from .documents import (
         DOCUMENT_FORMATS,
         anydoc_available,
-        firecrawl_api_key,
         pdf_inspector_available,
         pymupdf_available,
-        resolve_document_mode,
     )
     from .social import SOCIAL_PLATFORMS
     from .social.cloak_social import cloakbrowser_available, opencli_fallback_enabled
@@ -62,8 +60,6 @@ def health_payload() -> dict:
     from .social.twitter_x import explicit_twitter_credentials_present, twitter_cli_available
 
     opencli = probe_opencli(timeout=3)
-    document_mode = resolve_document_mode()
-    has_firecrawl_key = bool(firecrawl_api_key())
     return {
         "status": "ok",
         "version": "0.2.0",
@@ -83,12 +79,9 @@ def health_payload() -> dict:
             "jina_default": _truthy(os.environ.get("JINA_FALLBACK"), False),
         },
         "documents": {
-            "mode": document_mode,
             "anydoc_installed": anydoc_available(),
             "pdf_inspector_installed": pdf_inspector_available(),
             "pymupdf_installed": pymupdf_available(),
-            "firecrawl_key_configured": has_firecrawl_key,
-            "firecrawl_ocr_enabled": document_mode in {"auto", "firecrawl"} and has_firecrawl_key,
             "max_pages": max(1, _env_int("DOCUMENT_MAX_PAGES", 50)),
             "formats": ["pdf", *sorted(DOCUMENT_FORMATS)],
         },
@@ -133,16 +126,10 @@ def openapi_payload() -> dict:
             "browser_max_concurrency": {"type": "integer", "default": max(1, _env_int("BROWSER_MAX_CONCURRENCY", 1))},
             "archive_fallback": {"type": "boolean", "default": _truthy(os.environ.get("ARCHIVE_FALLBACK"), True)},
             "jina_fallback": {"type": "boolean", "default": _truthy(os.environ.get("JINA_FALLBACK"), False), "description": "Opt-in LinkedIn/public external reader fallback via Jina Reader. Disabled by default. Never used for credentialed, local, or private URLs."},
-            "document_mode": {
-                "type": "string",
-                "enum": ["local", "auto", "firecrawl"],
-                "default": os.environ.get("DOCUMENT_MODE", "local") or "local",
-                "description": "Document extraction mode. local=anydoc/pdf-inspector/PyMuPDF only. auto/firecrawl enable Firecrawl OCR only when set explicitly AND FIRECRAWL_API_KEY is present (key alone never activates OCR).",
-            },
             "document_max_pages": {
                 "type": "integer",
                 "default": _env_int("DOCUMENT_MAX_PAGES", 50),
-                "description": "Maximum PDF pages to extract locally or via OCR.",
+                "description": "Maximum PDF pages to extract locally.",
             },
             "strategy_cache_path": {"type": "string"},
             "summary_provider": {
@@ -173,17 +160,17 @@ def openapi_payload() -> dict:
             },
             "extraction_engine": {
                 "type": "string",
-                "description": "Engine that produced the document text: anydoc, pdf-inspector, pymupdf, or firecrawl.",
+                "description": "Engine that produced the document text: anydoc, pdf-inspector, or pymupdf.",
             },
             "pdf_classification": {
                 "type": "string",
                 "enum": ["text_based", "scanned", "image_based", "mixed"],
                 "description": "Optional pdf-inspector classification for PDF inputs.",
             },
-            "ocr_used": {"type": "boolean", "description": "True when Firecrawl OCR was used."},
+            "ocr_used": {"type": "boolean", "description": "Always false; no OCR provider is configured."},
             "ocr_provider": {
                 "type": "string",
-                "description": "OCR provider id when ocr_used is true (firecrawl). Never includes secrets.",
+                "description": "Always null; no OCR provider is configured.",
             },
             "title": {"type": "string"},
             "summary": {"type": "string"},
@@ -268,7 +255,6 @@ class Handler(BaseHTTPRequestHandler):
         summary_provider = str(payload.get("summary_provider") or os.environ.get("SUMMARY_PROVIDER") or "local")
         summary_provider_url = str(payload.get("summary_provider_url") or os.environ.get("SUMMARY_PROVIDER_URL") or "")
         summary_provider_token = str(payload.get("summary_provider_token") or os.environ.get("SUMMARY_PROVIDER_TOKEN") or "")
-        document_mode = str(payload.get("document_mode") or os.environ.get("DOCUMENT_MODE") or "local")
         document_max_pages = int(payload.get("document_max_pages") or _env_int("DOCUMENT_MAX_PAGES", 50))
         return read_url(
             str(payload.get("url") or ""),
@@ -286,7 +272,6 @@ class Handler(BaseHTTPRequestHandler):
             summary_provider_url=summary_provider_url,
             summary_provider_token=summary_provider_token,
             summary_provider_timeout=int(payload.get("summary_provider_timeout") or _env_int("SUMMARY_PROVIDER_TIMEOUT", 30)),
-            document_mode=document_mode,
             document_max_pages=document_max_pages,
         )
 
@@ -328,16 +313,10 @@ def main() -> int:
     parser.add_argument("--no-archive-fallback", action="store_true", help="Disable public archive/cache fallback after HTTP/SEO/browser failures or paywall teasers")
     parser.add_argument("--jina-fallback", action="store_true", help="Opt-in Jina Reader fallback for LinkedIn/public pages after the generic pipeline returns error/partial (disabled by default)")
     parser.add_argument(
-        "--document-mode",
-        default=os.environ.get("DOCUMENT_MODE", "local") or "local",
-        choices=["local", "auto", "firecrawl"],
-        help="Document extraction mode. local keeps anydoc/pdf-inspector/PyMuPDF only. auto/firecrawl enable Firecrawl OCR only with an explicit mode AND FIRECRAWL_API_KEY (key alone never activates OCR).",
-    )
-    parser.add_argument(
         "--document-max-pages",
         type=int,
         default=_env_int("DOCUMENT_MAX_PAGES", 50),
-        help="Maximum PDF pages for local extraction / Firecrawl OCR",
+        help="Maximum PDF pages for local extraction",
     )
     parser.add_argument(
         "--summary-provider",
@@ -373,7 +352,6 @@ def main() -> int:
         browser_max_concurrency=args.browser_max_concurrency,
         archive_fallback=not args.no_archive_fallback,
         jina_fallback=args.jina_fallback or _truthy(os.environ.get("JINA_FALLBACK"), False),
-        document_mode=args.document_mode,
         document_max_pages=args.document_max_pages,
         summary_provider=args.summary_provider,
         summary_provider_url=args.summary_provider_url or os.environ.get("SUMMARY_PROVIDER_URL") or "",

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import io
-import json
+import inspect
 import zipfile
-from urllib.error import HTTPError, URLError
+from pathlib import Path
+from urllib.request import urlopen
 
 import pytest
 
@@ -12,14 +13,10 @@ from supersocks_url_scraper.documents import (
     DocumentDependencyError,
     DocumentParseError,
     DocumentProvider,
-    FirecrawlOcrError,
     _format_from_zip_package,
     detect_document_format,
     extract_document_markdown,
     extract_pdf_with_fallback,
-    firecrawl_ocr_allowed,
-    resolve_document_mode,
-    scrape_pdf_ocr,
 )
 from supersocks_url_scraper.reader import (
     FetchedResource,
@@ -208,13 +205,28 @@ def test_detect_rtf_and_epub_families() -> None:
     assert detect_content_type(epub) == "document"
 
 
-def test_document_mode_defaults_and_key_alone_does_not_enable_ocr() -> None:
-    assert resolve_document_mode(environ={}) == "local"
-    assert resolve_document_mode(environ={"DOCUMENT_MODE": "auto"}) == "auto"
-    assert firecrawl_ocr_allowed("local", api_key="fc-secret") is False
-    assert firecrawl_ocr_allowed("auto", api_key="") is False
-    assert firecrawl_ocr_allowed("auto", api_key="fc-secret") is True
-    assert firecrawl_ocr_allowed("firecrawl", api_key="fc-secret") is True
+def test_no_cloud_env_or_options_in_document_package() -> None:
+    docs_root = Path(__file__).resolve().parents[1] / "src" / "supersocks_url_scraper" / "documents"
+    forbidden = ("FIRECRAWL_API_KEY", "FIRECRAWL_API_URL", "FIRECRAWL_TIMEOUT", "DOCUMENT_MODE")
+    for path in docs_root.glob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        for token in forbidden:
+            assert token not in text, f"{token} found in {path.name}"
+
+    from supersocks_url_scraper import cli
+
+    health = cli.health_payload()
+    assert "firecrawl_key_configured" not in health["documents"]
+    assert "firecrawl_ocr_enabled" not in health["documents"]
+    assert "mode" not in health["documents"]
+
+    openapi = cli.openapi_payload()
+    props = openapi["paths"]["/summarize"]["post"]["requestBody"]["content"]["application/json"]["schema"]["properties"]
+    assert "document_mode" not in props
+
+    sig = inspect.signature(DocumentProvider.__init__)
+    assert "api_key" not in sig.parameters
+    assert "mode" not in sig.parameters
 
 
 def test_extract_document_missing_dependency(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -258,6 +270,7 @@ def test_real_docx_to_markdown_and_read_url(monkeypatch: pytest.MonkeyPatch) -> 
     assert result["document_format"] == "docx"
     assert result["extraction_engine"] == "anydoc"
     assert result["ocr_used"] is False
+    assert result["ocr_provider"] is None
     assert "Hello AnyDoc" in (result["title"] or "")
     assert "Hello AnyDoc Document Title" in result["content"]
     md = to_markdown(result)
@@ -297,6 +310,8 @@ def test_pdf_prefers_pdf_inspector_text_based(monkeypatch: pytest.MonkeyPatch) -
     result = extract_pdf_with_fallback(b"%PDF-1.7\n")
     assert result.method == "pdf-inspector"
     assert result.pdf_classification == "text_based"
+    assert result.ocr_used is False
+    assert result.ocr_provider is None
     assert calls == ["pdf-inspector"]
 
 
@@ -323,11 +338,14 @@ def test_pdf_falls_back_to_pymupdf_when_inspector_empty(monkeypatch: pytest.Monk
             page_count=1,
         ),
     )
-    result = extract_pdf_with_fallback(b"%PDF-1.7\n", provider=DocumentProvider(mode="local"))
+    result = extract_pdf_with_fallback(b"%PDF-1.7\n", provider=DocumentProvider())
     assert result.method == "pymupdf"
     assert "Recovered via PyMuPDF" in result.text
     assert result.pdf_classification == "scanned"
+    assert result.ocr_used is False
+    assert result.ocr_provider is None
     assert any("local text layer only" in w for w in result.warnings)
+    assert any("no local ocr" in w.lower() for w in result.warnings)
 
 
 def _mixed_scanned_pymupdf_mocks(monkeypatch: pytest.MonkeyPatch, *, classification: str = "mixed") -> None:
@@ -355,64 +373,25 @@ def _mixed_scanned_pymupdf_mocks(monkeypatch: pytest.MonkeyPatch, *, classificat
     )
 
 
-def test_pdf_mixed_with_pymupdf_text_still_calls_firecrawl_in_auto_mode(monkeypatch: pytest.MonkeyPatch) -> None:
-    called = {"ocr": False}
-
-    class _Resp:
-        status = 200
-
-        def read(self, n: int = -1) -> bytes:
-            return json.dumps(
-                {
-                    "success": True,
-                    "data": {
-                        "markdown": "# OCR\n\nFull OCR body from Firecrawl for mixed PDF.",
-                        "metadata": {"title": "OCR", "pagesParsed": 2},
-                    },
-                }
-            ).encode()
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-    def fake_ocr(*args, **kwargs):
-        called["ocr"] = True
-        return DocumentContent(
-            title="OCR",
-            text="Full OCR body from Firecrawl for mixed PDF.",
-            format="pdf",
-            method="firecrawl",
-            page_count=2,
-            ocr_used=True,
-            ocr_provider="firecrawl",
-        )
-
+def test_pdf_mixed_with_pymupdf_text_returns_local_only(monkeypatch: pytest.MonkeyPatch) -> None:
     _mixed_scanned_pymupdf_mocks(monkeypatch, classification="mixed")
-    monkeypatch.setattr("supersocks_url_scraper.documents.provider.scrape_pdf_ocr", fake_ocr)
-    provider = DocumentProvider(mode="auto", api_key="fc-test-key", firecrawl_opener=lambda req, timeout=60: _Resp())
+    provider = DocumentProvider()
     result = provider.extract_pdf(
         b"%PDF-1.4\n%",
         source_url="https://files.example/mixed.pdf",
         final_url="https://cdn.example/mixed.pdf",
     )
-    assert called["ocr"] is True
-    assert result.method == "firecrawl"
-    assert result.ocr_used is True
+    assert result.method == "pymupdf"
+    assert result.ocr_used is False
+    assert result.ocr_provider is None
     assert result.pdf_classification == "mixed"
-    assert "Full OCR body" in result.text
+    assert "Partial PyMuPDF text layer" in result.text
+    assert any("no local ocr" in w.lower() for w in result.warnings)
 
 
-def test_pdf_scanned_pymupdf_text_ocr_failure_returns_local_with_warnings(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pdf_scanned_with_pymupdf_text_returns_local_with_warnings(monkeypatch: pytest.MonkeyPatch) -> None:
     _mixed_scanned_pymupdf_mocks(monkeypatch, classification="scanned")
-
-    def fail_ocr(*args, **kwargs):
-        raise FirecrawlOcrError("firecrawl OCR quota exceeded (HTTP 429)", kind="quota")
-
-    monkeypatch.setattr("supersocks_url_scraper.documents.provider.scrape_pdf_ocr", fail_ocr)
-    provider = DocumentProvider(mode="auto", api_key="fc-test-key")
+    provider = DocumentProvider()
     result = provider.extract_pdf(
         b"%PDF-1.4\n%",
         source_url="https://files.example/scan.pdf",
@@ -421,33 +400,10 @@ def test_pdf_scanned_pymupdf_text_ocr_failure_returns_local_with_warnings(monkey
     assert result.ocr_used is False
     assert result.pdf_classification == "scanned"
     assert "Partial PyMuPDF text layer" in result.text
-    assert any("quota" in w for w in result.warnings)
-    assert any("local text layer" in w.lower() for w in result.warnings)
+    assert any("no local ocr" in w.lower() for w in result.warnings)
 
 
-def test_allow_ocr_true_cannot_bypass_explicit_local_mode(monkeypatch: pytest.MonkeyPatch) -> None:
-    called = {"ocr": False}
-
-    def boom(*args, **kwargs):
-        called["ocr"] = True
-        raise AssertionError("must not call Firecrawl when mode is local")
-
-    _mixed_scanned_pymupdf_mocks(monkeypatch, classification="scanned")
-    monkeypatch.setattr("supersocks_url_scraper.documents.provider.scrape_pdf_ocr", boom)
-    provider = DocumentProvider(mode="local", api_key="fc-should-not-matter")
-    result = provider.extract_pdf(
-        b"%PDF%",
-        source_url="https://files.example/scan.pdf",
-        allow_ocr=True,
-    )
-    assert called["ocr"] is False
-    assert result.method == "pymupdf"
-    assert result.ocr_used is False
-    assert "Partial PyMuPDF text layer" in result.text
-    assert result.pdf_classification == "scanned"
-
-
-def test_pdf_scan_without_ocr_is_partial(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pdf_scan_without_text_is_partial(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("supersocks_url_scraper.documents.provider.pdf_inspector_available", lambda: True)
     monkeypatch.setattr(
         "supersocks_url_scraper.documents.provider.classify_and_extract_pdf_inspector",
@@ -468,157 +424,81 @@ def test_pdf_scan_without_ocr_is_partial(monkeypatch: pytest.MonkeyPatch) -> Non
     )
     resource = _resource(b"%PDF-1.4\n%", url="https://files.example/scan.pdf", content_type="application/pdf")
     monkeypatch.setattr("supersocks_url_scraper.reader._fetch_with_pipeline", lambda url, **kwargs: resource)
-    result = read_url("https://files.example/scan.pdf", document_mode="local")
+    result = read_url("https://files.example/scan.pdf")
     assert result["status"] == "partial"
     assert result["content_type"] == "pdf"
     assert result["pdf_classification"] == "scanned"
     assert result["ocr_used"] is False
-    assert any("ocr" in w.lower() or "scan" in w.lower() for w in result["warnings"])
+    assert result["ocr_provider"] is None
+    assert any("no local ocr" in w.lower() for w in result["warnings"])
 
 
-def test_firecrawl_ocr_success_mocked(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _Resp:
-        status = 200
-
-        def read(self, n: int = -1) -> bytes:
-            return json.dumps(
-                {
-                    "success": True,
-                    "data": {
-                        "markdown": "# OCR Title\n\nRecovered scanned page text with enough body for summary.",
-                        "metadata": {"title": "OCR Title", "pagesParsed": 2},
-                    },
-                }
-            ).encode()
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
+def test_image_based_pdf_without_text_warns_no_local_ocr(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("supersocks_url_scraper.documents.provider.pdf_inspector_available", lambda: True)
     monkeypatch.setattr(
         "supersocks_url_scraper.documents.provider.classify_and_extract_pdf_inspector",
         lambda data, *, max_pages=None: DocumentContent(
-            title=None, text="", format="pdf", method="pdf-inspector", page_count=2, pdf_classification="scanned"
+            title="Image PDF",
+            text="",
+            format="pdf",
+            method="pdf-inspector",
+            page_count=1,
+            pdf_classification="image_based",
         ),
     )
     monkeypatch.setattr(
         "supersocks_url_scraper.documents.provider.extract_pdf_pymupdf",
         lambda data, *, max_pages=None: DocumentContent(
-            title=None, text="", format="pdf", method="pymupdf", page_count=2
+            title="Image PDF", text="", format="pdf", method="pymupdf", page_count=1
         ),
     )
-    provider = DocumentProvider(mode="auto", api_key="fc-test-key", firecrawl_opener=lambda req, timeout=60: _Resp())
-    result = provider.extract_pdf(
+    result = extract_pdf_with_fallback(b"%PDF-1.4\n%", provider=DocumentProvider())
+    assert not result.text.strip()
+    assert result.pdf_classification == "image_based"
+    assert result.ocr_used is False
+    assert any("image_based" in w for w in result.warnings)
+    assert any("no local ocr" in w.lower() for w in result.warnings)
+
+
+def test_document_pipeline_makes_no_network_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    called = {"urlopen": False}
+
+    def boom(*args, **kwargs):
+        called["urlopen"] = True
+        raise AssertionError("document pipeline must not perform HTTP requests")
+
+    monkeypatch.setattr("urllib.request.urlopen", boom)
+    monkeypatch.setattr("supersocks_url_scraper.documents.provider.pdf_inspector_available", lambda: True)
+    monkeypatch.setattr(
+        "supersocks_url_scraper.documents.provider.classify_and_extract_pdf_inspector",
+        lambda data, *, max_pages=None: DocumentContent(
+            title="Scan",
+            text="",
+            format="pdf",
+            method="pdf-inspector",
+            page_count=1,
+            pdf_classification="scanned",
+        ),
+    )
+    monkeypatch.setattr(
+        "supersocks_url_scraper.documents.provider.extract_pdf_pymupdf",
+        lambda data, *, max_pages=None: DocumentContent(
+            title="Scan",
+            text="Local fallback text from PyMuPDF.",
+            format="pdf",
+            method="pymupdf",
+            page_count=1,
+        ),
+    )
+    extract_pdf_with_fallback(
         b"%PDF-1.4\n%",
         source_url="https://files.example/scan.pdf",
         final_url="https://cdn.example/scan.pdf",
+        provider=DocumentProvider(),
     )
-    assert result.ocr_used is True
-    assert result.ocr_provider == "firecrawl"
-    assert result.method == "firecrawl"
-    assert "Recovered scanned page" in result.text
-    assert result.pdf_classification == "scanned"
-
-
-@pytest.mark.parametrize("kind", ["auth", "quota", "timeout", "network", "malformed"])
-def test_firecrawl_ocr_error_kinds(kind: str) -> None:
-    def opener(req, timeout=60):
-        if kind == "auth":
-            raise HTTPError(
-                "https://api.firecrawl.dev/v2/scrape",
-                401,
-                "Unauthorized",
-                hdrs=None,
-                fp=io.BytesIO(b'{"error":"unauthorized"}'),
-            )
-        if kind == "quota":
-            raise HTTPError(
-                "https://api.firecrawl.dev/v2/scrape",
-                429,
-                "Too Many",
-                hdrs=None,
-                fp=io.BytesIO(b'{"error":"rate"}'),
-            )
-        if kind == "timeout":
-            raise TimeoutError("slow")
-        if kind == "network":
-            raise URLError("down")
-
-        class _Bad:
-            status = 200
-
-            def read(self, n: int = -1) -> bytes:
-                return b"not-json"
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *args):
-                return False
-
-        return _Bad()
-
-    with pytest.raises(FirecrawlOcrError) as exc:
-        scrape_pdf_ocr(
-            "https://files.example/scan.pdf",
-            api_key="fc-test-key",
-            opener=opener,
-        )
-    assert exc.value.kind == kind
-    assert "fc-test-key" not in str(exc.value)
-
-
-def test_firecrawl_blocks_private_and_credentialed_urls() -> None:
-    for bad in (
-        "http://127.0.0.1/secret.pdf",
-        "http://localhost/x.pdf",
-        "http://10.0.0.5/x.pdf",
-        "https://user:pass@files.example/x.pdf",
-        "file:///tmp/x.pdf",
-    ):
-        with pytest.raises(FirecrawlOcrError) as exc:
-            scrape_pdf_ocr(bad, api_key="fc-test-key", opener=lambda *a, **k: None)
-        assert exc.value.kind == "blocked"
-
-
-def test_firecrawl_blocks_unsafe_final_url_after_redirect() -> None:
-    with pytest.raises(FirecrawlOcrError) as exc:
-        scrape_pdf_ocr(
-            "https://files.example/scan.pdf",
-            api_key="fc-test-key",
-            final_url="http://192.168.1.10/internal.pdf",
-            opener=lambda *a, **k: None,
-        )
-    assert exc.value.kind == "blocked"
-
-
-def test_key_present_but_mode_local_never_calls_firecrawl(monkeypatch: pytest.MonkeyPatch) -> None:
-    called = {"ocr": False}
-
-    def boom(*args, **kwargs):
-        called["ocr"] = True
-        raise AssertionError("must not call Firecrawl in local mode")
-
-    monkeypatch.setattr("supersocks_url_scraper.documents.provider.pdf_inspector_available", lambda: True)
-    monkeypatch.setattr(
-        "supersocks_url_scraper.documents.provider.classify_and_extract_pdf_inspector",
-        lambda data, *, max_pages=None: DocumentContent(
-            title=None, text="", format="pdf", method="pdf-inspector", page_count=1, pdf_classification="scanned"
-        ),
-    )
-    monkeypatch.setattr(
-        "supersocks_url_scraper.documents.provider.extract_pdf_pymupdf",
-        lambda data, *, max_pages=None: DocumentContent(title=None, text="", format="pdf", method="pymupdf", page_count=1),
-    )
-    monkeypatch.setattr("supersocks_url_scraper.documents.provider.scrape_pdf_ocr", boom)
-    provider = DocumentProvider(mode="local", api_key="fc-should-not-matter")
-    result = provider.extract_pdf(b"%PDF%", source_url="https://files.example/scan.pdf")
-    assert called["ocr"] is False
-    assert result.ocr_used is False
-    assert not result.text.strip()
+    assert called["urlopen"] is False
+    # Sanity: urlopen import in test module still works; pipeline did not call it.
+    assert urlopen is not None
 
 
 def test_pdf_missing_both_local_engines(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -629,7 +509,7 @@ def test_pdf_missing_both_local_engines(monkeypatch: pytest.MonkeyPatch) -> None
 
     monkeypatch.setattr("supersocks_url_scraper.documents.provider.extract_pdf_pymupdf", no_pymupdf)
     with pytest.raises(DocumentDependencyError, match="pdf-inspector|PyMuPDF"):
-        extract_pdf_with_fallback(b"%PDF-1.7\n", provider=DocumentProvider(mode="local"))
+        extract_pdf_with_fallback(b"%PDF-1.7\n", provider=DocumentProvider())
 
 
 def test_document_missing_dependency_via_read_url(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -658,25 +538,22 @@ def test_openapi_and_health_advertise_documents() -> None:
     health = cli.health_payload()
     assert "documents" in health
     assert "docx" in health["documents"]["formats"]
-    assert health["documents"]["mode"] in {"local", "auto", "firecrawl"}
-    assert "firecrawl_ocr_enabled" in health["documents"]
-    assert health["documents"]["firecrawl_ocr_enabled"] is False or isinstance(
-        health["documents"]["firecrawl_ocr_enabled"], bool
-    )
+    assert "anydoc_installed" in health["documents"]
+    assert "firecrawl_ocr_enabled" not in health["documents"]
 
     openapi = cli.openapi_payload()
     result_schema = openapi["paths"]["/summarize"]["post"]["responses"]["200"]["content"]["application/json"]["schema"]
     for field in ("document_format", "extraction_engine", "pdf_classification", "ocr_used", "ocr_provider"):
         assert field in result_schema["properties"]
-    assert "document_mode" in openapi["paths"]["/summarize"]["post"]["requestBody"]["content"]["application/json"]["schema"]["properties"]
+    props = openapi["paths"]["/summarize"]["post"]["requestBody"]["content"]["application/json"]["schema"]["properties"]
+    assert "document_max_pages" in props
+    assert "document_mode" not in props
 
 
 def test_base_install_imports_without_document_extras() -> None:
     # documents package must import even when anydoc/pdf_inspector/fitz are absent.
     from supersocks_url_scraper import documents
-    from supersocks_url_scraper.documents import resolve_document_mode
 
-    assert resolve_document_mode("local") == "local"
     assert documents.DOCUMENT_FORMATS
 
 
