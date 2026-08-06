@@ -73,6 +73,7 @@ curl -s http://127.0.0.1:8768/summarize \
 - Recognized consent dialogs are dismissed through an explicit reject/continue-without-accepting control before browser extraction.
 - Layered fallback pipeline: HTTP → SEO variants → CloakBrowser → public archive/cache snapshots, including retry when HTTP returns only a teaser/paywall/cookie wall.
 - Optional per-domain JSON strategy cache storing only routing metadata.
+- Optional opt-in API recipes (HTTPS GET, host-allowlisted, versioned) for structured agent outputs. No site-specific builtins — load recipes via `API_RECIPE_PATHS` / `--api-recipe-path`. Flashscore 1X2 is example #3 under `examples/` (not auto-loaded). Degrade to HTTP→SEO→Cloak→archive on failure. Off by default. Offline HAR discovery (`--discover-har`) classifies a local capture and emits a disabled `review_required` candidate recipe; embedded JSON Schema v1 + `--validate-recipe` validate recipe files offline. Optional `route_advice` / `--recurrent` steers agents toward loaded recipes or manual HAR + offline discovery — no auto-sniff, no auto-activation.
 - Markdown output.
 - Returns warnings for partial extraction, boilerplate, paywalls, and placeholders.
 - Safe to run locally or in cron/server contexts.
@@ -142,6 +143,32 @@ flowchart TD
     Z4 --> W
     V --> Y[status: partial + warnings]
 ```
+
+### Optional API-recipe lifecycle
+
+```mermaid
+flowchart TD
+    A["Any URL"] --> B["Normal scraper pass: HTTP → SEO → Cloak → archive"]
+    B --> C{"Recurrent, costly, partial, or a loaded recipe matches?"}
+    C -->|No| D["Return the normal scraper result"]
+    C -->|Yes| E["Attach machine-readable route_advice"]
+    E --> F{"Reviewed recipe already loaded?"}
+    F -->|No| G["Agent/operator captures a HAR manually"]
+    G --> H["Offline discovery: filter, redact, rank endpoint candidates"]
+    H --> I["Disabled review_required candidate"]
+    I --> J["Agent/operator reviews and edits the declarative recipe"]
+    J --> K["Explicit external load + global API opt-in"]
+    F -->|Yes| K
+    K --> L["Bounded HTTPS GET through the generic recipe engine"]
+    L -->|Validated response| M["Structured agent output"]
+    L -->|No match, blocked, changed, or invalid| B
+
+    X["Site-specific demos, including example #3"] -.->|"never bundled or auto-loaded"| J
+```
+
+The core contains no site-specific recipe. Discovery does not open a browser or
+activate a candidate, and the normal pipeline remains the fallback. See
+[`docs/API_RECIPES.md`](docs/API_RECIPES.md) for the contract and agent states.
 
 ### HTTP service contract
 
@@ -467,6 +494,60 @@ and
 Raw HTML and seller-bearing dumps stay out of the repository. The marketplace
 provider is named only in the bounded Source et provenance sections.
 
+## Case study: Flashscore 1X2 odds (API recipes example #3)
+
+For an opt-in, read-only API recipe pattern that demonstrates offline how a
+Flashscore-style match URL can be adapted into compact
+`home`/`draw`/`away` odds JSON for agents, see
+[`docs/CASE_STUDY_FLASHSCORE_ODDS.md`](docs/CASE_STUDY_FLASHSCORE_ODDS.md) and
+[`examples/flashscore_odds.py`](examples/flashscore_odds.py). **Flashscore is
+example-only — not builtin, not auto-loaded, not a special integration.** The
+generic API brick lives in core; the recipe JSON and odds normalization live
+under `examples/`. Recipes are HTTPS GET only, host-allowlisted, fanout-bounded,
+and off by default (`--api-recipes` / `API_RECIPES=1`). Load deliberately:
+
+```bash
+API_RECIPE_PATHS=examples/recipes/flashscore_odds.v1.json \
+  supersocks-url-scraper --api-recipes 'https://www.flashscore.com/match/…/?mid=…'
+```
+
+The example recipe uses `network.mode=open` (global opt-in alone; no allowlist /
+consent phrase). Prefer offline fixtures; live GETs are the operator's
+responsibility under Flashscore Terms of Use. It does not enable XHR endpoints
+into `StrategyCache`, does not log in or store cookies/tokens, and labels odds
+as dated snapshots — **not betting advice**. On failure it degrades to
+HTTP → SEO → Cloak → archive.
+
+[`examples/flashscore_odds_comparison.py`](examples/flashscore_odds_comparison.py)
+runs the **same synthetic case** through the base HTML scraper and the JSON
+recipe, entirely offline with deterministic fixture values, showing generic prose versus a normalized
+1X2 market (with provenance / `captured_at`) — no live
+benchmark. The generated `captured_at` timestamp naturally reflects each run.
+
+For how an endpoint adapter is **discovered** from a local HAR (offline,
+opt-in, classified, redacted) and how a candidate becomes a reviewed, activated
+recipe, see [`docs/API_RECIPES.md`](docs/API_RECIPES.md). Discovery always emits
+a *disabled* candidate (`status: review_required`, `network.mode: fixture_only`)
+that never executes or promotes itself. The same doc explains **agent-first
+`route_advice`**: when `recurrent_need` / `--recurrent` is set (or a loaded
+recipe matches), `read_url` may attach discrete offline guidance. States are
+unambiguous with priority: `used`, `review_required`, `blocked` (recipe
+fallback), `fixture_only` (blocked network modes — fixture/demo only, no live
+enable command), `available_disabled` (active recipe while recipes off),
+`suggested` / `api_discovery` (including after costly `archive`/`cloak` fetches)
+— without sniffing or auto-activation:
+
+```bash
+# Offline: classify a local HAR, print report + disabled candidate recipe
+supersocks-url-scraper --discover-har capture.har --discovery-source-url <url>
+# Write JSON/Markdown report + candidate recipe to a directory
+supersocks-url-scraper --discover-har capture.har --discovery-out-dir ./out --discovery-source-url <url>
+# Validate a recipe against the embedded v1 schema + runtime rules
+supersocks-url-scraper --validate-recipe my-recipe.v1.json
+# Flag a recurrent need (suggest offline discovery when no recipe matches)
+supersocks-url-scraper --recurrent https://example.com/app-dashboard
+```
+
 ## HTTP service
 
 Start the service:
@@ -503,6 +584,11 @@ Supported service environment variables:
 - `ARCHIVE_FALLBACK`: set to `latest`/`1`/`true` to allow public archive/cache fallback by default.
 - `SEO_FALLBACK`: enable/disable SEO-style HTTP variants by default.
 - `JINA_FALLBACK`: opt-in Jina Reader fallback after specialized LinkedIn (or generic last-resort) `error`/`partial` results. Disabled by default. Never used for credentialed, local, or private URLs; never forwards cookies/tokens.
+- `API_RECIPES`: opt-in structured API recipes (HTTPS GET only, host-allowlisted). Disabled by default. No site-specific builtins. On failure/live block, degrades to HTTP→SEO→Cloak→archive. Never sends Authorization/Cookie headers.
+- `API_RECIPE_PATHS`: optional colon-separated extra recipe JSON files or directories (e.g. `examples/recipes/flashscore_odds.v1.json`).
+- `API_RECIPE_LIVE_ALLOWLIST` / `API_RECIPE_LIVE_CONSENT`: required for live GETs on recipes with `network.mode=consent_required`. Recipes with `network.mode=open` need only the global opt-in.
+- Offline tooling: `--discover-har <file>` (classify a local HAR and emit a disabled candidate recipe), `--discovery-source-url <url>` (offline ranking hint), `--discovery-out-dir <dir>`, and `--validate-recipe <file>` (validate against the embedded JSON Schema v1 + runtime rules). See [`docs/API_RECIPES.md`](docs/API_RECIPES.md).
+- `--recurrent` / request field `recurrent_need` (default `false`): when set and no recipe matches a suitable HTML URL, attach discrete `route_advice` recommending manual HAR capture then offline `--discover-har`. Also triggered when the fetch used a costly method (`cloak`, `archive`, etc.). Never auto-sniffs. Skipped for PDF/image/social.
 - `FETCH_STRATEGY_CACHE_PATH`: metadata-only domain strategy cache.
 - `SUMMARY_PROVIDER`: optional summary provider, default `local`. Supports `local`/`extractive`/`none` and generic `http`.
 - `SUMMARY_PROVIDER_URL`: endpoint for `SUMMARY_PROVIDER=http`; unset by default.
@@ -613,6 +699,7 @@ This public repo includes a standalone URL-reading core suitable for agent/news 
 - Public archive/cache fallbacks: Google cache URL pattern, archive.today, archive.is, and Wayback.
 - Quality gates that reject cookie walls, subscriber teasers, CAPTCHA/domain-only stubs, JS-only pages, and short error pages before summarizing.
 - Per-domain strategy cache plus a generic media seed.
+- Optional opt-in API recipes (versioned HTTPS GET); Flashscore 1X2 odds is example nº3 under `examples/` (explicit load only); StrategyCache remains http/seo/cloak/archive only.
 - Public regression corpus covering normal HTML, hostile media, PDFs, images, social-native stubs, JS-heavy surfaces, browser/profile routes, and archive fallback.
 - Source-discovery registry and route-discovery scripts that persist only domain/routing metadata.
 - Browser-profile probe for warming or inspecting operator-owned Cloak profiles without committing sessions.

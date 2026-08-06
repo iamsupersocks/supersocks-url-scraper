@@ -29,6 +29,10 @@ fetch-strategies.json
 # private live audit/run traces
 runs/
 
+# HAR captures (keep committed test fixtures)
+*.har
+!tests/fixtures/api_recipes/*.har
+
 # Node / npm launcher artifacts
 node_modules/
 *.tgz

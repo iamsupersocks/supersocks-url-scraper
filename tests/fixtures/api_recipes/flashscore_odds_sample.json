@@ -1,0 +1,57 @@
+{
+  "match_url": "https://www.flashscore.com/match/football/demo-league/alpha-vs-beta/?mid=Ab12Cd34",
+  "event_id": "Ab12Cd34",
+  "note": "Synthetic fixture for offline tests. Values are fictional and not betting advice.",
+  "bookmakers": {
+    "141": {
+      "data": {
+        "findPrematchOddsForBookmaker": {
+          "home": {"value": 2.1, "opening": 2.05},
+          "draw": {"value": 3.25, "opening": 3.2},
+          "away": {"value": 3.4, "opening": 3.5}
+        }
+      }
+    },
+    "264": {
+      "data": {
+        "findPrematchOddsForBookmaker": {
+          "home": {"value": 2.15, "opening": 2.1},
+          "draw": {"value": 3.3, "opening": 3.25},
+          "away": {"value": 3.35, "opening": 3.4}
+        }
+      }
+    },
+    "160": {
+      "data": {
+        "findPrematchOddsForBookmaker": {
+          "home": {"value": 2.08, "opening": null},
+          "draw": {"value": 3.2, "opening": null},
+          "away": {"value": 3.45, "opening": null}
+        }
+      }
+    },
+    "484": {
+      "data": {
+        "findPrematchOddsForBookmaker": {}
+      }
+    },
+    "905": {
+      "data": {
+        "findPrematchOddsForBookmaker": {
+          "home": {"value": 2.12, "opening": 2.0},
+          "draw": {"value": 3.28, "opening": 3.1},
+          "away": {"value": 3.38, "opening": 3.6}
+        }
+      }
+    },
+    "129": {
+      "data": {
+        "findPrematchOddsForBookmaker": {
+          "home": {"value": 2.05, "opening": 2.02},
+          "draw": {"value": 3.4, "opening": 3.3},
+          "away": {"value": 3.5, "opening": 3.55}
+        }
+      }
+    }
+  }
+}

@@ -10,6 +10,11 @@ from pathlib import Path
 
 from .reader import read_url, to_markdown
 
+from .api_recipes.discovery import (
+    DEFAULT_MAX_ENTRY_BYTES,
+    DEFAULT_MAX_REPORT_CANDIDATES,
+)
+
 
 def _truthy(value: object, default: bool = False) -> bool:
     if value is None:
@@ -78,6 +83,22 @@ def health_payload() -> dict:
             "archive_default": _truthy(os.environ.get("ARCHIVE_FALLBACK"), True),
             "jina_default": _truthy(os.environ.get("JINA_FALLBACK"), False),
         },
+        "api_recipes": {
+            "enabled_default": _truthy(os.environ.get("API_RECIPES"), False),
+            "builtin": [],
+            "methods": ["GET"],
+            "route_advice": True,
+            "recurrent_need_default": False,
+            "notes": (
+                "Opt-in structured HTTPS GET recipes with host allowlists; degrade to "
+                "HTTP→SEO→Cloak→archive. No site-specific builtins — load recipes via "
+                "API_RECIPE_PATHS / --api-recipe-path. network.mode=open runs with global "
+                "opt-in alone; consent_required needs allowlist + consent phrase; "
+                "fixture_only never lives. StrategyCache stays http/seo/cloak/archive only. "
+                "Optional route_advice (offline) steers agents toward loaded recipes or manual HAR "
+                "+ --discover-har when recurrent_need is set; never auto-sniffs or activates."
+            ),
+        },
         "documents": {
             "anydoc_installed": anydoc_available(),
             "pdf_inspector_installed": pdf_inspector_available(),
@@ -126,6 +147,31 @@ def openapi_payload() -> dict:
             "browser_max_concurrency": {"type": "integer", "default": max(1, _env_int("BROWSER_MAX_CONCURRENCY", 1))},
             "archive_fallback": {"type": "boolean", "default": _truthy(os.environ.get("ARCHIVE_FALLBACK"), True)},
             "jina_fallback": {"type": "boolean", "default": _truthy(os.environ.get("JINA_FALLBACK"), False), "description": "Opt-in LinkedIn/public external reader fallback via Jina Reader. Disabled by default. Never used for credentialed, local, or private URLs."},
+            "api_recipes": {
+                "type": "boolean",
+                "default": _truthy(os.environ.get("API_RECIPES"), False),
+                "description": (
+                    "Opt-in structured API recipes (HTTPS GET only, host-allowlisted). "
+                    "Disabled by default. On failure, degrades to HTTP→SEO→Cloak→archive. "
+                    "Never sends Authorization/Cookie headers. Load external recipes via "
+                    "api_recipe_paths / API_RECIPE_PATHS. network.mode=open needs only this "
+                    "opt-in; consent_required also needs allowlist + consent attestation."
+                ),
+            },
+            "api_recipe_paths": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional extra recipe JSON files or directories (versioned, schema-validated).",
+            },
+            "recurrent_need": {
+                "type": "boolean",
+                "default": False,
+                "description": (
+                    "When true and no suitable recipe matches a HTML-like URL, attach discrete "
+                    "route_advice recommending manual HAR capture then offline --discover-har. "
+                    "Never auto-sniffs, never activates recipes. Ignored for PDF/image/social."
+                ),
+            },
             "document_max_pages": {
                 "type": "integer",
                 "default": _env_int("DOCUMENT_MAX_PAGES", 50),
@@ -175,7 +221,7 @@ def openapi_payload() -> dict:
             "title": {"type": "string"},
             "summary": {"type": "string"},
             "length": {"type": "integer"},
-            "fetch_method": {"type": "string", "enum": ["http", "seo", "cloak", "cloak-profile", "archive", "fallback", "yt-dlp", "jina", "twitter-cli", "opencli", "rdt-cli"]},
+            "fetch_method": {"type": "string", "enum": ["http", "seo", "cloak", "cloak-profile", "archive", "fallback", "yt-dlp", "jina", "twitter-cli", "opencli", "rdt-cli", "api-recipe"]},
             "warnings": {"type": "array", "items": {"type": "string"}},
             "content": {"type": "string"},
             "image_url": {"type": "string"},
@@ -192,7 +238,55 @@ def openapi_payload() -> dict:
             },
             "structured_data": {
                 "type": "object",
-                "description": "Optional sanitized JSON-LD subset from public LinkedIn pages (JobPosting/Person/Organization/Article).",
+                "description": "Optional sanitized structured payload (LinkedIn JSON-LD subset, or opt-in API recipe data).",
+            },
+            "api_recipe": {
+                "type": "object",
+                "description": "Present when an opt-in API recipe produced the result (id, version, confidence, ttl, captured_at).",
+            },
+            "route_advice": {
+                "type": "object",
+                "description": (
+                    "Optional machine-readable agent guidance (absent when no useful advice). "
+                    "Stable fields: recommended (api_recipe|review_recipe|api_discovery|standard_pipeline), "
+                    "state (available_disabled|fixture_only|review_required|used|blocked|suggested), "
+                    "reason, recipe?, requires?, next_command?, network_attempted. Computed offline. "
+                    "recipe.review_required is an explicit boolean (true for candidate / review_required / disabled)."
+                ),
+                "properties": {
+                    "recommended": {
+                        "type": "string",
+                        "enum": ["api_recipe", "review_recipe", "api_discovery", "standard_pipeline"],
+                    },
+                    "state": {
+                        "type": "string",
+                        "enum": [
+                            "available_disabled",
+                            "fixture_only",
+                            "review_required",
+                            "used",
+                            "blocked",
+                            "suggested",
+                        ],
+                    },
+                    "reason": {"type": "string"},
+                    "recipe": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "version": {"type": "string"},
+                            "network_mode": {"type": "string"},
+                            "status": {"type": "string"},
+                            "review_required": {
+                                "type": "boolean",
+                                "description": "True when the recipe must be reviewed before any execution (candidate / review_required / disabled).",
+                            },
+                        },
+                    },
+                    "requires": {"type": "array", "items": {"type": "string"}},
+                    "next_command": {"type": "string"},
+                    "network_attempted": {"type": "boolean"},
+                },
             },
         },
     }
@@ -252,6 +346,15 @@ class Handler(BaseHTTPRequestHandler):
         browser_fallback = _truthy(payload.get("browser_fallback"), _truthy(os.environ.get("BROWSER_FALLBACK"), False))
         archive_fallback = _truthy(payload.get("archive_fallback"), _truthy(os.environ.get("ARCHIVE_FALLBACK"), True))
         jina_fallback = _truthy(payload.get("jina_fallback"), _truthy(os.environ.get("JINA_FALLBACK"), False))
+        api_recipes = _truthy(payload.get("api_recipes"), _truthy(os.environ.get("API_RECIPES"), False))
+        recipe_paths_raw = payload.get("api_recipe_paths")
+        if isinstance(recipe_paths_raw, str) and recipe_paths_raw.strip():
+            api_recipe_paths = [recipe_paths_raw.strip()]
+        elif isinstance(recipe_paths_raw, list):
+            api_recipe_paths = [str(p) for p in recipe_paths_raw if str(p).strip()]
+        else:
+            env_paths = os.environ.get("API_RECIPE_PATHS", "").strip()
+            api_recipe_paths = [p.strip() for p in env_paths.split(":") if p.strip()] if env_paths else None
         summary_provider = str(payload.get("summary_provider") or os.environ.get("SUMMARY_PROVIDER") or "local")
         summary_provider_url = str(payload.get("summary_provider_url") or os.environ.get("SUMMARY_PROVIDER_URL") or "")
         summary_provider_token = str(payload.get("summary_provider_token") or os.environ.get("SUMMARY_PROVIDER_TOKEN") or "")
@@ -268,6 +371,9 @@ class Handler(BaseHTTPRequestHandler):
             browser_max_concurrency=int(payload.get("browser_max_concurrency") or _env_int("BROWSER_MAX_CONCURRENCY", 1)),
             archive_fallback=archive_fallback,
             jina_fallback=jina_fallback,
+            api_recipes=api_recipes,
+            api_recipe_paths=api_recipe_paths,
+            recurrent_need=_truthy(payload.get("recurrent_need"), False),
             summary_provider=summary_provider,
             summary_provider_url=summary_provider_url,
             summary_provider_token=summary_provider_token,
@@ -298,6 +404,74 @@ class Handler(BaseHTTPRequestHandler):
         return
 
 
+def run_discover_har(args: argparse.Namespace) -> int:
+    """Offline HAR discovery: classify exchanges and emit a disabled candidate recipe."""
+    import sys
+
+    from .api_recipes.discovery import (
+        discover_from_har,
+        render_report_json,
+        render_report_markdown,
+        write_report,
+    )
+
+    input_path = args.discover_har
+    if not input_path:
+        raise SystemExit("--discover-har requires a path to a local .har file")
+    report = discover_from_har(
+        input_path,
+        source_url=(args.discovery_source_url or "").strip() or None,
+        max_bytes=args.discovery_max_bytes,
+        max_candidates=args.discovery_max_candidates,
+    )
+    if args.discovery_out_dir:
+        written = write_report(report, out_dir=args.discovery_out_dir, prefix=args.discovery_prefix)
+        for kind in ("json", "markdown", "recipe"):
+            if kind in written:
+                print(f"{kind}: {written[kind]}")
+        return 0
+    if args.markdown:
+        sys.stdout.write(render_report_markdown(report))
+    else:
+        sys.stdout.write(render_report_json(report) + "\n")
+    return 0
+
+
+def run_validate_recipe(args: argparse.Namespace) -> int:
+    """Offline recipe validation: check a recipe file against the v1 schema + runtime rules."""
+    import sys
+
+    from .api_recipes.engine import validate_recipe_dict
+    from .api_recipes.schema import validate_recipe_schema
+
+    paths = args.validate_recipe or []
+    if not paths:
+        raise SystemExit("--validate-recipe requires at least one recipe JSON path")
+    all_ok = True
+    for raw_path in paths:
+        import json
+        from pathlib import Path
+
+        path = Path(raw_path).expanduser()
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            print(f"{raw_path}: VALIDATION FAILED (unreadable): {exc}")
+            all_ok = False
+            continue
+        schema_errors = validate_recipe_schema(raw)
+        runtime_errors = validate_recipe_dict(raw)
+        errors = schema_errors + [e for e in runtime_errors if e not in schema_errors]
+        if errors:
+            all_ok = False
+            print(f"{raw_path}: VALIDATION FAILED")
+            for e in errors:
+                print(f"  - {e}")
+        else:
+            print(f"{raw_path}: OK")
+    return 0 if all_ok else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fetch and summarize web URLs without JavaScript execution.")
     parser.add_argument("url", nargs="?", help="Fetch one URL and print JSON")
@@ -312,6 +486,30 @@ def main() -> int:
     parser.add_argument("--browser-max-concurrency", type=int, default=1, help="Maximum concurrent CloakBrowser renders in this process")
     parser.add_argument("--no-archive-fallback", action="store_true", help="Disable public archive/cache fallback after HTTP/SEO/browser failures or paywall teasers")
     parser.add_argument("--jina-fallback", action="store_true", help="Opt-in Jina Reader fallback for LinkedIn/public pages after the generic pipeline returns error/partial (disabled by default)")
+    parser.add_argument(
+        "--api-recipes",
+        action="store_true",
+        help=(
+            "Opt-in structured API recipes (HTTPS GET only). Disabled by default; "
+            "degrades to HTTP→SEO→Cloak→archive on failure. Load external recipes via "
+            "--api-recipe-path / API_RECIPE_PATHS (no site-specific builtins)"
+        ),
+    )
+    parser.add_argument(
+        "--api-recipe-path",
+        action="append",
+        default=[],
+        help="Optional extra recipe JSON file or directory (repeatable)",
+    )
+    parser.add_argument(
+        "--recurrent",
+        action="store_true",
+        help=(
+            "Flag a recurrent agent need: when no recipe matches a suitable HTML URL, "
+            "attach route_advice suggesting manual HAR capture then offline --discover-har "
+            "(never auto-sniffs or activates). No effect for PDF/image/social."
+        ),
+    )
     parser.add_argument(
         "--document-max-pages",
         type=int,
@@ -330,7 +528,28 @@ def main() -> int:
     parser.add_argument("--serve", action="store_true", help="Run HTTP service with /health, /summarize, /read, /markdown")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8768)
+    parser.add_argument(
+        "--discover-har",
+        default="",
+        help="Offline API discovery from a local .har file (no network). Emits a classified report and a disabled review_required candidate recipe.",
+    )
+    parser.add_argument("--discovery-out-dir", default="", help="When set, write JSON/Markdown report + candidate recipe to this directory")
+    parser.add_argument("--discovery-source-url", default="", help="Optional page URL used to rank HAR candidates (offline heuristic only)")
+    parser.add_argument("--discovery-prefix", default="discovery", help="Output filename prefix for --discovery-out-dir")
+    parser.add_argument("--discovery-max-bytes", type=int, default=DEFAULT_MAX_ENTRY_BYTES, help="Max response body bytes to keep as a candidate")
+    parser.add_argument("--discovery-max-candidates", type=int, default=DEFAULT_MAX_REPORT_CANDIDATES, help="Max candidate entries in the report")
+    parser.add_argument(
+        "--validate-recipe",
+        action="append",
+        default=[],
+        help="Validate a recipe JSON file against the v1 schema and runtime rules (repeatable, offline)",
+    )
     args = parser.parse_args()
+
+    if args.discover_har:
+        return run_discover_har(args)
+    if args.validate_recipe:
+        return run_validate_recipe(args)
 
     if args.serve:
         server = ThreadingHTTPServer((args.host, args.port), Handler)
@@ -340,6 +559,7 @@ def main() -> int:
 
     if not args.url:
         parser.error("provide a URL or use --serve")
+    env_recipe_paths = [p.strip() for p in os.environ.get("API_RECIPE_PATHS", "").split(":") if p.strip()]
     result = read_url(
         args.url,
         length=args.length,
@@ -352,6 +572,9 @@ def main() -> int:
         browser_max_concurrency=args.browser_max_concurrency,
         archive_fallback=not args.no_archive_fallback,
         jina_fallback=args.jina_fallback or _truthy(os.environ.get("JINA_FALLBACK"), False),
+        api_recipes=args.api_recipes or _truthy(os.environ.get("API_RECIPES"), False),
+        api_recipe_paths=(args.api_recipe_path or env_recipe_paths or None),
+        recurrent_need=bool(args.recurrent),
         document_max_pages=args.document_max_pages,
         summary_provider=args.summary_provider,
         summary_provider_url=args.summary_provider_url or os.environ.get("SUMMARY_PROVIDER_URL") or "",
