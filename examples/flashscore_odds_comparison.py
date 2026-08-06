@@ -8,8 +8,9 @@ a side-by-side comparison:
   2. JSON recipe         → normalized 1X2 odds (flashscore-odds, injected offline fetcher)
 
 Both are fixture-driven and never touch the network. There is no live benchmark:
-every value comes from a local synthetic fixture, so the comparison is
-deterministic and reproducible. It shows the *shape* of the difference — generic
+every market value comes from a local synthetic fixture, so the data comparison
+is deterministic and reproducible (the capture timestamp changes per run). It
+shows the *shape* of the difference — generic
 prose versus a typed, normalized 1X2 market with provenance / captured_at /
 fallback — not real market data.
 

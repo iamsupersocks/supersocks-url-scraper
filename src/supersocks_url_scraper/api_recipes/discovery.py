@@ -94,6 +94,11 @@ SENSITIVE_PARAM_RE = re.compile(
     r"refresh[_-]?token|access[_-]?token)"
 )
 
+SENSITIVE_HEADER_RE = re.compile(
+    r"(?i)(^|[-_])(token|auth|authorization|secret|cookie|credential|session)($|[-_])|"
+    r"api[-_]?key|bearer"
+)
+
 # Reason codes for excludable entries.
 REASON_WRITE_METHOD = "excluded: non-GET method"
 REASON_NON_HTTPS = "excluded: not https"
@@ -184,26 +189,32 @@ def _classify_query(url: str) -> tuple[bool, tuple[str, ...]]:
         return False, ()
     sensitive: list[str] = []
     for key, _value in parse_qsl(parsed.query, keep_blank_values=True):
-        if key in SENSITIVE_PARAM_NAMES or SENSITIVE_PARAM_RE.search(key):
+        if key.lower() in SENSITIVE_PARAM_NAMES or SENSITIVE_PARAM_RE.search(key):
             sensitive.append(key)
     return bool(sensitive), tuple(sorted(set(sensitive)))
 
 
 def redact_query(url: str) -> str:
-    """Replace sensitive query-param values with [REDACTED]."""
+    """Replace sensitive query-param values and drop fragments from reports."""
     parsed = urlparse(url)
-    if not parsed.query:
-        return url
     pairs = []
     for key, value in parse_qsl(parsed.query, keep_blank_values=True):
-        if key in SENSITIVE_PARAM_NAMES or SENSITIVE_PARAM_RE.search(key):
+        if key.lower() in SENSITIVE_PARAM_NAMES or SENSITIVE_PARAM_RE.search(key):
             pairs.append((key, "[REDACTED]"))
         else:
             pairs.append((key, value))
     new_query = urlencode(pairs, doseq=True)
     # Keep the sentinel readable in outputs (urlencode would percent-encode '[REDACTED]').
     new_query = new_query.replace("%5BREDACTED%5D", "[REDACTED]")
-    return urlparse(url)._replace(query=new_query).geturl()
+    # Never echo userinfo from a rejected HAR URL. Preserve an explicit port
+    # while rebuilding a credential-free netloc.
+    hostname = parsed.hostname or ""
+    safe_host = f"[{hostname}]" if ":" in hostname and not hostname.startswith("[") else hostname
+    try:
+        safe_netloc = f"{safe_host}:{parsed.port}" if parsed.port is not None else safe_host
+    except ValueError:
+        safe_netloc = safe_host
+    return parsed._replace(netloc=safe_netloc, query=new_query, fragment="").geturl()
 
 
 def _sensitive_header_names(headers: dict[str, str] | None) -> tuple[str, ...]:
@@ -212,7 +223,7 @@ def _sensitive_header_names(headers: dict[str, str] | None) -> tuple[str, ...]:
     found: list[str] = []
     for name in headers:
         lowered = str(name).lower()
-        if lowered in SENSITIVE_HEADER_NAMES:
+        if lowered in SENSITIVE_HEADER_NAMES or SENSITIVE_HEADER_RE.search(lowered):
             found.append(lowered)
     return tuple(sorted(set(found)))
 
@@ -221,7 +232,7 @@ def _redact_headers(headers: dict[str, str] | None) -> dict[str, str]:
     out: dict[str, str] = {}
     for name, value in (headers or {}).items():
         lowered = str(name).lower()
-        if lowered in SENSITIVE_HEADER_NAMES:
+        if lowered in SENSITIVE_HEADER_NAMES or SENSITIVE_HEADER_RE.search(lowered):
             out[lowered] = "[REDACTED]"
         else:
             out[str(name)] = (
@@ -333,6 +344,9 @@ def classify_har_entry(
             if isinstance(h, dict) and h.get("name"):
                 header_map[str(h["name"])] = str(h.get("value") or "")
     sensitive_headers = _sensitive_header_names(header_map)
+    request_cookies = request.get("cookies")
+    if isinstance(request_cookies, list) and request_cookies:
+        sensitive_headers = tuple(sorted(set(sensitive_headers) | {"cookie"}))
     if sensitive_headers:
         return excluded(
             REASON_SENSITIVE_HEADER,
@@ -423,11 +437,14 @@ def build_candidate_recipe(entry: CandidateEntry) -> dict[str, Any]:
     Always blocked: ``network.mode`` is ``fixture_only`` and ``status`` is
     ``review_required``. Nothing here can execute or self-promote.
     """
+    if entry.classification != "candidate":
+        raise ValueError("candidate recipe requires a classified safe candidate entry")
     parsed = urlparse(entry.redacted_url or entry.url)
     host = parsed.hostname or entry.host or "unknown"
-    # Host root = the registrable-ish root (last two labels) for matching.
-    labels = [x for x in host.lower().split(".") if x]
-    root = ".".join(labels[-2:]) if len(labels) >= 2 else host
+    # Keep matching exact and conservative. Guessing a registrable root from the
+    # last two labels would turn api.example.co.uk into the dangerously broad
+    # co.uk. An operator can widen host_roots deliberately during review.
+    root = host.lower()
     path = parsed.path or ""
     path_regex = ""
     if path and path.strip("/"):
@@ -509,7 +526,7 @@ def discover_from_har(
             excluded.append(classified)
 
     candidates.sort(key=lambda c: c.size_bytes, reverse=True)
-    candidates = candidates[:max_candidates]
+    candidates = candidates[: max(0, int(max_candidates))]
 
     report = DiscoveryReport(
         source_har=str(path),

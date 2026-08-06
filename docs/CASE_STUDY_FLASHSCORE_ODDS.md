@@ -76,9 +76,10 @@ side-by-side comparison, with **no live benchmark**:
   present) per bookmaker, plus `provenance`, `captured_at`, a disclaimer, and a
   fallback signal.
 
-The comparison is deterministic because every value comes from local synthetic
-fixtures; it shows the *shape* of the difference (generic prose versus a typed,
-normalized market) rather than real market data. `--show-fallback` additionally
+The comparison uses deterministic synthetic fixture values; only the generated
+`captured_at` timestamp changes between runs. It shows the *shape* of the
+difference (generic prose versus a typed, normalized market) rather than real
+market data. `--show-fallback` additionally
 proves that without an injected fetcher the recipe errors and signals fallback
 (`_api_recipe_fallback = true`).
 

@@ -450,8 +450,9 @@ provider is named only in the bounded Source et provenance sections.
 
 ## Case study: Flashscore 1X2 odds (API recipes)
 
-For an opt-in, read-only API recipe pattern that turns a Flashscore match URL
-into compact `home`/`draw`/`away` odds JSON for agents, see
+For an opt-in, read-only API recipe pattern that demonstrates offline how a
+Flashscore-style match URL can be adapted into compact
+`home`/`draw`/`away` odds JSON for agents, see
 [`docs/CASE_STUDY_FLASHSCORE_ODDS.md`](docs/CASE_STUDY_FLASHSCORE_ODDS.md) and
 [`examples/flashscore_odds.py`](examples/flashscore_odds.py). The recipe is
 HTTPS GET only, host-allowlisted, fanout-bounded, and off by default
@@ -464,9 +465,9 @@ live block it degrades to HTTP → SEO → Cloak → archive.
 
 [`examples/flashscore_odds_comparison.py`](examples/flashscore_odds_comparison.py)
 runs the **same synthetic case** through the base HTML scraper and the JSON
-recipe, offline and deterministically, showing generic prose versus a normalized
+recipe, entirely offline with deterministic fixture values, showing generic prose versus a normalized
 1X2 market (with provenance / `captured_at` / fallback signal) — no live
-benchmark.
+benchmark. The generated `captured_at` timestamp naturally reflects each run.
 
 For how an endpoint adapter is **discovered** from a local HAR (offline,
 opt-in, classified, redacted) and how a candidate becomes a reviewed, activated

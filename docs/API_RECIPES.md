@@ -56,7 +56,8 @@ fails and the reader falls back to the normal pipeline — it never fakes data.
           read-only, within the site's terms; no credentials needed)
         │
         ▼
-  activation (operator sets network.mode consent_required/open + allowlist/consent)
+  activation (operator selects an appropriate network mode after review;
+              consent_required also needs allowlist + consent attestation)
         │
         ▼
   execution via read_url(api_recipes=True)  ──►  structured_data
@@ -170,10 +171,17 @@ supersocks-url-scraper --validate-recipe my-recipe.v1.json
 | `consent_required` / `allowlist` | only with allowlist + exact consent phrase | for gated sites (e.g. Flashscore) |
 | `open` / `allow` | yes (still opt-in) | for intentionally public endpoints |
 
-Live access additionally requires `API_RECIPE_LIVE_ALLOWLIST` to include the
-recipe id and `API_RECIPE_LIVE_CONSENT` to equal the consent phrase. The shipped
-Flashscore recipe stays `fixture_only` and never runs live unless an operator
-deliberately changes its mode.
+For `consent_required` / `allowlist`, live access additionally requires
+`API_RECIPE_LIVE_ALLOWLIST` to include the recipe id and
+`API_RECIPE_LIVE_CONSENT` to equal the consent phrase. `open` / `allow` does not
+use those two consent variables, but still requires the global recipes opt-in
+and all HTTPS/GET/host/DNS/redirect safety gates. Candidate recipes are never
+generated in an open mode. The shipped Flashscore recipe stays `fixture_only`.
+
+`status` and `review_required` document the review state for humans and agents;
+the hard runtime execution gate is `network.mode`. Discovery always combines
+the review markers with `network.mode: fixture_only` so a fresh candidate
+cannot perform a live request.
 
 ## Agent commands
 

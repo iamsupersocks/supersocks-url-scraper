@@ -1,7 +1,7 @@
 # API discovery report (offline HAR)
 
 - Source HAR: `tests/fixtures/api_recipes/discovery_sample.har`
-- Generated: `2026-08-06T15:57:18+00:00`
+- Generated: `2026-08-06T16:08:43+00:00`
 - Entries scanned: **10**
 - Candidates kept: **2**
 - Excluded: **8**

@@ -1,6 +1,6 @@
 {
   "source_har": "tests/fixtures/api_recipes/discovery_sample.har",
-  "generated_at": "2026-08-06T15:57:18+00:00",
+  "generated_at": "2026-08-06T16:08:43+00:00",
   "counts": {
     "total_entries": 10,
     "candidates": 2,
@@ -101,7 +101,7 @@
     },
     "match": {
       "host_roots": [
-        "example.com"
+        "api.example.com"
       ],
       "path_regex": "api/v1/events"
     },
@@ -137,7 +137,7 @@
       "status_code": 200,
       "content_type": "application/json",
       "size_bytes": 214,
-      "captured_at": "2026-08-06T15:57:18+00:00"
+      "captured_at": "2026-08-06T16:08:43+00:00"
     }
   }
 }

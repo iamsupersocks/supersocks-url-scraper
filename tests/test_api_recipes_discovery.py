@@ -117,6 +117,10 @@ def test_classify_excludes_sensitive_query_param() -> None:
     assert "abc" not in result.redacted_url
     assert "[REDACTED]" in result.redacted_url
 
+    mixed_case = classify_har_entry(_entry(url="https://api.example.com/x?Code=oauth-secret"))
+    assert mixed_case.reason == REASON_SENSITIVE_PARAM
+    assert "oauth-secret" not in mixed_case.redacted_url
+
 
 def test_classify_excludes_sensitive_header() -> None:
     result = classify_har_entry(
@@ -124,6 +128,20 @@ def test_classify_excludes_sensitive_header() -> None:
     )
     assert result.reason == REASON_SENSITIVE_HEADER
     assert "authorization" in result.sensitive_headers
+
+
+def test_classify_excludes_custom_token_header_and_har_cookie_field() -> None:
+    custom = classify_har_entry(
+        _entry(headers=[{"name": "X-Client-Secret-Token", "value": "opaque-value"}])
+    )
+    assert custom.reason == REASON_SENSITIVE_HEADER
+    assert "x-client-secret-token" in custom.sensitive_headers
+
+    cookie_entry = _entry()
+    cookie_entry["request"]["cookies"] = [{"name": "session_id", "value": "secret"}]
+    cookie = classify_har_entry(cookie_entry)
+    assert cookie.reason == REASON_SENSITIVE_HEADER
+    assert "cookie" in cookie.sensitive_headers
 
 
 def test_classify_excludes_non_json() -> None:
@@ -142,12 +160,19 @@ def test_classify_excludes_error_status() -> None:
 
 
 def test_redact_query_removes_sensitive_values() -> None:
-    url = "https://api.example.com/orders?api_key=ksecret&status=open&sig=abc"
+    url = "https://api.example.com/orders?api_key=ksecret&status=open&sig=abc#access_token=fragment-secret"
     redacted = redact_query(url)
     assert "ksecret" not in redacted
     assert "abc" not in redacted
     assert "[REDACTED]" in redacted
     assert "status=open" in redacted
+    assert "fragment-secret" not in redacted
+    assert "#" not in redacted
+
+    credentialed = redact_query("https://alice:password@example.com/orders?page=1")
+    assert "alice" not in credentialed
+    assert "password" not in credentialed
+    assert credentialed == "https://example.com/orders?page=1"
 
 
 # --- Full discovery over the fixture HAR ---
@@ -219,6 +244,17 @@ def test_build_candidate_recipe_from_classified() -> None:
     assert recipe["endpoint"]["url_template"].startswith("https://")
     assert recipe["match"]["host_roots"]
     assert recipe["status"] == "review_required"
+
+    excluded = classify_har_entry(_entry(method="POST"))
+    with pytest.raises(ValueError):
+        build_candidate_recipe(excluded)
+
+
+def test_candidate_match_root_is_exact_for_multi_part_tld() -> None:
+    entry = classify_har_entry(_entry(url="https://api.example.co.uk/v1/items", body='{"a":1}'))
+    recipe = build_candidate_recipe(entry)
+    assert recipe["match"]["host_roots"] == ["api.example.co.uk"]
+    assert "co.uk" not in recipe["match"]["host_roots"]
 
 
 def test_iter_har_entries_handles_non_har() -> None:
