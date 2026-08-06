@@ -73,7 +73,7 @@ curl -s http://127.0.0.1:8768/summarize \
 - Recognized consent dialogs are dismissed through an explicit reject/continue-without-accepting control before browser extraction.
 - Layered fallback pipeline: HTTP → SEO variants → CloakBrowser → public archive/cache snapshots, including retry when HTTP returns only a teaser/paywall/cookie wall.
 - Optional per-domain JSON strategy cache storing only routing metadata.
-- Optional opt-in API recipes (HTTPS GET, host-allowlisted, versioned) for structured agent outputs; Flashscore 1X2 example is fixture-only by default (ToS). Degrade to HTTP→SEO→Cloak→archive on failure. Off by default. Offline HAR discovery (`--discover-har`) classifies a local capture and emits a disabled `review_required` candidate recipe; embedded JSON Schema v1 + `--validate-recipe` validate recipe files offline. Optional `route_advice` / `--recurrent` steers agents toward known recipes or manual HAR + offline discovery — no auto-sniff, no auto-activation.
+- Optional opt-in API recipes (HTTPS GET, host-allowlisted, versioned) for structured agent outputs; Flashscore 1X2 example is consent-gated and off by default (ToS). Degrade to HTTP→SEO→Cloak→archive on failure. Off by default. Offline HAR discovery (`--discover-har`) classifies a local capture and emits a disabled `review_required` candidate recipe; embedded JSON Schema v1 + `--validate-recipe` validate recipe files offline. Optional `route_advice` / `--recurrent` steers agents toward known recipes or manual HAR + offline discovery — no auto-sniff, no auto-activation.
 - Markdown output.
 - Returns warnings for partial extraction, boilerplate, paywalls, and placeholders.
 - Safe to run locally or in cron/server contexts.
@@ -477,8 +477,8 @@ Flashscore-style match URL can be adapted into compact
 [`examples/flashscore_odds.py`](examples/flashscore_odds.py). The recipe is
 HTTPS GET only, host-allowlisted, fanout-bounded, and off by default
 (`--api-recipes` / `API_RECIPES=1`). The shipped Flashscore example is
-**fixture-only** (Flashscore ToS prohibit automated scraping without express
-consent); it does not enable a live connector by default. It does not promote
+**consent-gated and off by default** (Flashscore ToS prohibit automated scraping without express
+consent); live GETs require `API_RECIPE_LIVE_ALLOWLIST` + `API_RECIPE_LIVE_CONSENT` when the operator possesses express written permission. It does not enable
 XHR endpoints into `StrategyCache`, does not log in or store cookies/tokens,
 and labels odds as dated snapshots — **not betting advice**. On failure or
 live block it degrades to HTTP → SEO → Cloak → archive.
@@ -549,9 +549,9 @@ Supported service environment variables:
 - `ARCHIVE_FALLBACK`: set to `latest`/`1`/`true` to allow public archive/cache fallback by default.
 - `SEO_FALLBACK`: enable/disable SEO-style HTTP variants by default.
 - `JINA_FALLBACK`: opt-in Jina Reader fallback after specialized LinkedIn (or generic last-resort) `error`/`partial` results. Disabled by default. Never used for credentialed, local, or private URLs; never forwards cookies/tokens.
-- `API_RECIPES`: opt-in structured API recipes (HTTPS GET only, host-allowlisted). Disabled by default. Flashscore odds ships fixture-only (ToS). On failure/live block, degrades to HTTP→SEO→Cloak→archive. Never sends Authorization/Cookie headers.
+- `API_RECIPES`: opt-in structured API recipes (HTTPS GET only, host-allowlisted). Disabled by default. Flashscore odds ships consent-gated (ToS). On failure/live block, degrades to HTTP→SEO→Cloak→archive. Never sends Authorization/Cookie headers.
 - `API_RECIPE_PATHS`: optional colon-separated extra recipe JSON files or directories.
-- `API_RECIPE_LIVE_ALLOWLIST` / `API_RECIPE_LIVE_CONSENT`: only for recipes with `network.mode=consent_required` and express written permission; ignored while Flashscore remains `fixture_only`.
+- `API_RECIPE_LIVE_ALLOWLIST` / `API_RECIPE_LIVE_CONSENT`: required for live GETs on recipes with `network.mode=consent_required` when the operator possesses express written permission per site Terms.
 - Offline tooling: `--discover-har <file>` (classify a local HAR and emit a disabled candidate recipe), `--discovery-out-dir <dir>`, and `--validate-recipe <file>` (validate against the embedded JSON Schema v1 + runtime rules). See [`docs/API_RECIPES.md`](docs/API_RECIPES.md).
 - `--recurrent` / request field `recurrent_need` (default `false`): when set and no recipe matches a suitable HTML URL, attach discrete `route_advice` recommending manual HAR capture then offline `--discover-har`. Also triggered when the fetch used a costly method (`cloak`, `archive`, etc.). Never auto-sniffs. Skipped for PDF/image/social.
 - `FETCH_STRATEGY_CACHE_PATH`: metadata-only domain strategy cache.

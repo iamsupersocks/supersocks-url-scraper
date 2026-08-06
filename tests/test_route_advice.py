@@ -71,7 +71,7 @@ def test_default_read_has_no_route_advice(monkeypatch: pytest.MonkeyPatch) -> No
     assert result.get("status") in {"ok", "partial"}
 
 
-def test_known_recipe_disabled_fixture_only_for_flashscore(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_known_recipe_disabled_available_disabled_for_flashscore(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_pipeline(fetch_url: str, **kwargs: Any) -> FetchedResource:
         return _html_resource(fetch_url, "<html><body><article><p>Match page prose.</p></article></body></html>")
 
@@ -86,14 +86,13 @@ def test_known_recipe_disabled_fixture_only_for_flashscore(monkeypatch: pytest.M
     )
     advice = result.get("route_advice")
     assert isinstance(advice, dict)
-    assert advice["state"] == "fixture_only"
+    assert advice["state"] == "available_disabled"
     assert advice["recommended"] == "api_recipe"
     assert advice["network_attempted"] is False
     assert advice["recipe"]["id"] == "flashscore-odds"
-    assert advice["recipe"]["network_mode"] == "fixture_only"
+    assert advice["recipe"]["network_mode"] == "consent_required"
     assert "status" in advice["recipe"]
-    assert "--api-recipes" not in (advice.get("next_command") or "")
-    assert "fixture" in (advice.get("next_command") or "").lower() or "flashscore_odds" in (advice.get("next_command") or "")
+    assert "--api-recipes" in (advice.get("next_command") or "")
 
 
 def test_flashscore_blocked_when_enabled_without_fetcher(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -119,6 +118,13 @@ def test_flashscore_blocked_when_enabled_without_fetcher(monkeypatch: pytest.Mon
     assert advice["recommended"] == "standard_pipeline"
     assert advice["network_attempted"] is False
     assert "fallback" in advice["reason"].lower() or "blocked" in advice["reason"].lower()
+    requires = advice.get("requires") or []
+    assert any("API_RECIPE_LIVE_ALLOWLIST" in r for r in requires)
+    assert any("API_RECIPE_LIVE_CONSENT" in r for r in requires)
+    next_cmd = advice.get("next_command") or ""
+    assert "flashscore-odds" in next_cmd
+    assert "<url>" in next_cmd
+    assert DEMO_URL not in next_cmd
     assert result.get("fetch_method") != "api-recipe"
 
 
@@ -256,11 +262,13 @@ def test_used_state_after_successful_recipe() -> None:
         api_recipes_enabled=True,
         recipe_used=True,
         result=payload,
+        network_attempted=False,
     )
     assert advice is not None
     assert advice["state"] == "used"
     assert advice["recommended"] == "api_recipe"
     assert advice["recipe"]["id"] == "flashscore-odds"
+    assert advice["network_attempted"] is False
     md = to_markdown({**payload, "route_advice": advice})
     assert "## Route advice" in md
     assert "used" in md
@@ -342,6 +350,10 @@ def test_blocked_fallback_consent_required() -> None:
     assert advice["recommended"] == "standard_pipeline"
     assert advice["network_attempted"] is False
     assert "fallback" in advice["reason"].lower() or "blocked" in advice["reason"].lower()
+    requires = advice.get("requires") or []
+    assert any("API_RECIPE_LIVE_ALLOWLIST" in r for r in requires)
+    assert any("API_RECIPE_LIVE_CONSENT" in r for r in requires)
+    assert "<url>" in (advice.get("next_command") or "")
 
 
 def test_recurrent_need_suggests_api_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -441,7 +453,7 @@ def test_route_advice_matching_makes_zero_network_calls(monkeypatch: pytest.Monk
         api_recipes_enabled=False,
     )
     assert advice is not None
-    assert advice["state"] == "fixture_only"
+    assert advice["state"] == "available_disabled"
     assert advice["network_attempted"] is False
 
     discovery = build_route_advice(
@@ -501,7 +513,7 @@ def test_read_url_used_path_attaches_advice(monkeypatch: pytest.MonkeyPatch) -> 
     result = read_url(DEMO_URL, api_recipes=True, skip_social_routing=True)
     assert result.get("fetch_method") == "api-recipe"
     assert result["route_advice"]["state"] == "used"
-    assert result["route_advice"]["network_attempted"] is False  # fixture_only recipe
+    assert result["route_advice"]["network_attempted"] is False  # injected fetcher, not live
 
 
 def test_socket_not_opened_for_advice_only_flashscore_match(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -529,4 +541,4 @@ def test_socket_not_opened_for_advice_only_flashscore_match(monkeypatch: pytest.
     )
     assert "urlopen" not in calls
     assert "pipeline" in calls
-    assert result["route_advice"]["state"] == "fixture_only"
+    assert result["route_advice"]["state"] == "available_disabled"

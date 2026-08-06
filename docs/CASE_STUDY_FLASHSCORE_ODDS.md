@@ -1,13 +1,14 @@
-# Case study #3: Flashscore 1X2 odds (fixture-only)
+# Case study #3: Flashscore 1X2 odds (consent-gated, off by default)
 
 Public, share-safe example showing how `supersocks-url-scraper` exposes an
 **optional, versioned API-recipe layer**, then how an agent consumes a compact
-1X2 odds snapshot. **No live Flashscore connector is shipped or enabled.**
+1X2 odds snapshot. **No live Flashscore connector runs without explicit
+allowlist + consent attestation.**
 
 Flashscore Terms of Use prohibit burdening their servers with automated requests
 and prohibit scraping / aggregating site content without express consent
 (https://www.flashscore.com/terms-of-use/). This case study is therefore
-**offline, fixture-driven, and non-network**. Synthetic odds values are
+**offline, fixture-driven, and non-network by default**. Synthetic odds values are
 fictional and **not betting advice**.
 
 Companion code:
@@ -29,8 +30,10 @@ Demonstrate a bounded pattern an agent can reuse:
 4. Emit JSON/Markdown with `captured_at`, provenance, and a non-advice disclaimer.
 5. On recipe failure or network block, degrade to HTTP → SEO → Cloak → archive.
 
-The example never opens a live socket. Live HTTPS GET for this recipe stays
-impossible while `network.mode` is `fixture_only` (the shipped default).
+The example never opens a live socket by default. Live HTTPS GET for this recipe
+requires `network.mode=consent_required` (the shipped default) **plus**
+`API_RECIPE_LIVE_ALLOWLIST` and `API_RECIPE_LIVE_CONSENT` when the operator
+possesses express written permission per current Terms.
 
 ## Parcours
 
@@ -53,7 +56,7 @@ python examples/flashscore_odds.py --demo-fallback
 
 Expected: structured JSON with `fetch_method: "api-recipe"`, several bookmaker
 rows, `api_recipe.id = flashscore-odds`, and the disclaimer. `--demo-fallback`
-shows that without an injected fetcher the recipe errors with a ToS/consent
+shows that without allowlist/consent the recipe errors with a ToS/consent
 warning and signals fallback (`_api_recipe_fallback`).
 
 ### Base HTML scraper vs JSON recipe (deterministic, offline)
@@ -80,7 +83,7 @@ The comparison uses deterministic synthetic fixture values; only the generated
 `captured_at` timestamp changes between runs. It shows the *shape* of the
 difference (generic prose versus a typed, normalized market) rather than real
 market data. `--show-fallback` additionally
-proves that without an injected fetcher the recipe errors and signals fallback
+proves that without allowlist/consent the recipe errors and signals fallback
 (`_api_recipe_fallback = true`).
 
 ### Discovery from a local HAR (offline, opt-in)
@@ -94,16 +97,21 @@ redacts sensitive params and headers, and emits a classified report plus a
 [`docs/API_RECIPES.md`](API_RECIPES.md) for the lifecycle
 HAR → candidate → review → activation → execution → fallback.
 
-### Opt-in reader flag (still no live Flashscore)
+### Opt-in reader flag (consent-gated live path)
 
 ```bash
-# API recipes are opt-in. Flashscore remains fixture_only — matching URLs
-# will not perform live odds GETs; the reader falls through to the normal pipeline.
-# Without --api-recipes: route_advice.state=fixture_only (fixture/demo only; never advises live enable).
+# API recipes are opt-in. Flashscore ships consent_required — matching URLs
+# perform no live odds GETs unless allowlist+consent env vars are set.
+# Without --api-recipes: route_advice.state=available_disabled (enable recipes first).
 supersocks-url-scraper https://www.flashscore.com/match/football/demo/?mid=Ab12Cd34
 
-# With --api-recipes but no injected fetcher/live permission: recipe is attempted,
+# With --api-recipes but no allowlist/consent: recipe is attempted,
 # falls back, and route_advice.state=blocked (standard pipeline already used).
+supersocks-url-scraper --api-recipes https://www.flashscore.com/match/football/demo/?mid=Ab12Cd34
+
+# Authorized live path (only with express written permission):
+API_RECIPE_LIVE_ALLOWLIST=flashscore-odds \
+API_RECIPE_LIVE_CONSENT=I_HAVE_EXPRESS_WRITTEN_PERMISSION \
 supersocks-url-scraper --api-recipes https://www.flashscore.com/match/football/demo/?mid=Ab12Cd34
 ```
 
@@ -111,12 +119,12 @@ Environment mirrors:
 
 - `API_RECIPES=0` (default) — recipes off
 - `API_RECIPE_PATHS` — extra recipe JSON files/dirs
-- Live gates (not used by the shipped Flashscore recipe while `fixture_only`):
-  - `API_RECIPE_LIVE_ALLOWLIST` — comma/space list of recipe ids
+- Live gates for the shipped Flashscore recipe (`consent_required`):
+  - `API_RECIPE_LIVE_ALLOWLIST` — comma/space list of recipe ids (include `flashscore-odds`)
   - `API_RECIPE_LIVE_CONSENT=I_HAVE_EXPRESS_WRITTEN_PERMISSION`
 
 Agent recurrence: pass `recurrent_need=True` / `--recurrent` on *other* HTML sites
-when you expect to revisit them; Flashscore already has a shipped fixture-only
+when you expect to revisit them; Flashscore already has a shipped consent-gated
 recipe, so advice points at that adapter instead of discovery. See
 [`docs/API_RECIPES.md`](API_RECIPES.md) § Agent-first route advice.
 
@@ -146,7 +154,7 @@ bookmaker stubs are skipped) plus:
 
 - `structured_data.kind = flashscore_odds_1x2`
 - `disclaimer` stating the snapshot is not betting advice
-- `provenance` noting fixture-only / ToS constraints
+- `provenance` noting consent-gated / ToS constraints
 
 Deterministic offline artifacts (committed under `docs/data/`):
 
@@ -161,8 +169,7 @@ steps:
   1. Prefer examples/flashscore_odds.py (fixture fetcher)
   2. Or call execute_recipe(..., fetcher=offline_fetcher)
   3. Never enable live Flashscore GETs unless you have express written permission
-     and you deliberately change network.mode away from fixture_only with
-     allowlist + consent env vars
+     per current Terms AND set API_RECIPE_LIVE_ALLOWLIST + API_RECIPE_LIVE_CONSENT
   4. Always surface disclaimer + captured_at; never present odds as a tip
 ```
 

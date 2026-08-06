@@ -2,8 +2,8 @@
 
 Flashscore Terms of Use (clause covering automated requests / scraping without
 express consent — see https://www.flashscore.com/terms-of-use/) mean the
-shipped Flashscore odds example must stay fixture-only by default. Live HTTPS
-GETs for consent-gated recipes require BOTH:
+shipped Flashscore odds recipe uses ``network.mode=consent_required`` and stays
+off by default. Live HTTPS GETs for consent-gated recipes require BOTH:
 
 1. API_RECIPE_LIVE_ALLOWLIST including the recipe id (comma/space separated)
 2. API_RECIPE_LIVE_CONSENT exactly equal to the required consent phrase
@@ -23,8 +23,10 @@ DEFAULT_CONSENT_PHRASE = "I_HAVE_EXPRESS_WRITTEN_PERMISSION"
 FLASHSCORE_TOS_WARNING = (
     "Flashscore Terms of Use prohibit automated requests and scraping without "
     "express consent (https://www.flashscore.com/terms-of-use/). Live network "
-    "access for recipe flashscore-odds is disabled unless API_RECIPE_LIVE_ALLOWLIST "
-    f"includes the recipe id and API_RECIPE_LIVE_CONSENT={DEFAULT_CONSENT_PHRASE}."
+    "access for recipe flashscore-odds is off by default and consent-gated: set "
+    "API_RECIPE_LIVE_ALLOWLIST to include flashscore-odds and "
+    f"API_RECIPE_LIVE_CONSENT={DEFAULT_CONSENT_PHRASE} only when you possess "
+    "express written permission per current Terms."
 )
 
 

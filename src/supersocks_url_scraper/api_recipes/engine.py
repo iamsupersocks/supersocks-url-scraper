@@ -122,8 +122,7 @@ def recipe_from_dict(raw: dict[str, Any]) -> ApiRecipe:
     endpoint_raw = raw["endpoint"]
     headers = {str(k): str(v) for k, v in (endpoint_raw.get("headers") or {}).items()}
     network_raw = raw.get("network") if isinstance(raw.get("network"), dict) else {}
-    # Flashscore shipped builtin defaults to fixture_only regardless of omitted network block.
-    default_mode = "fixture_only" if str(raw.get("id") or "").strip() == "flashscore-odds" else "consent_required"
+    default_mode = "consent_required"
     network = RecipeNetworkPolicy(
         mode=str(network_raw.get("mode") or default_mode).strip().lower() or default_mode,
         consent_phrase=str(network_raw.get("consent_phrase") or RecipeNetworkPolicy().consent_phrase),
@@ -296,7 +295,7 @@ def run_flashscore_odds_recipe(
                 "bookmakers": [],
                 "network_blocked": True,
                 "disclaimer": "Odds are not betting advice.",
-                "provenance": "fixture-only by default; live blocked",
+                "provenance": "consent-gated by default; live blocked pending allowlist+consent",
             },
         )
 
@@ -609,10 +608,17 @@ def try_api_recipe(
         resolve_dns=resolve_dns,
     )
     payload = run.as_reader_dict(include_content=include_content)
+    live_used = fetcher is None and live_network_permitted(
+        recipe.id,
+        network_mode=recipe.network.mode,
+        consent_phrase=recipe.network.consent_phrase,
+    )
     if run.status == "error":
         payload["_api_recipe_fallback"] = True
     elif run.status == "partial" and not (run.structured_data or {}).get("bookmakers"):
         # Flashscore partial-empty → fallback; generic partials keep payload.
         if recipe.id == "flashscore-odds":
             payload["_api_recipe_fallback"] = True
+    elif run.status in {"ok", "partial"} and live_used:
+        payload["_api_recipe_live_network"] = True
     return payload

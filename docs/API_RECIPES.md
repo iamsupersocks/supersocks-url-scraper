@@ -49,7 +49,7 @@ recipes off) → `suggested` (offline discovery).
 |-----------|-------------------------|--------------------------|
 | Recipe produced the result | `used` / `api_recipe` | Prefer the structured recipe output |
 | `status=review_required` / candidate | `review_required` / `review_recipe` | Do not execute; review offline, then activate deliberately |
-| Recipe blocked, pipeline fell back | `blocked` / `standard_pipeline` | Keep using fallback; do not auto-enable live |
+| Recipe blocked (consent missing), pipeline fell back | `blocked` / `standard_pipeline` | Keep using fallback; set allowlist + consent if authorized |
 | `network.mode=fixture_only` (or `off`/`disabled`/`never`) | `fixture_only` / `api_recipe` | Use fixture/demo or injected fetcher — **never** live; **no** enable command |
 | Known active recipe, recipes disabled (`consent_required` / `open`, not fixture-only) | `available_disabled` / `api_recipe` | Enable explicitly (`--api-recipes` / `API_RECIPES=1` / `api_recipes:true`) |
 | No recipe + `recurrent_need` or costly fetch (`cloak`/`archive`/…) (HTML-like) | `suggested` / `api_discovery` | Capture HAR **manually**, then `--discover-har` offline |
@@ -94,8 +94,8 @@ fails and the reader falls back to the normal pipeline — it never fakes data.
 
 | Aspect | Current (this release) | Future (not shipped) |
 |--------|------------------------|-----------------------|
-| Shipped recipes | `flashscore-odds@v1` (fixture-only) | more opt-in adapters after review |
-| Live network | blocked by default (`fixture_only`); never for Flashscore without consent | controlled per-recipe activation |
+| Shipped recipes | `flashscore-odds@v1` (consent-gated) | more opt-in adapters after review |
+| Live network | off by default (`API_RECIPES=0`); consent-gated for Flashscore | controlled per-recipe activation |
 | Discovery | offline HAR classifier + disabled candidate | richer candidate field mapping |
 | Activation | manual, review-gated | guided review tooling |
 | Execution | via `--api-recipes` / `API_RECIPES=1` | same, plus per-recipe toggles |
@@ -238,7 +238,8 @@ For `consent_required` / `allowlist`, live access additionally requires
 `API_RECIPE_LIVE_CONSENT` to equal the consent phrase. `open` / `allow` does not
 use those two consent variables, but still requires the global recipes opt-in
 and all HTTPS/GET/host/DNS/redirect safety gates. Candidate recipes are never
-generated in an open mode. The shipped Flashscore recipe stays `fixture_only`.
+generated in an open mode. The shipped Flashscore recipe uses `consent_required`
+(off by default until allowlist + consent attestation).
 
 `status` and `review_required` document the review state for humans and agents;
 the hard runtime execution gate is `network.mode`. Discovery always combines
@@ -274,8 +275,9 @@ Agents interact with the recipe layer through the same public API as the CLI:
 
 ## Flashscore example
 
-See [`examples/flashscore_odds.py`](../examples/flashscore_odds.py) (fixture-only
-recipe) and [`examples/flashscore_odds_comparison.py`](../examples/flashscore_odds_comparison.py)
+See [`examples/flashscore_odds.py`](../examples/flashscore_odds.py) (consent-gated
+recipe, offline fixture demo) and [`examples/flashscore_odds_comparison.py`](../examples/flashscore_odds_comparison.py)
 (offline, deterministic base-HTML-scraper vs JSON-recipe comparison of the same
 synthetic case). Flashscore ToS prohibit automated requests/scraping without
-express consent; the shipped example never opens a live socket.
+express consent; live GETs require allowlist + consent env vars when the operator
+possesses express written permission.

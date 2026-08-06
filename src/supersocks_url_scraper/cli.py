@@ -87,12 +87,12 @@ def health_payload() -> dict:
             "enabled_default": _truthy(os.environ.get("API_RECIPES"), False),
             "builtin": ["flashscore-odds@v1"],
             "methods": ["GET"],
-            "flashscore_network_mode": "fixture_only",
+            "flashscore_network_mode": "consent_required",
             "route_advice": True,
             "recurrent_need_default": False,
             "notes": (
                 "Opt-in structured HTTPS GET recipes with host allowlists; degrade to "
-                "HTTP→SEO→Cloak→archive. Flashscore odds ships fixture-only (ToS). "
+                "HTTP→SEO→Cloak→archive. Flashscore odds ships consent-gated (off by default; ToS). "
                 "Live GETs require network.mode + API_RECIPE_LIVE_ALLOWLIST + API_RECIPE_LIVE_CONSENT. "
                 "Never stores cookies/tokens; StrategyCache stays http/seo/cloak/archive only. "
                 "Optional route_advice (offline) steers agents toward known recipes or manual HAR "
@@ -154,8 +154,8 @@ def openapi_payload() -> dict:
                     "Opt-in structured API recipes (HTTPS GET only, host-allowlisted). "
                     "Disabled by default. On failure, degrades to HTTP→SEO→Cloak→archive. "
                     "Never sends Authorization/Cookie headers. Shipped flashscore-odds is "
-                    "fixture-only and will not perform live Flashscore GETs without an "
-                    "explicit network-mode change plus allowlist/consent gates."
+                    "consent-gated (off by default) and will not perform live Flashscore GETs "
+                    "without API_RECIPE_LIVE_ALLOWLIST + API_RECIPE_LIVE_CONSENT attestation."
                 ),
             },
             "api_recipe_paths": {
@@ -491,7 +491,7 @@ def main() -> int:
         help=(
             "Opt-in structured API recipes (HTTPS GET only). Disabled by default; "
             "degrades to HTTP→SEO→Cloak→archive on failure. Shipped flashscore-odds "
-            "is fixture-only (no live Flashscore GETs by default)"
+            "is consent-gated (no live Flashscore GETs without allowlist+consent attestation)"
         ),
     )
     parser.add_argument(

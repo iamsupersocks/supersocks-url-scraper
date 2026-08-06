@@ -6,7 +6,8 @@ Historical public GET shape (undocumented, may change):
 
 Flashscore Terms of Use prohibit automated requests and scraping without express
 consent (https://www.flashscore.com/terms-of-use/). The shipped recipe is
-fixture-only; live network access is not enabled by default.
+consent-gated and off by default; live network access requires allowlist +
+consent attestation and express written permission.
 
 Odds are informational snapshots, never betting advice.
 """
@@ -85,7 +86,7 @@ DISCLAIMER = (
 PROVENANCE = (
     "Pattern: historical Flashscore-related odds GraphQL GET shape "
     "(global.ds.lsapp.eu/odds/pq_graphql). Undocumented and unstable. "
-    "Shipped example is fixture-only because Flashscore Terms of Use prohibit "
+    "Shipped example is consent-gated (off by default) because Flashscore Terms of Use prohibit "
     "automated requests/scraping without express consent "
     "(https://www.flashscore.com/terms-of-use/)."
 )

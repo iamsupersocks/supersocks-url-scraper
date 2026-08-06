@@ -58,10 +58,10 @@ def _fixture_fetcher(fixture_path: Path = FIXTURE):
     return fetcher
 
 
-def test_builtin_flashscore_recipe_is_fixture_only() -> None:
+def test_builtin_flashscore_recipe_is_consent_required() -> None:
     recipes = [r for r in load_builtin_recipes() if r.id == "flashscore-odds"]
     assert len(recipes) == 1
-    assert recipes[0].network.mode == "fixture_only"
+    assert recipes[0].network.mode == "consent_required"
     assert recipes[0].endpoint.method == "GET"
     assert "Authorization" not in recipes[0].endpoint.headers
     assert "Cookie" not in recipes[0].endpoint.headers
@@ -122,6 +122,21 @@ def test_live_network_blocked_without_consent() -> None:
     )
 
 
+def test_try_api_recipe_flashscore_live_with_consent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Authorized consent path uses mocked safe_get — never contacts Flashscore live."""
+    monkeypatch.setenv("API_RECIPE_LIVE_ALLOWLIST", "flashscore-odds")
+    monkeypatch.setenv("API_RECIPE_LIVE_CONSENT", DEFAULT_CONSENT_PHRASE)
+    monkeypatch.setattr(
+        "supersocks_url_scraper.api_recipes.engine.safe_get",
+        _fixture_fetcher(),
+    )
+    payload = try_api_recipe(DEMO_URL, enabled=True, resolve_dns=False)
+    assert payload is not None
+    assert payload.get("_api_recipe_fallback") is not True
+    assert payload.get("status") == "ok"
+    assert payload.get("_api_recipe_live_network") is True
+
+
 def test_try_api_recipe_flashscore_forces_fallback_when_live_blocked() -> None:
     payload = try_api_recipe(DEMO_URL, enabled=True)
     assert payload is not None
@@ -138,7 +153,7 @@ def test_read_url_falls_back_when_flashscore_live_blocked(monkeypatch: pytest.Mo
 
     def fake_safe_get(url: str, *args: Any, **kwargs: Any) -> Any:
         safe_get_calls.append(url)
-        raise AssertionError("live safe_get must not be called for fixture_only flashscore")
+        raise AssertionError("live safe_get must not be called without consent for flashscore")
 
     monkeypatch.setattr("supersocks_url_scraper.api_recipes.engine.safe_get", fake_safe_get)
 

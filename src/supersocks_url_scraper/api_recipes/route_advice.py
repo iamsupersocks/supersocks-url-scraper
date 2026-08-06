@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 from ..social.domains import detect_platform
 from .models import ApiRecipe
+from .consent import DEFAULT_CONSENT_PHRASE
 
 # Stable contract values (documented + tested).
 RECOMMENDED_API_RECIPE = "api_recipe"
@@ -103,9 +104,28 @@ def _enable_command() -> str:
     return "supersocks-url-scraper --api-recipes <url>   # or API_RECIPES=1 / api_recipes:true"
 
 
+def _consent_required_requires(recipe: ApiRecipe) -> list[str]:
+    phrase = (recipe.network.consent_phrase or DEFAULT_CONSENT_PHRASE).strip()
+    return [
+        "api_recipes=true",
+        f"API_RECIPE_LIVE_ALLOWLIST includes {recipe.id}",
+        f"API_RECIPE_LIVE_CONSENT={phrase}",
+        "express_written_permission_per_site_ToS",
+    ]
+
+
+def _consent_activation_command(recipe: ApiRecipe) -> str:
+    phrase = (recipe.network.consent_phrase or DEFAULT_CONSENT_PHRASE).strip()
+    return (
+        f"API_RECIPE_LIVE_ALLOWLIST={recipe.id} "
+        f"API_RECIPE_LIVE_CONSENT={phrase} "
+        "supersocks-url-scraper --api-recipes <url>"
+    )
+
+
 def _fixture_command(recipe: ApiRecipe) -> str:
     if recipe.id == "flashscore-odds":
-        return "python examples/flashscore_odds.py   # offline fixture demo; never live by default"
+        return "python examples/flashscore_odds.py   # offline fixture demo; live is consent-gated"
     return (
         f"# Recipe {recipe.recipe_key} is fixture_only — use an injected fetcher in tests/demos; "
         "do not attempt live GETs."
@@ -122,6 +142,7 @@ def build_route_advice(
     block_reason: str | None = None,
     recurrent_need: bool = False,
     result: dict[str, Any] | None = None,
+    network_attempted: bool | None = None,
 ) -> dict[str, Any] | None:
     """Return a discrete ``route_advice`` dict, or None when no useful advice exists.
 
@@ -134,12 +155,17 @@ def build_route_advice(
         platform = result.get("platform")
 
     if recipe_used and matched is not None:
+        attempted = (
+            network_attempted
+            if network_attempted is not None
+            else matched.network.mode not in _BLOCKED_NETWORK_MODES
+        )
         return {
             "recommended": RECOMMENDED_API_RECIPE,
             "state": STATE_USED,
             "reason": f"Opt-in API recipe {matched.recipe_key} produced the structured result.",
             "recipe": recipe_advice_meta(matched),
-            "network_attempted": matched.network.mode not in _BLOCKED_NETWORK_MODES,
+            "network_attempted": attempted,
         }
 
     if matched is not None and matched.needs_review:
@@ -165,15 +191,20 @@ def build_route_advice(
             f"Recipe {matched.recipe_key} was blocked; fell back to "
             f"{matched.fallback or 'http_seo_cloak_archive'}."
         )
+        consent_blocked = matched.network.mode in {"consent_required", "allowlist"}
         return {
             "recommended": RECOMMENDED_STANDARD_PIPELINE,
             "state": STATE_BLOCKED,
             "reason": reason,
             "recipe": recipe_advice_meta(matched),
-            "requires": ["review_network_gates"] if matched.network.mode == "consent_required" else [],
+            "requires": _consent_required_requires(matched) if consent_blocked else [],
             "next_command": (
-                f"# Fallback pipeline already used ({matched.fallback}). "
-                "Do not auto-enable live network."
+                _consent_activation_command(matched)
+                if consent_blocked
+                else (
+                    f"# Fallback pipeline already used ({matched.fallback}). "
+                    "Do not auto-enable live network."
+                )
             ),
             "network_attempted": False,
         }

@@ -941,6 +941,7 @@ def read_url(
     catalog: list = []
     recipe_used = False
     recipe_blocked_fallback = False
+    recipe_live_network = False
     block_reason: str | None = None
     try:
         catalog = load_recipes(extra_paths=api_recipe_paths)
@@ -960,6 +961,7 @@ def read_url(
             block_reason=block_reason,
             recurrent_need=recurrent_need,
             result=payload,
+            network_attempted=recipe_live_network if recipe_used else None,
         )
         return attach_route_advice(payload, advice)
 
@@ -977,6 +979,7 @@ def read_url(
         if recipe_result is not None:
             review_blocked = bool(recipe_result.pop("_api_recipe_review_blocked", False))
             fallback = bool(recipe_result.pop("_api_recipe_fallback", False))
+            recipe_live_network = bool(recipe_result.pop("_api_recipe_live_network", False))
             if not fallback and recipe_result.get("status") in {"ok", "partial"}:
                 # Successful structured recipe — do not promote into StrategyCache
                 # (cache remains http/seo/cloak/archive only).

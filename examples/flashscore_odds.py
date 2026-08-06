@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Example #3 — Flashscore 1X2 odds via API recipes (fixture-only).
+"""Example #3 — Flashscore 1X2 odds via API recipes (consent-gated, off by default).
 
 Reproducible agent-facing pattern (offline, deterministic):
   1. Load the synthetic fixture (no network)
   2. Run the versioned flashscore-odds recipe with an injected fetcher
   3. Receive compact JSON/Markdown with home/draw/away (+ opening)
-  4. When live network is blocked, read_url degrades to HTTP→SEO→Cloak→archive
+  4. When live network is blocked (no allowlist/consent), read_url degrades to HTTP→SEO→Cloak→archive
 
 Flashscore Terms of Use prohibit automated requests and scraping without express
 consent (https://www.flashscore.com/terms-of-use/). This example never opens a
-live socket. There is no --live flag.
+live socket unless the operator sets allowlist+consent env vars with express
+written permission. There is no --live flag.
 """
 from __future__ import annotations
 
@@ -68,9 +69,9 @@ def run_fixture(fixture_path: Path, *, markdown: bool = False) -> dict:
     if not recipes:
         raise SystemExit("builtin flashscore-odds recipe missing")
     recipe = recipes[0]
-    if recipe.network.mode not in {"fixture_only", "off", "disabled", "never"}:
+    if recipe.network.mode not in {"consent_required", "open", "allow"}:
         print(
-            f"# warning: expected fixture_only network mode, got {recipe.network.mode}",
+            f"# warning: expected consent-gated network mode, got {recipe.network.mode}",
             file=sys.stderr,
         )
     demo_url = json.loads(fixture_path.read_text(encoding="utf-8")).get("match_url") or DEMO_URL
@@ -108,7 +109,7 @@ def demo_network_blocked_fallback(fixture_path: Path) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Flashscore 1X2 odds via opt-in API recipes (fixture-only; no live mode)"
+        description="Flashscore 1X2 odds via opt-in API recipes (consent-gated; off by default)"
     )
     parser.add_argument("--fixture", default=str(FIXTURE), help="Deterministic fixture JSON (default)")
     parser.add_argument("--markdown", action="store_true", help="Print markdown instead of JSON")

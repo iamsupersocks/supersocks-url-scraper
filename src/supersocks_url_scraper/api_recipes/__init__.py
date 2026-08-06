@@ -4,7 +4,7 @@ Opt-in only. Recipes are HTTPS GET, schema-validated, host-allowlisted, and
 degrade to the normal HTTP → SEO → Cloak → archive reader pipeline when they
 fail. StrategyCache still stores only http/seo/cloak/archive routes.
 
-The shipped Flashscore odds recipe is fixture-only by default (Flashscore ToS
+The shipped Flashscore odds recipe is consent-gated by default (Flashscore ToS
 prohibit automated requests/scraping without express consent).
 """
 
