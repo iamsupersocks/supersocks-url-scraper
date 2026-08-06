@@ -14,6 +14,19 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse, urlsplit
 from urllib.request import Request, urlopen
 
+from .documents import (
+    DOCUMENT_FORMATS,
+    DocumentDependencyError,
+    DocumentParseError,
+    DocumentProvider,
+    detect_document_format as _detect_document_format_fields,
+    extract_document_markdown,
+    extract_pdf_with_fallback,
+    format_from_zip_package,
+    provenance_fields,
+)
+from .documents.detect import is_html_magic, is_image_magic
+
 DEFAULT_TIMEOUT = 20
 MAX_BYTES = 25 * 1024 * 1024
 DEFAULT_USER_AGENT = "supersocks-url-scraper/0.2"
@@ -62,6 +75,10 @@ class PdfContent:
     title: str | None
     text: str
     page_count: int
+
+
+# Re-export document types for callers/tests that import from reader.
+_format_from_zip_package = format_from_zip_package
 
 
 @dataclass(frozen=True)
@@ -229,27 +246,41 @@ def better_title_from_markup(markup: str, current: str | None = None) -> str | N
     return None if is_generic_title(title) else title
 
 
+def detect_document_format(resource: FetchedResource) -> str | None:
+    """Detect an AnyDoc/PDF format from fetched bytes, MIME, URL, or Content-Disposition."""
+    return _detect_document_format_fields(
+        content=resource.content,
+        content_type=resource.content_type,
+        url=resource.final_url or resource.url,
+        headers=resource.headers,
+    )
+
+
 def detect_content_type(resource: FetchedResource) -> ContentType:
+    head = resource.content[:512] if resource.content else b""
+    # Content-first for images / HTML / documents.
+    if is_image_magic(head):
+        return "image"
+    if is_html_magic(head):
+        return "article"
+    doc_fmt = detect_document_format(resource)
+    if doc_fmt == "pdf":
+        return "pdf"
+    if doc_fmt in DOCUMENT_FORMATS:
+        return "document"
+
     ctype = (resource.content_type or "").split(";", 1)[0].strip().lower()
     if ctype.startswith("image/"):
         return "image"
     if ctype in {"application/pdf", "application/x-pdf"}:
         return "pdf"
-    if ctype in {"text/html", "application/xhtml+xml"} or ctype.startswith("text/"):
-        return "article"
-    head = resource.content[:512]
-    if head.startswith(b"%PDF-"):
-        return "pdf"
-    if any(sig in head[:64] for sig in (b"<!doctype", b"<html", b"<HTML", b"<!DOCTYPE")):
-        return "article"
-    if (
-        head.startswith(b"\x89PNG\r\n\x1a\n")
-        or head.startswith(b"\xff\xd8\xff")
-        or head.startswith(b"GIF87a")
-        or head.startswith(b"GIF89a")
-        or (head[:4] == b"RIFF" and head[8:12] == b"WEBP")
+    if ctype in {"text/html", "application/xhtml+xml"} or (
+        ctype.startswith("text/") and ctype not in {"text/csv", "text/rtf"}
     ):
-        return "image"
+        return "article"
+    mime_fmt = _detect_document_format_fields(content=b"", content_type=ctype)
+    if mime_fmt in DOCUMENT_FORMATS:
+        return "document"
     return "unknown"
 
 
@@ -892,6 +923,10 @@ def read_url(
     summary_provider_timeout: int = 30,
     jina_fallback: bool = False,
     skip_social_routing: bool = False,
+    document_mode: str | None = None,
+    document_max_pages: int | None = None,
+    firecrawl_api_key: str | None = None,
+    firecrawl_timeout: int | None = None,
 ) -> dict[str, Any]:
     warnings: list[str] = []
     max_chars = max(50, min(int(length or 900), 10_000))
@@ -1079,15 +1114,53 @@ def read_url(
         return payload
 
     if content_type == "pdf":
+        provider = DocumentProvider(
+            mode=document_mode,
+            api_key=firecrawl_api_key,
+            max_pages=document_max_pages,
+            ocr_timeout=firecrawl_timeout,
+        )
         try:
-            pdf = extract_pdf(resource.content)
-        except (PdfDependencyError, PdfParseError) as exc:
-            payload = {"url": resource.final_url, "content_type": "pdf", "title": None, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "error", "warnings": warnings + [str(exc)]}
+            pdf = extract_pdf_with_fallback(
+                resource.content,
+                source_url=url,
+                final_url=resource.final_url,
+                provider=provider,
+            )
+        except (PdfDependencyError, PdfParseError, DocumentDependencyError, DocumentParseError) as exc:
+            payload = {
+                "url": resource.final_url,
+                "content_type": "pdf",
+                "title": None,
+                "summary": "",
+                "length": max_chars,
+                "fetch_method": fetch_method,
+                "status": "error",
+                "warnings": warnings + [str(exc)],
+                "document_format": "pdf",
+                "extraction_engine": None,
+                "pdf_classification": None,
+                "ocr_used": False,
+                "ocr_provider": None,
+            }
             if social_platform:
                 payload["platform"] = social_platform
             return payload
+        warnings.extend(list(pdf.warnings))
         if not pdf.text.strip():
-            payload = {"url": resource.final_url, "content_type": "pdf", "title": pdf.title, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "partial", "warnings": warnings + ["PDF parsed but no extractable text"]}
+            payload = {
+                "url": resource.final_url,
+                "content_type": "pdf",
+                "title": pdf.title,
+                "summary": "",
+                "length": max_chars,
+                "fetch_method": fetch_method,
+                "status": "partial",
+                "warnings": warnings
+                if any("scan" in w.lower() or "ocr" in w.lower() for w in warnings)
+                else warnings + ["PDF looks like a scan without OCR; no extractable text"],
+                **provenance_fields(pdf),
+            }
             if social_platform:
                 payload["platform"] = social_platform
             return payload
@@ -1103,14 +1176,104 @@ def read_url(
             summary_provider_token=summary_provider_token,
             summary_provider_timeout=summary_provider_timeout,
         )
-        if not any(w.startswith("external summary provider used:") or w.startswith("external summary provider failed;") for w in warnings):
-            warnings.append(f"local extractive summary (pages={pdf.page_count})")
+        pages = pdf.page_count
+        engine = pdf.extraction_engine
+        if not any(
+            w.startswith("external summary provider used:") or w.startswith("external summary provider failed;")
+            for w in warnings
+        ):
+            warnings.append(f"local extractive summary (engine={engine}, pages={pages})")
         elif any(w.startswith("external summary provider failed;") for w in warnings):
-            warnings.append(f"local extractive summary (pages={pdf.page_count})")
+            warnings.append(f"local extractive summary (engine={engine}, pages={pages})")
         _record_final_strategy(strategy_cache_path, url, resource)
-        payload = {"url": resource.final_url, "content_type": "pdf", "title": pdf.title, "summary": summary, "length": max_chars, "fetch_method": fetch_method, "status": "ok" if summary else "partial", "warnings": warnings}
+        payload = {
+            "url": resource.final_url,
+            "content_type": "pdf",
+            "title": pdf.title,
+            "summary": summary,
+            "length": max_chars,
+            "fetch_method": fetch_method,
+            "status": "ok" if summary else "partial",
+            "warnings": warnings,
+            **provenance_fields(pdf),
+        }
         if include_content:
             payload["content"] = pdf.text
+        if social_platform:
+            payload["platform"] = social_platform
+        return payload
+
+    if content_type == "document":
+        doc_format = detect_document_format(resource)
+        try:
+            document = extract_document_markdown(resource.content, format_hint=doc_format)
+        except (DocumentDependencyError, DocumentParseError) as exc:
+            payload = {
+                "url": resource.final_url,
+                "content_type": "document",
+                "title": None,
+                "summary": "",
+                "length": max_chars,
+                "fetch_method": fetch_method,
+                "status": "error",
+                "warnings": warnings + [str(exc)],
+                "document_format": doc_format,
+                "extraction_engine": None,
+                "pdf_classification": None,
+                "ocr_used": False,
+                "ocr_provider": None,
+            }
+            if social_platform:
+                payload["platform"] = social_platform
+            return payload
+        if not document.text.strip():
+            payload = {
+                "url": resource.final_url,
+                "content_type": "document",
+                "title": document.title,
+                "summary": "",
+                "length": max_chars,
+                "fetch_method": fetch_method,
+                "status": "partial",
+                "warnings": warnings + [f"document converted but empty (format={document.format})"],
+                **provenance_fields(document),
+            }
+            if social_platform:
+                payload["platform"] = social_platform
+            return payload
+        summary = summarize_content(
+            document.text,
+            max_chars,
+            warnings=warnings,
+            url=resource.final_url,
+            title=document.title,
+            content_type="document",
+            summary_provider=summary_provider,
+            summary_provider_url=summary_provider_url,
+            summary_provider_token=summary_provider_token,
+            summary_provider_timeout=summary_provider_timeout,
+        )
+        if not any(
+            w.startswith("external summary provider used:") or w.startswith("external summary provider failed;")
+            for w in warnings
+        ):
+            warnings.append(f"local extractive summary (method=anydoc, format={document.format})")
+        elif any(w.startswith("external summary provider failed;") for w in warnings):
+            warnings.append(f"local extractive summary (method=anydoc, format={document.format})")
+        _record_final_strategy(strategy_cache_path, url, resource)
+        payload = {
+            "url": resource.final_url,
+            "content_type": "document",
+            "title": document.title,
+            "summary": summary,
+            "length": max_chars,
+            "fetch_method": fetch_method,
+            "status": "ok" if summary else "partial",
+            "warnings": warnings,
+            **provenance_fields(document),
+        }
+        if include_content:
+            payload["content"] = document.text
         if social_platform:
             payload["platform"] = social_platform
         return payload
@@ -1132,6 +1295,14 @@ def read_url(
 def to_markdown(result: dict[str, Any]) -> str:
     title = result.get("title") or result.get("url") or "Untitled"
     lines = [f"# {title}", "", f"URL: {result.get('url', '')}", f"Status: {result.get('status', '')}", f"Content type: {result.get('content_type', '')}", f"Fetch method: {result.get('fetch_method', '')}"]
+    if result.get("document_format"):
+        lines.append(f"Document format: {result['document_format']}")
+    if result.get("extraction_engine"):
+        lines.append(f"Extraction engine: {result['extraction_engine']}")
+    if result.get("pdf_classification"):
+        lines.append(f"PDF classification: {result['pdf_classification']}")
+    if result.get("ocr_used"):
+        lines.append(f"OCR used: yes ({result.get('ocr_provider') or 'unknown'})")
     if result.get("platform"):
         lines.append(f"Platform: {result['platform']}")
     if result.get("author"):
