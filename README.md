@@ -72,6 +72,7 @@ curl -s http://127.0.0.1:8768/summarize \
 - Recognized consent dialogs are dismissed through an explicit reject/continue-without-accepting control before browser extraction.
 - Layered fallback pipeline: HTTP → SEO variants → CloakBrowser → public archive/cache snapshots, including retry when HTTP returns only a teaser/paywall/cookie wall.
 - Optional per-domain JSON strategy cache storing only routing metadata.
+- Optional opt-in API recipes (HTTPS GET, host-allowlisted, versioned) for structured agent outputs such as Flashscore 1X2 odds; degrade to HTTP→SEO→Cloak→archive on failure. Off by default.
 - Markdown output.
 - Returns warnings for partial extraction, boilerplate, paywalls, and placeholders.
 - Safe to run locally or in cron/server contexts.
@@ -447,6 +448,20 @@ and
 Raw HTML and seller-bearing dumps stay out of the repository. The marketplace
 provider is named only in the bounded Source et provenance sections.
 
+## Case study: Flashscore 1X2 odds (API recipes)
+
+For an opt-in, read-only API recipe pattern that turns a Flashscore match URL
+into compact `home`/`draw`/`away` odds JSON for agents, see
+[`docs/CASE_STUDY_FLASHSCORE_ODDS.md`](docs/CASE_STUDY_FLASHSCORE_ODDS.md) and
+[`examples/flashscore_odds.py`](examples/flashscore_odds.py). The recipe is
+HTTPS GET only, host-allowlisted, fanout-bounded, and off by default
+(`--api-recipes` / `API_RECIPES=1`). The shipped Flashscore example is
+**fixture-only** (Flashscore ToS prohibit automated scraping without express
+consent); it does not enable a live connector by default. It does not promote
+XHR endpoints into `StrategyCache`, does not log in or store cookies/tokens,
+and labels odds as dated snapshots — **not betting advice**. On failure or
+live block it degrades to HTTP → SEO → Cloak → archive.
+
 ## HTTP service
 
 Start the service:
@@ -483,6 +498,9 @@ Supported service environment variables:
 - `ARCHIVE_FALLBACK`: set to `latest`/`1`/`true` to allow public archive/cache fallback by default.
 - `SEO_FALLBACK`: enable/disable SEO-style HTTP variants by default.
 - `JINA_FALLBACK`: opt-in Jina Reader fallback after specialized LinkedIn (or generic last-resort) `error`/`partial` results. Disabled by default. Never used for credentialed, local, or private URLs; never forwards cookies/tokens.
+- `API_RECIPES`: opt-in structured API recipes (HTTPS GET only, host-allowlisted). Disabled by default. Flashscore odds ships fixture-only (ToS). On failure/live block, degrades to HTTP→SEO→Cloak→archive. Never sends Authorization/Cookie headers.
+- `API_RECIPE_PATHS`: optional colon-separated extra recipe JSON files or directories.
+- `API_RECIPE_LIVE_ALLOWLIST` / `API_RECIPE_LIVE_CONSENT`: only for recipes with `network.mode=consent_required` and express written permission; ignored while Flashscore remains `fixture_only`.
 - `FETCH_STRATEGY_CACHE_PATH`: metadata-only domain strategy cache.
 - `SUMMARY_PROVIDER`: optional summary provider, default `local`. Supports `local`/`extractive`/`none` and generic `http`.
 - `SUMMARY_PROVIDER_URL`: endpoint for `SUMMARY_PROVIDER=http`; unset by default.
@@ -592,6 +610,7 @@ This public repo includes a standalone URL-reading core suitable for agent/news 
 - Public archive/cache fallbacks: Google cache URL pattern, archive.today, archive.is, and Wayback.
 - Quality gates that reject cookie walls, subscriber teasers, CAPTCHA/domain-only stubs, JS-only pages, and short error pages before summarizing.
 - Per-domain strategy cache plus a generic media seed.
+- Optional opt-in API recipes (versioned HTTPS GET) with Flashscore 1X2 odds example nº3; StrategyCache remains http/seo/cloak/archive only.
 - Public regression corpus covering normal HTML, hostile media, PDFs, images, social-native stubs, JS-heavy surfaces, browser/profile routes, and archive fallback.
 - Source-discovery registry and route-discovery scripts that persist only domain/routing metadata.
 - Browser-profile probe for warming or inspecting operator-owned Cloak profiles without committing sessions.

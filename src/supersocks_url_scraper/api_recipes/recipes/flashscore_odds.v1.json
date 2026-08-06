@@ -1,0 +1,88 @@
+{
+  "id": "flashscore-odds",
+  "version": "1",
+  "title": "Flashscore 1X2 odds pattern (fixture-only by default)",
+  "schema": "flashscore_prematch_1x2_v1",
+  "confidence": 0.55,
+  "ttl_seconds": 300,
+  "network": {
+    "mode": "fixture_only",
+    "consent_phrase": "I_HAVE_EXPRESS_WRITTEN_PERMISSION",
+    "notes": "Flashscore ToS prohibit automated requests/scraping without express consent. Shipped mode is fixture_only. Live GETs stay impossible unless an operator changes mode to consent_required AND sets API_RECIPE_LIVE_ALLOWLIST + API_RECIPE_LIVE_CONSENT."
+  },
+  "match": {
+    "host_roots": [
+      "flashscore.com",
+      "flashscore.fr",
+      "flashscore.co.uk",
+      "flashscore.es",
+      "flashscore.de",
+      "flashscore.it",
+      "flashscore.pl",
+      "flashscore.pt",
+      "flashscore.nl",
+      "flashscore.ro",
+      "flashscore.sk",
+      "flashscore.cz",
+      "flashscore.hu",
+      "flashscore.hr",
+      "flashscore.si",
+      "flashscore.gr",
+      "flashscore.com.tr",
+      "flashscore.com.br",
+      "flashscore.com.ar",
+      "flashscore.ua",
+      "flashscore.se",
+      "flashscore.no",
+      "flashscore.dk",
+      "flashscore.fi",
+      "flashscore.be",
+      "flashscore.cl",
+      "flashscore.com.mx",
+      "flashscore.com.co",
+      "flashscore.com.pe",
+      "flashscore.com.ve",
+      "flashscore.com.uy",
+      "flashscore.com.bo",
+      "flashscore.com.ec",
+      "flashscore.com.py"
+    ],
+    "path_regex": "/match",
+    "query_keys": ["mid"]
+  },
+  "endpoint": {
+    "method": "GET",
+    "url_template": "https://global.ds.lsapp.eu/odds/pq_graphql?_hash=ope2&eventId={event_id}&bookmakerId={bookmaker_id}&betType=HOME_DRAW_AWAY&betScope=FULL_TIME",
+    "allowed_hosts": ["global.ds.lsapp.eu"],
+    "timeout_seconds": 5,
+    "max_bytes": 65536,
+    "max_fanout": 6,
+    "min_interval_ms": 50,
+    "max_redirects": 2,
+    "headers": {
+      "Accept": "application/json"
+    }
+  },
+  "params": {
+    "bet_type": "HOME_DRAW_AWAY",
+    "bet_scope": "FULL_TIME",
+    "bookmakers": [
+      {"id": 141, "name": "Betclic"},
+      {"id": 264, "name": "Winamax"},
+      {"id": 160, "name": "Unibet"},
+      {"id": 484, "name": "ParionsSport"},
+      {"id": 905, "name": "Betsson"},
+      {"id": 129, "name": "bwin"}
+    ]
+  },
+  "response": {
+    "odds_path": ["data", "findPrematchOddsForBookmaker"],
+    "schema": "flashscore_prematch_1x2_v1"
+  },
+  "warnings": [
+    "Flashscore Terms of Use prohibit automated requests and scraping without express consent (https://www.flashscore.com/terms-of-use/). This recipe is fixture-only by default; no live connector is enabled.",
+    "Historical endpoint shape is undocumented/unstable and may change without notice.",
+    "Odds are a dated snapshot for research/agent context only — not betting advice."
+  ],
+  "fallback": "http_seo_cloak_archive"
+}
