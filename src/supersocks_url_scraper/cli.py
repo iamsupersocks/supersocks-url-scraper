@@ -82,7 +82,16 @@ def health_payload() -> dict:
             "builtin": ["flashscore-odds@v1"],
             "methods": ["GET"],
             "flashscore_network_mode": "fixture_only",
-            "notes": "Opt-in structured HTTPS GET recipes with host allowlists; degrade to HTTP→SEO→Cloak→archive. Flashscore odds ships fixture-only (ToS). Live GETs require network.mode + API_RECIPE_LIVE_ALLOWLIST + API_RECIPE_LIVE_CONSENT. Never stores cookies/tokens; StrategyCache stays http/seo/cloak/archive only.",
+            "route_advice": True,
+            "recurrent_need_default": False,
+            "notes": (
+                "Opt-in structured HTTPS GET recipes with host allowlists; degrade to "
+                "HTTP→SEO→Cloak→archive. Flashscore odds ships fixture-only (ToS). "
+                "Live GETs require network.mode + API_RECIPE_LIVE_ALLOWLIST + API_RECIPE_LIVE_CONSENT. "
+                "Never stores cookies/tokens; StrategyCache stays http/seo/cloak/archive only. "
+                "Optional route_advice (offline) steers agents toward known recipes or manual HAR "
+                "+ --discover-har when recurrent_need is set; never auto-sniffs or activates."
+            ),
         },
         "social": {
             "youtube_extra_installed": importlib.util.find_spec("yt_dlp") is not None,
@@ -141,6 +150,15 @@ def openapi_payload() -> dict:
                 "items": {"type": "string"},
                 "description": "Optional extra recipe JSON files or directories (versioned, schema-validated).",
             },
+            "recurrent_need": {
+                "type": "boolean",
+                "default": False,
+                "description": (
+                    "When true and no suitable recipe matches a HTML-like URL, attach discrete "
+                    "route_advice recommending manual HAR capture then offline --discover-har. "
+                    "Never auto-sniffs, never activates recipes. Ignored for PDF/image/social."
+                ),
+            },
             "strategy_cache_path": {"type": "string"},
             "summary_provider": {
                 "type": "string",
@@ -186,6 +204,45 @@ def openapi_payload() -> dict:
             "api_recipe": {
                 "type": "object",
                 "description": "Present when an opt-in API recipe produced the result (id, version, confidence, ttl, captured_at).",
+            },
+            "route_advice": {
+                "type": "object",
+                "description": (
+                    "Optional machine-readable agent guidance (absent when no useful advice). "
+                    "Stable fields: recommended (api_recipe|review_recipe|api_discovery|standard_pipeline), "
+                    "state (available_disabled|fixture_only|review_required|used|blocked|suggested), "
+                    "reason, recipe?, requires?, next_command?, network_attempted. Computed offline."
+                ),
+                "properties": {
+                    "recommended": {
+                        "type": "string",
+                        "enum": ["api_recipe", "review_recipe", "api_discovery", "standard_pipeline"],
+                    },
+                    "state": {
+                        "type": "string",
+                        "enum": [
+                            "available_disabled",
+                            "fixture_only",
+                            "review_required",
+                            "used",
+                            "blocked",
+                            "suggested",
+                        ],
+                    },
+                    "reason": {"type": "string"},
+                    "recipe": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "version": {"type": "string"},
+                            "network_mode": {"type": "string"},
+                            "status": {"type": "string"},
+                        },
+                    },
+                    "requires": {"type": "array", "items": {"type": "string"}},
+                    "next_command": {"type": "string"},
+                    "network_attempted": {"type": "boolean"},
+                },
             },
         },
     }
@@ -271,6 +328,7 @@ class Handler(BaseHTTPRequestHandler):
             jina_fallback=jina_fallback,
             api_recipes=api_recipes,
             api_recipe_paths=api_recipe_paths,
+            recurrent_need=_truthy(payload.get("recurrent_need"), False),
             summary_provider=summary_provider,
             summary_provider_url=summary_provider_url,
             summary_provider_token=summary_provider_token,
@@ -397,6 +455,15 @@ def main() -> int:
         help="Optional extra recipe JSON file or directory (repeatable)",
     )
     parser.add_argument(
+        "--recurrent",
+        action="store_true",
+        help=(
+            "Flag a recurrent agent need: when no recipe matches a suitable HTML URL, "
+            "attach route_advice suggesting manual HAR capture then offline --discover-har "
+            "(never auto-sniffs or activates). No effect for PDF/image/social."
+        ),
+    )
+    parser.add_argument(
         "--summary-provider",
         default=os.environ.get("SUMMARY_PROVIDER", "local") or "local",
         choices=["local", "extractive", "none", "http"],
@@ -453,6 +520,7 @@ def main() -> int:
         jina_fallback=args.jina_fallback or _truthy(os.environ.get("JINA_FALLBACK"), False),
         api_recipes=args.api_recipes or _truthy(os.environ.get("API_RECIPES"), False),
         api_recipe_paths=(args.api_recipe_path or env_recipe_paths or None),
+        recurrent_need=bool(args.recurrent),
         summary_provider=args.summary_provider,
         summary_provider_url=args.summary_provider_url or os.environ.get("SUMMARY_PROVIDER_URL") or "",
         summary_provider_token=args.summary_provider_token or os.environ.get("SUMMARY_PROVIDER_TOKEN") or "",

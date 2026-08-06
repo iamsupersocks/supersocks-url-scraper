@@ -60,10 +60,16 @@ class ApiRecipe:
     fallback: str = "http_seo_cloak_archive"
     schema: str = ""
     network: RecipeNetworkPolicy = field(default_factory=RecipeNetworkPolicy)
+    status: str = "active"
+    review_required: bool = False
 
     @property
     def recipe_key(self) -> str:
         return f"{self.id}@v{self.version}"
+
+    @property
+    def needs_review(self) -> bool:
+        return self.review_required or self.status in {"review_required", "disabled"}
 
 
 @dataclass(frozen=True)

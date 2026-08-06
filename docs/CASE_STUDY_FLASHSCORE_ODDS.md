@@ -99,7 +99,12 @@ HAR → candidate → review → activation → execution → fallback.
 ```bash
 # API recipes are opt-in. Flashscore remains fixture_only — matching URLs
 # will not perform live odds GETs; the reader falls through to the normal pipeline.
+# route_advice.state will be fixture_only (never advises live access).
 supersocks-url-scraper --api-recipes https://www.flashscore.com/match/football/demo/?mid=Ab12Cd34
+
+# Without --api-recipes, the same URL still matches offline and surfaces
+# route_advice.state=available_disabled (enable explicitly to use the adapter).
+supersocks-url-scraper https://www.flashscore.com/match/football/demo/?mid=Ab12Cd34
 ```
 
 Environment mirrors:
@@ -109,6 +114,11 @@ Environment mirrors:
 - Live gates (not used by the shipped Flashscore recipe while `fixture_only`):
   - `API_RECIPE_LIVE_ALLOWLIST` — comma/space list of recipe ids
   - `API_RECIPE_LIVE_CONSENT=I_HAVE_EXPRESS_WRITTEN_PERMISSION`
+
+Agent recurrence: pass `recurrent_need=True` / `--recurrent` on *other* HTML sites
+when you expect to revisit them; Flashscore already has a shipped fixture-only
+recipe, so advice points at that adapter instead of discovery. See
+[`docs/API_RECIPES.md`](API_RECIPES.md) § Agent-first route advice.
 
 ### Historical endpoint shape (documentation only)
 

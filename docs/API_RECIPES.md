@@ -13,6 +13,59 @@ it when an operator has explicitly reviewed and activated it.
 
 ---
 
+## Agent-first route advice (recurrent needs)
+
+Agents often hit the same site repeatedly. `read_url` can attach an optional,
+machine-readable **`route_advice`** object that steers them toward a known
+API recipe or toward **offline** discovery — without sniffing the browser,
+capturing a HAR automatically, or activating anything.
+
+```text
+route_advice = {
+  recommended: api_recipe | review_recipe | api_discovery | standard_pipeline,
+  state: available_disabled | fixture_only | review_required | used | blocked | suggested,
+  reason: string,
+  recipe?: {id, version, network_mode, status},
+  requires?: [string],
+  next_command?: string,
+  network_attempted: false | true
+}
+```
+
+The field is **absent** when there is no useful advice (default reads stay
+unchanged). Advice matching is **offline** (local recipe files + URL match
+only; no sockets).
+
+| Situation | `state` / `recommended` | What the agent should do |
+|-----------|-------------------------|--------------------------|
+| Known recipe, recipes disabled | `available_disabled` / `api_recipe` | Enable explicitly (`--api-recipes` / `API_RECIPES=1` / `api_recipes:true`) |
+| `network.mode=fixture_only` | `fixture_only` / `api_recipe` | Use fixture/demo or injected fetcher — **never** live |
+| `status=review_required` / candidate | `review_required` / `review_recipe` | Do not execute; review offline, then activate deliberately |
+| Recipe produced the result | `used` / `api_recipe` | Prefer the structured recipe output |
+| Recipe blocked, pipeline fell back | `blocked` / `standard_pipeline` | Keep using fallback; do not auto-enable live |
+| No recipe + `recurrent_need` (HTML-like) | `suggested` / `api_discovery` | Capture HAR **manually**, then `--discover-har` offline |
+| PDF / image / social / non-HTML | *(no discovery advice)* | Stay on the standard pipeline |
+
+Flags:
+
+```bash
+# Python
+read_url(url, recurrent_need=True)
+read_url(url, api_recipes=True)   # may attach used / fixture_only / blocked / …
+
+# CLI
+supersocks-url-scraper --recurrent https://example.com/app
+supersocks-url-scraper --api-recipes 'https://www.flashscore.com/match/…/?mid=…'
+
+# HTTP JSON
+{"url": "…", "recurrent_need": true}
+```
+
+`recurrent_need` defaults to `false`. It never triggers browser sniffing or HAR
+capture inside this package.
+
+---
+
 ## Adapter, not API provider
 
 The recipe layer is not a scraper factory and not a way to "make an API" from a
@@ -195,6 +248,8 @@ Agents interact with the recipe layer through the same public API as the CLI:
 - `execute_recipe(url, recipe, fetcher=…, resolve_dns=False)` → `RecipeRunResult`
 - `try_api_recipe(url, enabled=True)` → reader-shaped payload or `None`
 - `read_url(url, api_recipes=True)` → reader result (structured recipe or fallback)
+- `read_url(url, recurrent_need=True)` → may attach offline `route_advice` (api_discovery when suitable)
+- `build_route_advice(...)` → discrete advice dict or `None` (no network)
 
 ## Guardrails
 
@@ -206,6 +261,7 @@ Agents interact with the recipe layer through the same public API as the CLI:
 - Automatic degradation to HTTP → SEO → Cloak → archive on any failure.
 - StrategyCache never stores an API-recipe route.
 - Candidate recipes are always disabled (`review_required`, `fixture_only`).
+- `route_advice` never opens sockets, never captures HAR, never auto-activates.
 
 ## Flashscore example
 

@@ -894,12 +894,42 @@ def read_url(
     skip_social_routing: bool = False,
     api_recipes: bool = False,
     api_recipe_paths: list[str] | None = None,
+    recurrent_need: bool = False,
 ) -> dict[str, Any]:
     warnings: list[str] = []
     max_chars = max(50, min(int(length or 900), 10_000))
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return {"url": url, "content_type": "unknown", "title": None, "summary": "", "length": max_chars, "fetch_method": "http", "status": "error", "warnings": ["invalid http(s) URL"]}
+
+    # Offline recipe match only (local files + URL regex). Never opens a socket for advice.
+    from .api_recipes import attach_route_advice, build_route_advice, find_matching_recipes, load_recipes
+
+    matched_recipe = None
+    catalog: list = []
+    recipe_used = False
+    recipe_blocked_fallback = False
+    block_reason: str | None = None
+    try:
+        catalog = load_recipes(extra_paths=api_recipe_paths)
+        matches = find_matching_recipes(url, catalog)
+        matched_recipe = matches[0] if matches else None
+    except Exception:  # noqa: BLE001 — advice must never break the reader
+        catalog = []
+        matched_recipe = None
+
+    def finish(payload: dict[str, Any]) -> dict[str, Any]:
+        advice = build_route_advice(
+            url,
+            matched=matched_recipe,
+            api_recipes_enabled=api_recipes,
+            recipe_used=recipe_used,
+            recipe_blocked_fallback=recipe_blocked_fallback,
+            block_reason=block_reason,
+            recurrent_need=recurrent_need,
+            result=payload,
+        )
+        return attach_route_advice(payload, advice)
 
     if api_recipes:
         from .api_recipes import try_api_recipe
@@ -909,14 +939,28 @@ def read_url(
             enabled=True,
             length=max_chars,
             include_content=include_content,
+            recipes=catalog if catalog else None,
             extra_recipe_paths=api_recipe_paths,
         )
         if recipe_result is not None:
+            review_blocked = bool(recipe_result.pop("_api_recipe_review_blocked", False))
             fallback = bool(recipe_result.pop("_api_recipe_fallback", False))
             if not fallback and recipe_result.get("status") in {"ok", "partial"}:
                 # Successful structured recipe — do not promote into StrategyCache
                 # (cache remains http/seo/cloak/archive only).
-                return recipe_result
+                recipe_used = True
+                return finish(recipe_result)
+            recipe_blocked_fallback = True
+            if review_blocked:
+                block_reason = (
+                    f"Recipe {matched_recipe.recipe_key if matched_recipe else '?'} is review_required; "
+                    "execution blocked. Fell back to http_seo_cloak_archive."
+                )
+            else:
+                block_reason = (
+                    f"Recipe {matched_recipe.recipe_key if matched_recipe else '?'} blocked or failed; "
+                    f"fell back to {(matched_recipe.fallback if matched_recipe else 'http_seo_cloak_archive')}."
+                )
             warnings.extend(str(w) for w in (recipe_result.get("warnings") or []))
             warnings.append("api recipe degraded; falling back to HTTP→SEO→Cloak→archive pipeline")
 
@@ -978,6 +1022,9 @@ def read_url(
                     "summary_provider_token": summary_provider_token,
                     "summary_provider_timeout": summary_provider_timeout,
                     "jina_fallback": False,
+                    "recurrent_need": recurrent_need,
+                    "api_recipes": api_recipes,
+                    "api_recipe_paths": api_recipe_paths,
                 },
                 html_fetcher=_linkedin_html_fetcher if social_platform == "linkedin" else None,
                 browser_profile_dir=browser_profile_dir or "",
@@ -985,7 +1032,7 @@ def read_url(
                 browser_max_concurrency=max(1, int(browser_max_concurrency or 1)),
             )
             if social_result is not None:
-                return social_result
+                return finish(social_result)
 
     try:
         resource = _fetch_with_pipeline(
@@ -1006,7 +1053,7 @@ def read_url(
         payload = {"url": url, "content_type": "unknown", "title": None, "summary": "", "length": max_chars, "fetch_method": "http", "status": "error", "warnings": warnings + [f"fetch failed: {exc}"]}
         if social_platform:
             payload["platform"] = social_platform
-        return payload
+        return finish(payload)
 
     content_type = detect_content_type(resource)
     fetch_method = _fetch_method(resource)
@@ -1074,7 +1121,7 @@ def read_url(
             payload = {"url": resource.final_url, "content_type": "article", "title": article.title, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "partial", "warnings": warnings, "content": article.text if include_content else None}
             if social_platform:
                 payload["platform"] = social_platform
-            return payload
+            return finish(payload)
         summary = summarize_content(
             article.text,
             max_chars,
@@ -1097,7 +1144,7 @@ def read_url(
             payload["content"] = article.text
         if social_platform:
             payload["platform"] = social_platform
-        return payload
+        return finish(payload)
 
     if content_type == "pdf":
         try:
@@ -1106,12 +1153,12 @@ def read_url(
             payload = {"url": resource.final_url, "content_type": "pdf", "title": None, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "error", "warnings": warnings + [str(exc)]}
             if social_platform:
                 payload["platform"] = social_platform
-            return payload
+            return finish(payload)
         if not pdf.text.strip():
             payload = {"url": resource.final_url, "content_type": "pdf", "title": pdf.title, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "partial", "warnings": warnings + ["PDF parsed but no extractable text"]}
             if social_platform:
                 payload["platform"] = social_platform
-            return payload
+            return finish(payload)
         summary = summarize_content(
             pdf.text,
             max_chars,
@@ -1134,7 +1181,7 @@ def read_url(
             payload["content"] = pdf.text
         if social_platform:
             payload["platform"] = social_platform
-        return payload
+        return finish(payload)
 
     if content_type == "image":
         title, summary = describe_image_placeholder(resource.final_url, resource.content_type, len(resource.content), max_chars)
@@ -1142,12 +1189,12 @@ def read_url(
         payload = {"url": resource.final_url, "content_type": "image", "title": title, "summary": summary, "length": max_chars, "fetch_method": fetch_method, "status": "ok", "warnings": warnings + ["placeholder image description (no vision provider configured)"]}
         if social_platform:
             payload["platform"] = social_platform
-        return payload
+        return finish(payload)
 
     payload = {"url": resource.final_url, "content_type": "unknown", "title": None, "summary": "", "length": max_chars, "fetch_method": fetch_method, "status": "error", "warnings": warnings + [f"unsupported content type: {resource.content_type!r}"]}
     if social_platform:
         payload["platform"] = social_platform
-    return payload
+    return finish(payload)
 
 
 def to_markdown(result: dict[str, Any]) -> str:
@@ -1169,6 +1216,11 @@ def to_markdown(result: dict[str, Any]) -> str:
             f"(confidence={api_recipe.get('confidence')}, ttl={api_recipe.get('ttl_seconds')}s, "
             f"captured={api_recipe.get('captured_at')})"
         )
+    route_advice = result.get("route_advice")
+    if isinstance(route_advice, dict) and route_advice:
+        from .api_recipes.route_advice import format_route_advice_markdown
+
+        lines.extend(format_route_advice_markdown(route_advice))
     if result.get("warnings"):
         lines += ["", "## Warnings", ""] + [f"- {w}" for w in result["warnings"]]
     if result.get("summary"):

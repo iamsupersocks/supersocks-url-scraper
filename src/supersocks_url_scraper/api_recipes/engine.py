@@ -128,6 +128,8 @@ def recipe_from_dict(raw: dict[str, Any]) -> ApiRecipe:
         mode=str(network_raw.get("mode") or default_mode).strip().lower() or default_mode,
         consent_phrase=str(network_raw.get("consent_phrase") or RecipeNetworkPolicy().consent_phrase),
     )
+    status = str(raw.get("status") or "active").strip().lower() or "active"
+    review_required = bool(raw.get("review_required")) or status in {"review_required", "disabled"}
     return ApiRecipe(
         id=str(raw["id"]).strip(),
         version=str(raw["version"]).strip(),
@@ -156,6 +158,8 @@ def recipe_from_dict(raw: dict[str, Any]) -> ApiRecipe:
         fallback=str(raw.get("fallback") or "http_seo_cloak_archive"),
         schema=str(raw.get("schema") or (raw.get("response") or {}).get("schema") or ""),
         network=network,
+        status=status,
+        review_required=review_required,
     )
 
 
@@ -539,6 +543,9 @@ def try_api_recipe(
 
     Returns None when recipes are disabled, no recipe matches, or the recipe
     fails hard enough that the caller should fall back to HTTP→SEO→Cloak→archive.
+
+    Recipes with ``status=review_required`` / ``disabled`` never execute; a soft
+    fallback payload is returned so the reader can continue the standard pipeline.
     """
     if not enabled:
         return None
@@ -549,6 +556,31 @@ def try_api_recipe(
     if not matches:
         return None
     recipe = matches[0]
+    if recipe.needs_review:
+        captured_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        run = RecipeRunResult(
+            status="error",
+            url=url,
+            recipe_id=recipe.id,
+            recipe_version=recipe.version,
+            fetch_method="api-recipe",
+            title=None,
+            summary="",
+            structured_data={"review_required": True, "execution_blocked": True},
+            warnings=list(recipe.warnings)
+            + [
+                f"API recipe {recipe.recipe_key} is {recipe.status}; execution blocked pending review. "
+                "Activate deliberately after offline validation — never auto-promote."
+            ],
+            confidence=0.0,
+            captured_at=captured_at,
+            ttl_seconds=recipe.ttl_seconds,
+            length=length,
+        )
+        payload = run.as_reader_dict(include_content=include_content)
+        payload["_api_recipe_fallback"] = True
+        payload["_api_recipe_review_blocked"] = True
+        return payload
     # Skip network-blocked recipes early so reader falls through cleanly.
     if fetcher is None and not live_network_permitted(
         recipe.id,
