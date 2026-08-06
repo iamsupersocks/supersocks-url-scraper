@@ -144,6 +144,32 @@ flowchart TD
     V --> Y[status: partial + warnings]
 ```
 
+### Optional API-recipe lifecycle
+
+```mermaid
+flowchart TD
+    A["Any URL"] --> B["Normal scraper pass: HTTP → SEO → Cloak → archive"]
+    B --> C{"Recurrent, costly, partial, or a loaded recipe matches?"}
+    C -->|No| D["Return the normal scraper result"]
+    C -->|Yes| E["Attach machine-readable route_advice"]
+    E --> F{"Reviewed recipe already loaded?"}
+    F -->|No| G["Agent/operator captures a HAR manually"]
+    G --> H["Offline discovery: filter, redact, rank endpoint candidates"]
+    H --> I["Disabled review_required candidate"]
+    I --> J["Agent/operator reviews and edits the declarative recipe"]
+    J --> K["Explicit external load + global API opt-in"]
+    F -->|Yes| K
+    K --> L["Bounded HTTPS GET through the generic recipe engine"]
+    L -->|Validated response| M["Structured agent output"]
+    L -->|No match, blocked, changed, or invalid| B
+
+    X["Site-specific demos, including example #3"] -.->|"never bundled or auto-loaded"| J
+```
+
+The core contains no site-specific recipe. Discovery does not open a browser or
+activate a candidate, and the normal pipeline remains the fallback. See
+[`docs/API_RECIPES.md`](docs/API_RECIPES.md) for the contract and agent states.
+
 ### HTTP service contract
 
 ```mermaid

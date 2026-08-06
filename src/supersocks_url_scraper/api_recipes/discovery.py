@@ -180,14 +180,29 @@ _NOISE_TOKENS = (
 
 
 def infer_source_url_from_har(har: dict[str, Any]) -> str | None:
-    """Infer a page/document URL from HAR metadata when none was supplied."""
+    """Infer the final page/document URL when none was supplied.
+
+    HAR files commonly contain the landing page followed by the page the user
+    actually inspected, plus iframe documents. Prefer documents on the initial
+    page host, then the last query-bearing document because its public
+    identifiers are useful for ranking.
+    """
+    document_urls: list[str] = []
     for entry in iter_har_entries(har):
         if str(entry.get("_resourceType") or "").lower() == "document":
             req = entry.get("request")
             if isinstance(req, dict):
                 url = str(req.get("url") or "").strip()
                 if url.startswith("https://"):
-                    return url
+                    document_urls.append(url)
+    if document_urls:
+        initial_host = urlparse(document_urls[0]).hostname
+        same_host = [url for url in document_urls if urlparse(url).hostname == initial_host]
+        page_urls = same_host or document_urls
+        with_query = [url for url in page_urls if urlparse(url).query]
+        return (with_query or page_urls)[-1]
+
+    html_urls: list[str] = []
     for entry in iter_har_entries(har):
         req = entry.get("request")
         if not isinstance(req, dict) or str(req.get("method") or "").upper() != "GET":
@@ -199,8 +214,11 @@ def infer_source_url_from_har(har: dict[str, Any]) -> str | None:
         content = resp.get("content") if isinstance(resp, dict) else {}
         mime = _norm_content_type(str(content.get("mimeType") or "") if isinstance(content, dict) else "")
         if "text/html" in mime:
-            return url
-    return None
+            html_urls.append(url)
+    if not html_urls:
+        return None
+    with_query = [url for url in html_urls if urlparse(url).query]
+    return (with_query or html_urls)[-1]
 
 
 def _family_key(url: str) -> tuple[str, str]:
@@ -271,7 +289,10 @@ def score_candidate(
         family = _family_key(url)
         repeat = family_counts.get(family, 0)
         if repeat >= 2:
-            bonus = 35.0 * float(repeat - 1)
+            # Repetition is a useful pattern signal, not an unlimited vote.
+            # Capping it prevents telemetry or ad families from dominating a
+            # source-linked endpoint merely because they are very chatty.
+            bonus = min(35.0 * float(repeat - 1), 140.0)
             score += bonus
             reasons.append(f"family_repeat:{repeat}")
 

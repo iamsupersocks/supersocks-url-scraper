@@ -32,6 +32,32 @@ base scrape → route_advice → (optional) HAR discovery → review
 Core executes declarative HTTPS GET + bounded fanout (`params.bindings` /
 `params.fanout`). Odds-specific transforms stay in the example.
 
+## Real end-to-end verification (2026-08-06)
+
+This verification tested the generic method; it did not add Flashscore logic to
+core:
+
+1. The normal scraper path remained the starting and fallback path. With no
+   external recipe path, the runtime had no Flashscore match.
+2. A browser session visited a real match page and produced a temporary local
+   HAR. The HAR was not committed.
+3. Generic discovery scanned 574 exchanges, kept 44 public HTTPS GET JSON
+   candidates, and excluded 530 exchanges through the standard safety rules.
+4. Source-aware ranking inferred the inspected match page, matched its public
+   `mid` value to endpoint values such as `eventId`, and ranked the repeated
+   `2.ds.lsapp.eu/pq_graphql` family first. There is no host or domain exception
+   for that result in the discovery engine.
+5. The external example recipe then demonstrated bounded fanout and
+   normalization with deterministic fixtures. The observed response shape also
+   covered `findLiveOddsForBookmaker.eventOddsOverview` in the example-side
+   normalizer.
+
+These counts describe one dated browser capture, not a permanent benchmark or
+a promise that the undocumented endpoint will remain stable. A similar site is
+handled by the same sequence: normal pass → recurrence/cost signal → HAR
+discovery → reviewed external recipe → explicit opt-in → structured output or
+normal fallback.
+
 ## Observed browser pattern (example recipe)
 
 - Host: `2.ds.lsapp.eu`

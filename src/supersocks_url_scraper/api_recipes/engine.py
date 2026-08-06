@@ -263,7 +263,7 @@ def resolve_bindings(url: str, recipe: ApiRecipe) -> dict[str, str] | None:
             return None
         pattern = str(spec.get("pattern") or "").strip()
         if pattern and re.fullmatch(pattern, value) is None:
-                return None
+            return None
         resolved[str(name)] = value
     return resolved
 

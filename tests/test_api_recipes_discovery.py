@@ -319,6 +319,54 @@ def test_infer_source_url_from_har_document() -> None:
     assert infer_source_url_from_har(har) == "https://www.example.com/page?source_id=ABC"
 
 
+def test_infer_source_url_prefers_final_query_document() -> None:
+    def document(url: str) -> dict:
+        return {
+            "request": {"method": "GET", "url": url},
+            "response": {
+                "status": 200,
+                "content": {"mimeType": "text/html", "text": "<html></html>", "size": 13},
+            },
+            "_resourceType": "document",
+        }
+
+    target = "https://www.example.com/item?source_id=TARGET-42"
+    har = {
+        "log": {
+            "entries": [
+                document("https://www.example.com/"),
+                document(target),
+                document("https://www.example.com/help"),
+                document("https://ads.example.net/frame?campaign=NOISE"),
+            ]
+        }
+    }
+    assert infer_source_url_from_har(har) == target
+
+
+def test_repeated_family_bonus_is_capped() -> None:
+    source_url = "https://www.example.com/item?source_id=TARGET-42"
+    linked = classify_har_entry(
+        _entry(url="https://api.example.com/item?entity=TARGET-42", body='{"item":1}')
+    )
+    noisy = classify_har_entry(
+        _entry(url="https://metrics.example.com/collect?page=1", body='{"ok":true}')
+    )
+    from supersocks_url_scraper.api_recipes.discovery import score_candidate
+
+    linked_score, _ = score_candidate(
+        linked,
+        source_url=source_url,
+        family_counts={("api.example.com", "item"): 1},
+    )
+    noisy_score, _ = score_candidate(
+        noisy,
+        source_url=source_url,
+        family_counts={("metrics.example.com", "collect"): 1000},
+    )
+    assert linked_score > noisy_score
+
+
 # --- JSON Schema v1 ---
 
 

@@ -260,7 +260,7 @@ def build_route_advice(
                 f"{why} Capture a HAR manually in the browser, then run offline "
                 "`--discover-har` (no auto-sniff, no live activation)."
             ),
-            "requires": ["manual_har_capture", "offline_discover_har", "human_review"],
+            "requires": ["manual_har_capture", "offline_discover_har", "human_or_agent_review"],
             "next_command": _discovery_command(),
             "network_attempted": False,
         }

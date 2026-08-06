@@ -151,13 +151,16 @@ are never auto-loaded builtins.
 `discover_from_har(path, source_url=None)` reads a local HAR file and classifies
 every exchange. It never opens a socket. When `source_url` is omitted, the
 classifier tries to infer a document/page URL from the HAR (`_resourceType=document`
-or the first HTTPS HTML GET).
+or HTTPS HTML GET). It prefers the inspected page on the initial page host over
+later iframe/ad documents; `--discovery-source-url` remains the explicit override.
 
 Candidates are ranked with a **non-blocking heuristic** (not size-only):
 
 - strong bonus when a non-sensitive query value from `source_url` appears in the
   endpoint URL (even under a different param name),
 - bonus for repeated host+path families with variable segments,
+- a capped repetition bonus, so a chatty telemetry/ad family cannot win by
+  request count alone,
 - penalty for noisy tokens (`consent`, `cookie`, `ads`, `analytics`, `collect`,
   `telemetry`, `metrics`, `geolocation`, `manifest`, `banner`).
 
