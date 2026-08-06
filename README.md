@@ -11,7 +11,7 @@ Give the package an HTTP(S) URL and get back a small JSON or Markdown contract w
 
 🌐 [Repository](https://github.com/iamsupersocks/supersocks-url-scraper) · 🧩 JSON + Markdown · 🔒 Local-first by default · 📄 MIT
 
-It starts dependency-light for normal pages, then can opt into article/PDF extraction, CloakBrowser rendering, public archive/cache lookups, a metadata-only routing strategy cache, and a tiny HTTP service. It is not a hosted bypass service and ships no credentials, browser profiles, vendor-specific LLM SDK, or universal paywall guarantee.
+It starts dependency-light for normal pages, then can opt into article/PDF extraction, office-document Markdown via AnyDoc, local pdf-inspector classification, CloakBrowser rendering, public archive/cache lookups, a metadata-only routing strategy cache, and a tiny HTTP service. It is not a hosted bypass service and ships no credentials, browser profiles, vendor-specific LLM SDK, or universal paywall guarantee.
 
 ## Quick start
 
@@ -54,18 +54,19 @@ curl -s http://127.0.0.1:8768/summarize \
 ## Features
 
 - No required third-party runtime dependencies for the basic reader.
-- Optional extras for high-quality article extraction and PDF parsing.
+- Optional extras for high-quality article extraction, PDF parsing, and office-document Markdown.
 - Optional `youtube`/`social` extras for public YouTube metadata and subtitle extraction via yt-dlp (no media download; never auto-installed).
 - CLI one-shot mode.
 - Optional HTTP service with `/health`, `/summarize`, `/read`, and `/markdown`.
-- Detects articles, PDFs, images, and unknown binary content.
+- Detects articles, PDFs, office documents (DOCX and other AnyDoc formats), images, and unknown binary content.
 - Extensible social routing for YouTube, LinkedIn, X (twitter-cli), plus Cloak-first Reddit/Instagram/Facebook (OpenCLI/rdt-cli opt-in only), with actionable missing-backend warnings and no cookie/token collection.
 - Extracts from:
   - OpenGraph/Twitter/HTML metadata
   - JSON-LD article objects
   - trafilatura/readability/BeautifulSoup when optional article extras are installed
   - readable `<p>` paragraphs or regex fallback without extras
-- PDF text extraction via optional PyMuPDF.
+- PDF text extraction via optional pdf-inspector + PyMuPDF (local OSS only; no cloud OCR).
+- Office/document conversion to GitHub-Flavored Markdown via optional `firecrawl-anydoc` (`documents` extra).
 - Deterministic placeholder descriptions for images when no vision model is configured.
 - SEO-style HTTP fallback variants: Googlebot, Bingbot, Google/Facebook/t.co referers.
 - Optional browser/Cloak fallback for hostile media when the `browser` extra is installed.
@@ -113,7 +114,8 @@ flowchart TD
     K1 -->|Failed| Z1
     L --> M{"Resource type"}
     M -->|Article| N[Extract article text]
-    M -->|PDF| O[PyMuPDF text extraction]
+    M -->|PDF| O[pdf-inspector then PyMuPDF local extraction]
+    M -->|Document| OD[AnyDoc to GFM Markdown]
     M -->|Image| P[Placeholder image summary]
     M -->|Unknown| Z2[error: unsupported type]
     N --> Q{"Article quality + fetch method"}
@@ -126,8 +128,10 @@ flowchart TD
     T -->|Readable| S
     T -->|Disabled, failed, or still unusable| V
     O -->|Text extracted| S
-    O -->|No text| V
+    O -->|No text / scan without OCR| V
     O -->|Parse or dependency error| Z3[error: PDF extraction]
+    OD -->|Markdown| S
+    OD -->|Empty or dependency/parse error| Z4[error or partial document]
     P --> U[status: ok]
     S -->|Summary| U
     S -->|Empty summary| V
@@ -135,6 +139,7 @@ flowchart TD
     Z1 --> W
     Z2 --> W
     Z3 --> W
+    Z4 --> W
     V --> Y[status: partial + warnings]
 ```
 
@@ -192,7 +197,7 @@ From GitHub with pipx (recommended today):
 ```bash
 pipx install 'git+https://github.com/iamsupersocks/supersocks-url-scraper.git'
 # Optional extras require explicit install, e.g. after pipx install:
-# pipx inject supersocks-url-scraper 'PyMuPDF>=1.24' 'trafilatura>=1.12' ...
+# pipx inject supersocks-url-scraper 'PyMuPDF>=1.24' 'firecrawl-anydoc>=0.1.3,<0.2' 'pdf-inspector>=0.2' 'trafilatura>=1.12' ...
 ```
 
 Or from a local checkout:
@@ -202,6 +207,7 @@ python -m venv .venv
 . .venv/bin/activate
 pip install -e .
 # Optional extras on a checkout:
+# pip install -e '.[documents,pdf,test]'
 # pip install -e '.[full,test]'
 # pip install -e '.[full,browser]'
 # pip install -e '.[youtube]'
@@ -211,6 +217,7 @@ Future (after PyPI publish):
 
 ```bash
 # pip install supersocks-url-scraper
+# pip install 'supersocks-url-scraper[documents]'
 # pip install 'supersocks-url-scraper[full]'
 # pip install 'supersocks-url-scraper[full,browser]'
 # pip install 'supersocks-url-scraper[youtube]'
@@ -291,6 +298,19 @@ By default the CLI also tries public archive/cache snapshots as a last resort, i
 
 ```bash
 supersocks-url-scraper --no-archive-fallback https://example.com/article
+```
+
+### PDFs and office documents
+
+Optional documentary extraction stays out of the base install (no required deps).
+
+- **Office documents** (`doc`/`docx`, `ppt`/`pptx`, `xls`/`xlsx`, ODT/ODS/ODP, RTF, EPUB, CSV): install the `documents` extra (`firecrawl-anydoc`). Bytes convert to GitHub-Flavored Markdown; `content_type` is `document` and `document_format` carries the detected format.
+- **PDFs**: `pdf-inspector` classifies (`text_based` / `scanned` / `image_based` / `mixed`) and extracts textual PDFs locally; **PyMuPDF** remains the compatibility fallback (`pdf` extra`). Scanned/image-based PDFs without a text layer return `partial` with classification and an explicit warning that no local OCR is configured. Provenance fields: `extraction_engine`, `document_format`, `pdf_classification`, `ocr_used` (always false), `ocr_provider` (always null).
+
+```bash
+pip install -e '.[documents,pdf]'
+supersocks-url-scraper https://files.example/report.pdf
+# Cap pages with DOCUMENT_MAX_PAGES / --document-max-pages
 ```
 
 ### Social routing (YouTube / LinkedIn / X / Instagram / Facebook / Reddit)
@@ -571,7 +591,7 @@ docker build -t supersocks-url-scraper .
 docker run --rm -p 8768:8768 supersocks-url-scraper
 ```
 
-The default Docker image installs `full,browser`, Chromium runtime libraries, and prewarms the CloakBrowser binary so browser fallback works inside the container. For a smaller no-browser image:
+The default Docker image installs `full,browser` (article + PDF/PyMuPDF + documents/AnyDoc + pdf-inspector + CloakBrowser), Chromium runtime libraries, and prewarms the CloakBrowser binary so browser fallback works inside the container. For a smaller no-browser image:
 
 ```bash
 docker build --build-arg INSTALL_EXTRAS=full --build-arg PREWARM_BROWSER=0 -t supersocks-url-scraper:lite .
@@ -583,9 +603,10 @@ This public repo includes a standalone URL-reading core suitable for agent/news 
 
 
 - HTTP fetching with timeout and size guards.
-- Article/PDF/image detection.
+- Article/PDF/document/image detection (content-first, then MIME/URL/Content-Disposition for AnyDoc formats).
 - Article extraction with metadata, JSON-LD, trafilatura, readability, BeautifulSoup, and regex fallback.
-- Local extractive summaries plus optional full cleaned content.
+- PDF extraction via pdf-inspector with PyMuPDF fallback (local OSS only); office documents via AnyDoc GFM.
+- Local extractive summaries plus optional full cleaned content (Markdown for documents).
 - Optional generic HTTP summary-provider adapter for external summaries; disabled by default and no private keys shipped.
 - SEO-style requests: Googlebot, Bingbot, and search/social referer variants.
 - Optional CloakBrowser rendering, including persistent browser profiles. This is critical for the strongest paywall/anti-bot coverage.

@@ -47,6 +47,12 @@ def health_payload() -> dict:
     social_profile_dir = os.environ.get("SOCIAL_BROWSER_PROFILE_DIR", "") or browser_profile_dir
     strategy_cache_path = os.environ.get("FETCH_STRATEGY_CACHE_PATH", "")
     from .browser_fetcher import resolve_headless
+    from .documents import (
+        DOCUMENT_FORMATS,
+        anydoc_available,
+        pdf_inspector_available,
+        pymupdf_available,
+    )
     from .social import SOCIAL_PLATFORMS
     from .social.cloak_social import cloakbrowser_available, opencli_fallback_enabled
     from .social.opencli import probe_opencli
@@ -71,6 +77,13 @@ def health_payload() -> dict:
             "seo_default": _truthy(os.environ.get("SEO_FALLBACK"), True),
             "archive_default": _truthy(os.environ.get("ARCHIVE_FALLBACK"), True),
             "jina_default": _truthy(os.environ.get("JINA_FALLBACK"), False),
+        },
+        "documents": {
+            "anydoc_installed": anydoc_available(),
+            "pdf_inspector_installed": pdf_inspector_available(),
+            "pymupdf_installed": pymupdf_available(),
+            "max_pages": max(1, _env_int("DOCUMENT_MAX_PAGES", 50)),
+            "formats": ["pdf", *sorted(DOCUMENT_FORMATS)],
         },
         "social": {
             "youtube_extra_installed": importlib.util.find_spec("yt_dlp") is not None,
@@ -113,6 +126,11 @@ def openapi_payload() -> dict:
             "browser_max_concurrency": {"type": "integer", "default": max(1, _env_int("BROWSER_MAX_CONCURRENCY", 1))},
             "archive_fallback": {"type": "boolean", "default": _truthy(os.environ.get("ARCHIVE_FALLBACK"), True)},
             "jina_fallback": {"type": "boolean", "default": _truthy(os.environ.get("JINA_FALLBACK"), False), "description": "Opt-in LinkedIn/public external reader fallback via Jina Reader. Disabled by default. Never used for credentialed, local, or private URLs."},
+            "document_max_pages": {
+                "type": "integer",
+                "default": _env_int("DOCUMENT_MAX_PAGES", 50),
+                "description": "Maximum PDF pages to extract locally.",
+            },
             "strategy_cache_path": {"type": "string"},
             "summary_provider": {
                 "type": "string",
@@ -132,7 +150,28 @@ def openapi_payload() -> dict:
         "properties": {
             "status": {"type": "string", "enum": ["ok", "partial", "error"]},
             "url": {"type": "string"},
-            "content_type": {"type": "string"},
+            "content_type": {
+                "type": "string",
+                "description": "Detected resource kind: article, pdf, document, image, or unknown.",
+            },
+            "document_format": {
+                "type": "string",
+                "description": "Detected document/PDF format label (e.g. docx, pdf, csv) when applicable.",
+            },
+            "extraction_engine": {
+                "type": "string",
+                "description": "Engine that produced the document text: anydoc, pdf-inspector, or pymupdf.",
+            },
+            "pdf_classification": {
+                "type": "string",
+                "enum": ["text_based", "scanned", "image_based", "mixed"],
+                "description": "Optional pdf-inspector classification for PDF inputs.",
+            },
+            "ocr_used": {"type": "boolean", "description": "Always false; no OCR provider is configured."},
+            "ocr_provider": {
+                "type": "string",
+                "description": "Always null; no OCR provider is configured.",
+            },
             "title": {"type": "string"},
             "summary": {"type": "string"},
             "length": {"type": "integer"},
@@ -216,6 +255,7 @@ class Handler(BaseHTTPRequestHandler):
         summary_provider = str(payload.get("summary_provider") or os.environ.get("SUMMARY_PROVIDER") or "local")
         summary_provider_url = str(payload.get("summary_provider_url") or os.environ.get("SUMMARY_PROVIDER_URL") or "")
         summary_provider_token = str(payload.get("summary_provider_token") or os.environ.get("SUMMARY_PROVIDER_TOKEN") or "")
+        document_max_pages = int(payload.get("document_max_pages") or _env_int("DOCUMENT_MAX_PAGES", 50))
         return read_url(
             str(payload.get("url") or ""),
             length=int(payload.get("length") or os.environ.get("DEFAULT_SUMMARY_LENGTH", 900)),
@@ -232,6 +272,7 @@ class Handler(BaseHTTPRequestHandler):
             summary_provider_url=summary_provider_url,
             summary_provider_token=summary_provider_token,
             summary_provider_timeout=int(payload.get("summary_provider_timeout") or _env_int("SUMMARY_PROVIDER_TIMEOUT", 30)),
+            document_max_pages=document_max_pages,
         )
 
     def do_POST(self) -> None:  # noqa: N802
@@ -272,6 +313,12 @@ def main() -> int:
     parser.add_argument("--no-archive-fallback", action="store_true", help="Disable public archive/cache fallback after HTTP/SEO/browser failures or paywall teasers")
     parser.add_argument("--jina-fallback", action="store_true", help="Opt-in Jina Reader fallback for LinkedIn/public pages after the generic pipeline returns error/partial (disabled by default)")
     parser.add_argument(
+        "--document-max-pages",
+        type=int,
+        default=_env_int("DOCUMENT_MAX_PAGES", 50),
+        help="Maximum PDF pages for local extraction",
+    )
+    parser.add_argument(
         "--summary-provider",
         default=os.environ.get("SUMMARY_PROVIDER", "local") or "local",
         choices=["local", "extractive", "none", "http"],
@@ -305,6 +352,7 @@ def main() -> int:
         browser_max_concurrency=args.browser_max_concurrency,
         archive_fallback=not args.no_archive_fallback,
         jina_fallback=args.jina_fallback or _truthy(os.environ.get("JINA_FALLBACK"), False),
+        document_max_pages=args.document_max_pages,
         summary_provider=args.summary_provider,
         summary_provider_url=args.summary_provider_url or os.environ.get("SUMMARY_PROVIDER_URL") or "",
         summary_provider_token=args.summary_provider_token or os.environ.get("SUMMARY_PROVIDER_TOKEN") or "",
