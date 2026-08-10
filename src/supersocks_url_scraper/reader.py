@@ -777,6 +777,8 @@ def _try_browser_resource(
 ) -> FetchedResource | None:
     if not browser_fallback:
         return None
+    from .browser_fetcher import BrowserChallengeError
+
     try:
         resource = fetch_with_browser(
             url,
@@ -792,6 +794,14 @@ def _try_browser_resource(
         if consent_action:
             warnings.append(f"browser consent wall dismissed: {consent_action}")
         return resource
+    except BrowserChallengeError as exc:
+        # Automatic anti-bot challenge: never surface the challenge page as
+        # usable content. Emit an actionable, structured warning (no CAPTCHA
+        # solving / proxy / fingerprint rotation is ever attempted) and let the
+        # pipeline fall through to the next fallback.
+        warnings.append(f"browser blocked by challenge ({exc.kind.value}): {exc.reason}")
+        warnings.append(exc.warning)
+        return None
     except Exception as browser_error:
         warnings.append(f"browser fallback failed: {browser_error}")
         return None

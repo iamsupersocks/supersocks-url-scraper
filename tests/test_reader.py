@@ -296,3 +296,37 @@ def test_paywall_teaser_retries_browser_then_archive(monkeypatch: pytest.MonkeyP
     assert any("archive fallback used" in warning for warning in result["warnings"])
     cached = json.loads((tmp_path / "strategies.json").read_text(encoding="utf-8"))
     assert cached["news.example"]["fetch_method"] == "archive"
+
+
+def test_persistent_challenge_returns_error_with_structured_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    from supersocks_url_scraper.browser_fetcher import BrowserChallengeError, ChallengeKind
+
+    def fail_fetch(*args: object, **kwargs: object) -> FetchedResource:
+        raise reader.FetchError("HTTP 403")
+
+    def blocked_browser(*args: object, **kwargs: object) -> FetchedResource:
+        raise BrowserChallengeError(
+            "https://blocked.example/challenge",
+            kind=ChallengeKind.CLOUDFLARE,
+            reason="Cloudflare-like browser check (matched: cdn-cgi/challenge-platform)",
+            attempts=2,
+            retried=True,
+            warning="browser render blocked by Cloudflare-like browser check. No CAPTCHA solving, no proxy, no fingerprint rotation attempted.",
+        )
+
+    monkeypatch.setattr(reader, "fetch_url", fail_fetch)
+    monkeypatch.setattr(reader, "fetch_with_seo_variants", fail_fetch)
+    monkeypatch.setattr(reader, "fetch_with_browser", blocked_browser)
+
+    result = read_url(
+        "https://blocked.example/challenge",
+        browser_fallback=True,
+        archive_fallback=False,
+        include_content=True,
+    )
+    assert result["status"] in {"partial", "error"}
+    assert result.get("content", "") in {"", None} or "challenge-platform" not in result.get("content", "")
+    joined = "\n".join(result["warnings"])
+    assert "browser blocked by challenge (cloudflare)" in joined
+    assert "No CAPTCHA solving" in joined
+    assert result.get("summary", "") in {"", None}

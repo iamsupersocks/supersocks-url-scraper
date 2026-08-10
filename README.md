@@ -292,6 +292,25 @@ consent dialogs through an explicit reject or continue-without-accepting
 control. If the result remains `partial`, route the URL elsewhere instead of
 asking the agent to click arbitrary page controls.
 
+#### Automatic anti-bot challenges: conservative handling, never solving
+
+If browser rendering lands on an automatic anti-bot challenge, the page is
+**never** surfaced as usable content and the tool **never** tries to solve it —
+no CAPTCHA clicking, no proxy, no fingerprint rotation, no loop. Instead a
+conservative classifier inspects the HTTP status, rendered title, final URL,
+visible text and rendered HTML and returns `partial`/`error` with an actionable
+warning and a structured reason (one of: `captcha`, `cloudflare`,
+`access_denied`, `generic_challenge`).
+
+When `browser_profile_dir` is **non-empty**, a persistent profile is the one
+case where the reader will relaunch the browser **once** with the *same* profile
+before giving up (a warm, operator-owned profile is the legitimate remedy for a
+fresh-profile bot check). Without a profile, or if the second render is still a
+challenge, the request returns `partial`/`error` without a fabricated
+`summary`/`content`. A single profile directory is additionally protected
+against concurrent use within the process (an in-process lock), and persistent
+profiles are never committed to the repository.
+
 Without the `browser` extra, normal HTTP/SEO/archive routes still work, but browser-only publisher categories can fail, return only boilerplate/teasers, or become much slower.
 
 By default the CLI also tries public archive/cache snapshots as a last resort, including when a publisher returns HTTP 200 but extraction detects only a subscriber teaser/cookie wall. Disable that with:
