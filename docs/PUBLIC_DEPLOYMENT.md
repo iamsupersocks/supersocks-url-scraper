@@ -74,6 +74,7 @@ The included compose file:
 - mounts `./browser-profiles` to `/browser-profiles`;
 - enables browser/archive/SEO fallback by default;
 - exposes `/health` and `/openapi.json`;
+- disables core dumps for the scraper service (`ulimits.core` soft/hard = 0);
 - keeps all operator secrets outside git.
 
 ## 4. Call the service

@@ -7,6 +7,11 @@ services:
         PREWARM_BROWSER: "1"
     image: supersocks-url-scraper:latest
     restart: unless-stopped
+    # Disable core dumps for the scraper service (soft=0 hard=0).
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
     ports:
       - "127.0.0.1:${SCRAPER_BIND_PORT:-8768}:8768"
     environment:
