@@ -12,7 +12,7 @@ from tempfile import NamedTemporaryFile
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse, urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener
 
 from .documents import (
     DOCUMENT_FORMATS,
@@ -26,6 +26,7 @@ from .documents import (
     provenance_fields,
 )
 from .documents.detect import is_html_magic, is_image_magic
+from .ssrf import BLOCKED_URL_WARNING, RevalidateRedirectHandler, url_is_blocked
 
 DEFAULT_TIMEOUT = 20
 MAX_BYTES = 25 * 1024 * 1024
@@ -296,10 +297,13 @@ def fetch_url(
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise FetchError("invalid http(s) URL")
+    if url_is_blocked(url):
+        raise FetchError(BLOCKED_URL_WARNING)
     request_headers = {"User-Agent": user_agent, "Accept": "*/*", **(headers or {})}
     request = Request(url, headers=request_headers)
+    opener = build_opener(RevalidateRedirectHandler)
     try:
-        with urlopen(request, timeout=timeout) as response:
+        with opener.open(request, timeout=timeout) as response:
             raw = response.read(max_bytes + 1)
             if len(raw) > max_bytes:
                 raise FetchError(f"response exceeds max_bytes={max_bytes}")
@@ -316,6 +320,9 @@ def fetch_url(
     except HTTPError as exc:
         raise FetchError(f"HTTP {exc.code}") from exc
     except (URLError, TimeoutError, socket.timeout) as exc:
+        reason = str(getattr(exc, "reason", "") or exc)
+        if BLOCKED_URL_WARNING in reason:
+            raise FetchError(BLOCKED_URL_WARNING) from exc
         raise FetchError(f"fetch failed: {type(exc).__name__}") from exc
 
 
@@ -340,6 +347,8 @@ def fetch_with_browser(
 ) -> FetchedResource:
     from .browser_fetcher import fetch_with_cloak
 
+    if url_is_blocked(url):
+        raise FetchError(BLOCKED_URL_WARNING)
     page = fetch_with_cloak(
         url,
         timeout_seconds=float(timeout),
@@ -873,6 +882,8 @@ def _fetch_with_pipeline(
         cache.record_success(url, "http")
         return resource
     except FetchError as first_error:
+        if str(first_error) == BLOCKED_URL_WARNING:
+            raise
         if seo_fallback:
             try:
                 resource = fetch_with_seo_variants(url, timeout=timeout, max_bytes=max_bytes)
@@ -1014,7 +1025,8 @@ def read_url(
             warnings=warnings,
         )
     except FetchError as exc:
-        payload = {"url": url, "content_type": "unknown", "title": None, "summary": "", "length": max_chars, "fetch_method": "http", "status": "error", "warnings": warnings + [f"fetch failed: {exc}"]}
+        warning = str(exc) if str(exc) == BLOCKED_URL_WARNING else f"fetch failed: {exc}"
+        payload = {"url": url, "content_type": "unknown", "title": None, "summary": "", "length": max_chars, "fetch_method": "http", "status": "error", "warnings": warnings + [warning]}
         if social_platform:
             payload["platform"] = social_platform
         return payload
