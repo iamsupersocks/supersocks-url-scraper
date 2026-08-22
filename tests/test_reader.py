@@ -85,7 +85,9 @@ class FixtureHandler(BaseHTTPRequestHandler):
 
 
 @pytest.fixture()
-def fixture_base_url() -> str:
+def fixture_base_url(monkeypatch: pytest.MonkeyPatch) -> str:
+    # Local HTTP fixtures stay on loopback; the live guard would refuse 127.0.0.1.
+    monkeypatch.setattr(reader, "url_is_blocked", lambda _url: False)
     server = ThreadingHTTPServer(("127.0.0.1", 0), FixtureHandler)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()

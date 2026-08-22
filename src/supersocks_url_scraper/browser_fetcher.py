@@ -17,6 +17,8 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
+from .ssrf import BLOCKED_URL_WARNING, url_is_blocked
+
 
 class BrowserFetchError(RuntimeError):
     """Raised when optional browser rendering cannot retrieve usable HTML."""
@@ -152,6 +154,11 @@ async def _dismiss_consent_wall(page: Any) -> str | None:
     return None
 
 
+def _reject_blocked_url(url: str) -> None:
+    if url_is_blocked(url):
+        raise BrowserFetchError(BLOCKED_URL_WARNING)
+
+
 async def fetch_with_cloak_async(
     url: str,
     *,
@@ -160,6 +167,7 @@ async def fetch_with_cloak_async(
     profile_dir: str = "",
     headless: bool | None = None,
 ) -> BrowserRenderedPage:
+    _reject_blocked_url(url)
     os.environ.setdefault("CLOAKBROWSER_SUPPRESS_FONT_WARNING", "1")
     resolved_headless = resolve_headless(headless)
     _ensure_display_for_headed(resolved_headless)
@@ -217,6 +225,7 @@ def fetch_with_cloak(
     max_concurrency: int = 1,
     headless: bool | None = None,
 ) -> BrowserRenderedPage:
+    _reject_blocked_url(url)
     semaphore = _browser_semaphore(max_concurrency)
     acquired = semaphore.acquire(timeout=max(1.0, float(timeout_seconds)))
     if not acquired:
