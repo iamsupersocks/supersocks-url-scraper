@@ -1,0 +1,55 @@
+{
+  "id": "har-api-api-v1-events",
+  "version": "1",
+  "title": "Discovered public JSON endpoint on api.example.com (review_required)",
+  "schema": "generic_json_v1",
+  "confidence": 0.3,
+  "ttl_seconds": 300,
+  "status": "review_required",
+  "review_required": true,
+  "network": {
+    "mode": "fixture_only",
+    "consent_phrase": "I_HAVE_EXPRESS_WRITTEN_PERMISSION",
+    "notes": "Candidate discovered offline from a local HAR. Never executed or promoted automatically. Requires human/agent review before any activation, and remains read-only HTTPS GET (no auth headers)."
+  },
+  "match": {
+    "host_roots": [
+      "api.example.com"
+    ],
+    "path_regex": "api/v1/events"
+  },
+  "endpoint": {
+    "method": "GET",
+    "url_template": "https://api.example.com/api/v1/events?page=2&limit=50",
+    "allowed_hosts": [
+      "api.example.com"
+    ],
+    "timeout_seconds": 8,
+    "max_bytes": 214,
+    "max_fanout": 1,
+    "min_interval_ms": 50,
+    "max_redirects": 2,
+    "headers": {}
+  },
+  "warnings": [
+    "Candidate discovered offline from a HAR; undocumented endpoint may change.",
+    "Review_required: verify the endpoint is public, read-only, and within the site's terms of service before any activation.",
+    "No Authorization/Cookie/token headers are permitted."
+  ],
+  "fallback": "http_seo_cloak_archive",
+  "response": {
+    "schema": "generic_json_v1",
+    "json_keys": [
+      "events",
+      "total"
+    ]
+  },
+  "discovery": {
+    "source": "har",
+    "url": "https://api.example.com/api/v1/events?page=2&limit=50",
+    "status_code": 200,
+    "content_type": "application/json",
+    "size_bytes": 214,
+    "captured_at": "2026-08-06T16:08:43+00:00"
+  }
+}

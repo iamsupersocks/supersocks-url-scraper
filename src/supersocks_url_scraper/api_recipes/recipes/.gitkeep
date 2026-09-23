@@ -1,0 +1,2 @@
+# Placeholder so the builtin recipes directory exists.
+# No site-specific recipes ship here; load examples via API_RECIPE_PATHS.

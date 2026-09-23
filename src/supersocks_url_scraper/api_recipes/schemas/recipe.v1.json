@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://supersocks.local/schemas/recipe.v1.json",
+  "title": "Supersocks API Recipe v1",
+  "description": "A versioned, read-only HTTPS GET API recipe. Never carries credentials. network.mode controls whether live outbound GETs are permitted; fixture_only/off/disabled are always blocked.",
+  "type": "object",
+  "required": ["id", "version", "match", "endpoint"],
+  "additionalProperties": true,
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "version": {"type": "string", "minLength": 1},
+    "title": {"type": "string"},
+    "schema": {"type": "string"},
+    "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "ttl_seconds": {"type": "integer", "minimum": 0},
+    "status": {"type": "string", "enum": ["active", "review_required", "disabled"]},
+    "review_required": {"type": "boolean"},
+    "match": {
+      "type": "object",
+      "required": ["host_roots"],
+      "properties": {
+        "host_roots": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "path_regex": {"type": "string"},
+        "query_keys": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "endpoint": {
+      "type": "object",
+      "required": ["method", "url_template", "allowed_hosts"],
+      "properties": {
+        "method": {"type": "string", "enum": ["GET"]},
+        "url_template": {"type": "string", "pattern": "^https://"},
+        "allowed_hosts": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "timeout_seconds": {"type": "integer", "minimum": 0},
+        "max_bytes": {"type": "integer", "minimum": 0},
+        "max_fanout": {"type": "integer", "minimum": 0},
+        "min_interval_ms": {"type": "integer", "minimum": 0},
+        "max_redirects": {"type": "integer", "minimum": 0},
+        "headers": {"type": "object", "additionalProperties": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "params": {"type": "object"},
+    "response": {"type": "object"},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "fallback": {"type": "string"},
+    "network": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["fixture_only", "off", "disabled", "never", "consent_required", "allowlist", "open", "allow"]
+        },
+        "consent_phrase": {"type": "string"},
+        "notes": {"type": "string"}
+      }
+    },
+    "discovery": {"type": "object"}
+  }
+}
