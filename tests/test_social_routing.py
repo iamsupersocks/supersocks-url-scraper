@@ -182,10 +182,11 @@ def test_fetch_text_rejects_unsafe_url_without_leaking_secrets() -> None:
 def test_fetch_text_rejects_oversized_subtitle_track(monkeypatch: pytest.MonkeyPatch) -> None:
     oversized = b"x" * (5 * 1024 * 1024 + 1)
 
-    def fake_urlopen(request, timeout=20):
-        return FakeResponse(oversized)
+    class FakeOpener:
+        def open(self, request, timeout=20):
+            return FakeResponse(oversized)
 
-    monkeypatch.setattr("supersocks_url_scraper.social.youtube.urlopen", fake_urlopen)
+    monkeypatch.setattr("supersocks_url_scraper.social.youtube.build_opener", lambda *_args, **_kwargs: FakeOpener())
     with pytest.raises(ValueError, match="exceeds"):
         _fetch_text("https://example.test/subs.vtt", timeout=5)
 

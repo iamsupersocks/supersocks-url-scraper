@@ -11,8 +11,9 @@ import json
 import re
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener
 
+from ..ssrf import BLOCKED_URL_WARNING, safe_opener_handlers
 from .domains import detect_platform, is_safe_public_http_url
 
 DEFAULT_USER_AGENT = "supersocks-url-scraper/0.2"
@@ -78,8 +79,17 @@ def _fetch_text(url: str, *, timeout: int) -> str:
     if not is_safe_public_http_url(url):
         raise ValueError("subtitle URL blocked by safety policy")
     request = Request(url, headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "*/*"})
-    with urlopen(request, timeout=timeout) as response:
-        raw = response.read(MAX_SUBTITLE_BYTES + 1)
+    opener = build_opener(*safe_opener_handlers())
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            raw = response.read(MAX_SUBTITLE_BYTES + 1)
+    except HTTPError:
+        raise
+    except URLError as exc:
+        reason = str(getattr(exc, "reason", "") or exc)
+        if BLOCKED_URL_WARNING in reason:
+            raise ValueError("subtitle URL blocked by safety policy") from exc
+        raise
     if len(raw) > MAX_SUBTITLE_BYTES:
         raise ValueError(f"subtitle track exceeds {MAX_SUBTITLE_BYTES} bytes")
     return raw.decode("utf-8", errors="replace")

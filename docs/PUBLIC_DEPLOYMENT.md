@@ -40,13 +40,16 @@ Put it in `.env` as `API_BEARER_TOKEN`. Keep `.env` private.
 The important normalized settings are:
 
 ```bash
+SERVICE_BROWSER_ENABLED=0
 BROWSER_FALLBACK=1
 BROWSER_PROFILE_DIR=/browser-profiles/default
 BROWSER_POST_LOAD_WAIT_MS=10000
+BROWSER_POST_LOAD_WAIT_MS_MAX=15000
 BROWSER_MAX_CONCURRENCY=1
 SEO_FALLBACK=1
 ARCHIVE_FALLBACK=1
 FETCH_STRATEGY_CACHE_PATH=/data/fetch-strategies.json
+DOCUMENT_MAX_PAGES=50
 SUMMARY_PROVIDER=local
 ```
 
@@ -54,11 +57,13 @@ Meaning:
 
 - try fast HTTP first;
 - try SEO-style variants when HTTP is blocked;
-- use CloakBrowser only as fallback;
+- in service mode, do not launch CloakBrowser unless `SERVICE_BROWSER_ENABLED=1`;
 - reuse a persistent browser profile if the operator provides one;
 - keep browser concurrency low because rendering is expensive;
 - store only route metadata in the strategy cache;
 - summarize locally unless the operator explicitly configures their own provider.
+
+Operator settings (`FETCH_STRATEGY_CACHE_PATH`, `BROWSER_PROFILE_DIR`, `BROWSER_MAX_CONCURRENCY`, `SUMMARY_PROVIDER*`, `SERVICE_BROWSER_ENABLED`, and the page/wait caps) come from the environment only. A request cannot set them.
 
 ## 3. Run with Docker Compose
 
@@ -72,7 +77,7 @@ The included compose file:
 - binds only to `127.0.0.1:8768` by default;
 - mounts `./data` to `/data`;
 - mounts `./browser-profiles` to `/browser-profiles`;
-- enables browser/archive/SEO fallback by default;
+- leaves archive/SEO fallback on and the service browser off unless `SERVICE_BROWSER_ENABLED=1`;
 - exposes `/health` and `/openapi.json`;
 - disables core dumps for the scraper service (`ulimits.core` soft/hard = 0);
 - keeps all operator secrets outside git.
@@ -107,10 +112,11 @@ curl -s http://127.0.0.1:8768/summarize \
     "length":1200,
     "browser_fallback":true,
     "archive_fallback":true,
-    "browser_post_load_wait_ms":10000,
-    "browser_max_concurrency":1
+    "browser_post_load_wait_ms":10000
   }' | jq
 ```
+
+`browser_fallback` is accepted. With `SERVICE_BROWSER_ENABLED` unset it does not launch a browser; the JSON `warnings` include `browser fallback disabled in service mode`, and archive/HTTP fallbacks still run. Keys outside the allowlist, such as `browser_max_concurrency` or `strategy_cache_path`, are ignored with `ignored request key: <name>`. The value is not echoed.
 
 ## 5. Seed or discover strategy routes
 
@@ -286,7 +292,41 @@ The adapter posts:
 
 It accepts JSON `{ "summary": "..." }`, `{ "text": "..." }`, `{ "result": "..." }`, or plain text. If the provider fails, the reader falls back to local extractive summary and adds a warning. Never commit real API keys.
 
-## 8. What not to publish
+## 8. Service security
+
+`--serve` accepts only these JSON fields: `url`, `length`, `include_content`, `seo_fallback`, `browser_fallback`, `archive_fallback`, `jina_fallback`, `browser_post_load_wait_ms`, and `document_max_pages`. `browser_post_load_wait_ms` is clamped to `0..BROWSER_POST_LOAD_WAIT_MS_MAX` (default max 15000). `document_max_pages` is clamped to `1..DOCUMENT_MAX_PAGES`. Any other key is ignored and named in `warnings`. The CLI flags are unchanged.
+
+Direct HTTP(S) reads, SEO variants, archive lookups, document/PDF downloads, the LinkedIn HTML fetch, and YouTube subtitle fetches refuse destinations that are not globally reachable:
+
+- loopback, unspecified, link-local, and multicast;
+- private RFC1918 ranges;
+- CGNAT `100.64.0.0/10` (the shared range used by carrier-grade NAT and Tailscale);
+- cloud metadata `169.254.169.254`;
+- IPv6 ULA `fc00::/7` and link-local `fe80::/10`;
+- IPv4-mapped (`::ffff:`), IPv4-compatible, NAT64 `64:ff9b::/96`, 6to4, and Teredo forms when the embedded address is blocked.
+
+The name is checked again when the socket connects. If any resolved address is blocked, the host is refused and no connection is opened. Redirects are checked the same way. These reads ignore `HTTP_PROXY` and `HTTPS_PROXY`. The summary-provider URL is exempt because only the operator can set it, through `SUMMARY_PROVIDER_URL`.
+
+Chromium is off in service mode. Playwright does not see every redirect and cannot pin DNS for scripts or subresources, so interception would not meet the private-egress rule. `SERVICE_BROWSER_ENABLED=1` turns the old first-URL check back on and is outside that guarantee. Cached `cloak` / `cloak-profile` strategies and Cloak-first Reddit, Instagram, and Facebook reads are skipped, with `browser fallback disabled in service mode`. JS-heavy or paywalled pages can return `partial`. yt-dlp, twitter-cli, opencli, rdt-cli, and Jina stay on fixed public hosts or an explicit operator opt-in. They are a residual limit, not an open proxy.
+
+## 9. Deploy and roll back
+
+Run this on the host that already runs the container. Do not commit `.env`, profiles, or fetched pages.
+
+1. Archive the deployed directory.
+2. Tag the image that is running: `docker tag supersocks-url-scraper:latest supersocks-url-scraper:pre-2219`.
+3. Copy this tree into the deployed directory, leaving `.env`, `data/`, and `browser-profiles/` in place.
+4. `docker compose build && docker compose up -d`.
+5. Check `/health`, one public article, one private literal URL (refused), and a body that includes `strategy_cache_path` (ignored, with a warning, and no file written outside the operator cache path).
+
+Roll back without rebuilding:
+
+1. `docker tag supersocks-url-scraper:pre-2219 supersocks-url-scraper:latest`
+2. `docker compose up -d`
+
+Restore the archived directory if the copied source also has to go back.
+
+## 10. What not to publish
 
 Never commit:
 

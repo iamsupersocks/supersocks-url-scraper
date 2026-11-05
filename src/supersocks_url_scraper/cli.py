@@ -8,7 +8,19 @@ import shutil
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .reader import read_url, to_markdown
+from .reader import BROWSER_DISABLED_IN_SERVICE_WARNING, read_url, to_markdown
+
+SERVICE_REQUEST_KEYS = frozenset({
+    "url",
+    "length",
+    "include_content",
+    "seo_fallback",
+    "browser_fallback",
+    "archive_fallback",
+    "jina_fallback",
+    "browser_post_load_wait_ms",
+    "document_max_pages",
+})
 
 
 def _truthy(value: object, default: bool = False) -> bool:
@@ -22,6 +34,24 @@ def _env_int(name: str, default: int) -> int:
         return int(os.environ.get(name, str(default)))
     except (TypeError, ValueError):
         return default
+
+
+def _bounded_int(value: object, *, lower: int, upper: int) -> int:
+    number = int(value)
+    if upper < lower:
+        upper = lower
+    if number < lower:
+        return lower
+    if number > upper:
+        return upper
+    return number
+
+
+def _ignored_request_key_warning(name: object) -> str:
+    text = str(name)
+    if len(text) > 64:
+        text = text[:64]
+    return f"ignored request key: {text}"
 
 
 def _js_runtime_available() -> bool:
@@ -68,6 +98,7 @@ def health_payload() -> dict:
         "browser": {
             "extra_installed": importlib.util.find_spec("cloakbrowser") is not None,
             "fallback_default": _truthy(os.environ.get("BROWSER_FALLBACK"), False),
+            "service_browser_enabled": _truthy(os.environ.get("SERVICE_BROWSER_ENABLED"), False),
             "profile_dir": _path_status(browser_profile_dir, kind="dir"),
             "post_load_wait_ms": _env_int("BROWSER_POST_LOAD_WAIT_MS", 8000),
             "max_concurrency": max(1, _env_int("BROWSER_MAX_CONCURRENCY", 1)),
@@ -120,29 +151,23 @@ def openapi_payload() -> dict:
             "length": {"type": "integer", "default": _env_int("DEFAULT_SUMMARY_LENGTH", 900)},
             "include_content": {"type": "boolean", "default": False},
             "seo_fallback": {"type": "boolean", "default": _truthy(os.environ.get("SEO_FALLBACK"), True)},
-            "browser_fallback": {"type": "boolean", "default": _truthy(os.environ.get("BROWSER_FALLBACK"), False)},
-            "browser_profile_dir": {"type": "string"},
-            "browser_post_load_wait_ms": {"type": "integer", "default": _env_int("BROWSER_POST_LOAD_WAIT_MS", 8000)},
-            "browser_max_concurrency": {"type": "integer", "default": max(1, _env_int("BROWSER_MAX_CONCURRENCY", 1))},
+            "browser_fallback": {
+                "type": "boolean",
+                "default": False,
+                "description": "Accepted per request. Service mode launches a browser only when SERVICE_BROWSER_ENABLED=1.",
+            },
+            "browser_post_load_wait_ms": {
+                "type": "integer",
+                "default": _env_int("BROWSER_POST_LOAD_WAIT_MS", 8000),
+                "description": "Clamped to 0..BROWSER_POST_LOAD_WAIT_MS_MAX (default max 15000).",
+            },
             "archive_fallback": {"type": "boolean", "default": _truthy(os.environ.get("ARCHIVE_FALLBACK"), True)},
             "jina_fallback": {"type": "boolean", "default": _truthy(os.environ.get("JINA_FALLBACK"), False), "description": "Opt-in LinkedIn/public external reader fallback via Jina Reader. Disabled by default. Never used for credentialed, local, or private URLs."},
             "document_max_pages": {
                 "type": "integer",
-                "default": _env_int("DOCUMENT_MAX_PAGES", 50),
-                "description": "Maximum PDF pages to extract locally.",
+                "default": max(1, _env_int("DOCUMENT_MAX_PAGES", 50)),
+                "description": "Maximum PDF pages to extract locally. Clamped to 1..DOCUMENT_MAX_PAGES.",
             },
-            "strategy_cache_path": {"type": "string"},
-            "summary_provider": {
-                "type": "string",
-                "enum": ["local", "extractive", "none", "http"],
-                "default": os.environ.get("SUMMARY_PROVIDER", "local") or "local",
-            },
-            "summary_provider_url": {"type": "string", "format": "uri"},
-            "summary_provider_token": {
-                "type": "string",
-                "description": "Optional bearer token for the caller's own summary provider; never required by default.",
-            },
-            "summary_provider_timeout": {"type": "integer", "default": _env_int("SUMMARY_PROVIDER_TIMEOUT", 30)},
         },
     }
     result_schema = {
@@ -249,31 +274,64 @@ class Handler(BaseHTTPRequestHandler):
 
     def _summarize(self) -> dict:
         payload = self._read_payload()
-        browser_fallback = _truthy(payload.get("browser_fallback"), _truthy(os.environ.get("BROWSER_FALLBACK"), False))
+        if not isinstance(payload, dict):
+            raise ValueError("invalid JSON or request")
+        policy_warnings = [
+            _ignored_request_key_warning(key)
+            for key in payload
+            if key not in SERVICE_REQUEST_KEYS
+        ]
+        allow_browser = _truthy(os.environ.get("SERVICE_BROWSER_ENABLED"), False)
+        explicit_browser = "browser_fallback" in payload and _truthy(payload.get("browser_fallback"), False)
+        requested_browser = _truthy(
+            payload.get("browser_fallback"),
+            _truthy(os.environ.get("BROWSER_FALLBACK"), False),
+        )
+        browser_fallback = bool(requested_browser and allow_browser)
+        if explicit_browser and not allow_browser:
+            policy_warnings.append(BROWSER_DISABLED_IN_SERVICE_WARNING)
         archive_fallback = _truthy(payload.get("archive_fallback"), _truthy(os.environ.get("ARCHIVE_FALLBACK"), True))
         jina_fallback = _truthy(payload.get("jina_fallback"), _truthy(os.environ.get("JINA_FALLBACK"), False))
-        summary_provider = str(payload.get("summary_provider") or os.environ.get("SUMMARY_PROVIDER") or "local")
-        summary_provider_url = str(payload.get("summary_provider_url") or os.environ.get("SUMMARY_PROVIDER_URL") or "")
-        summary_provider_token = str(payload.get("summary_provider_token") or os.environ.get("SUMMARY_PROVIDER_TOKEN") or "")
-        document_max_pages = int(payload.get("document_max_pages") or _env_int("DOCUMENT_MAX_PAGES", 50))
-        return read_url(
+        wait_max = _env_int("BROWSER_POST_LOAD_WAIT_MS_MAX", 15000)
+        if wait_max < 0:
+            wait_max = 0
+        if "browser_post_load_wait_ms" in payload and payload.get("browser_post_load_wait_ms") is not None:
+            browser_post_load_wait_ms = _bounded_int(payload.get("browser_post_load_wait_ms"), lower=0, upper=wait_max)
+        else:
+            browser_post_load_wait_ms = _bounded_int(_env_int("BROWSER_POST_LOAD_WAIT_MS", 8000), lower=0, upper=wait_max)
+        page_cap = _env_int("DOCUMENT_MAX_PAGES", 50)
+        if page_cap < 1:
+            page_cap = 1
+        if "document_max_pages" in payload and payload.get("document_max_pages") is not None:
+            document_max_pages = _bounded_int(payload.get("document_max_pages"), lower=1, upper=page_cap)
+        else:
+            document_max_pages = page_cap
+        result = read_url(
             str(payload.get("url") or ""),
             length=int(payload.get("length") or os.environ.get("DEFAULT_SUMMARY_LENGTH", 900)),
             include_content=bool(payload.get("include_content")),
             seo_fallback=_truthy(payload.get("seo_fallback"), _truthy(os.environ.get("SEO_FALLBACK"), True)),
-            strategy_cache_path=payload.get("strategy_cache_path") or os.environ.get("FETCH_STRATEGY_CACHE_PATH") or None,
+            strategy_cache_path=os.environ.get("FETCH_STRATEGY_CACHE_PATH") or None,
             browser_fallback=browser_fallback,
-            browser_profile_dir=str(payload.get("browser_profile_dir") or os.environ.get("BROWSER_PROFILE_DIR") or ""),
-            browser_post_load_wait_ms=int(payload.get("browser_post_load_wait_ms") or _env_int("BROWSER_POST_LOAD_WAIT_MS", 8000)),
-            browser_max_concurrency=int(payload.get("browser_max_concurrency") or _env_int("BROWSER_MAX_CONCURRENCY", 1)),
+            browser_profile_dir=str(os.environ.get("BROWSER_PROFILE_DIR") or ""),
+            browser_post_load_wait_ms=browser_post_load_wait_ms,
+            browser_max_concurrency=max(1, _env_int("BROWSER_MAX_CONCURRENCY", 1)),
             archive_fallback=archive_fallback,
             jina_fallback=jina_fallback,
-            summary_provider=summary_provider,
-            summary_provider_url=summary_provider_url,
-            summary_provider_token=summary_provider_token,
-            summary_provider_timeout=int(payload.get("summary_provider_timeout") or _env_int("SUMMARY_PROVIDER_TIMEOUT", 30)),
+            summary_provider=str(os.environ.get("SUMMARY_PROVIDER") or "local"),
+            summary_provider_url=str(os.environ.get("SUMMARY_PROVIDER_URL") or ""),
+            summary_provider_token=str(os.environ.get("SUMMARY_PROVIDER_TOKEN") or ""),
+            summary_provider_timeout=_env_int("SUMMARY_PROVIDER_TIMEOUT", 30),
             document_max_pages=document_max_pages,
+            allow_browser=allow_browser,
         )
+        if policy_warnings:
+            merged = list(policy_warnings)
+            for warning in result.get("warnings") or []:
+                if warning not in merged:
+                    merged.append(warning)
+            result["warnings"] = merged
+        return result
 
     def do_POST(self) -> None:  # noqa: N802
         path = self.path.split("?", 1)[0]

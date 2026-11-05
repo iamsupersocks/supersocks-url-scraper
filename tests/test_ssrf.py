@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import ipaddress
+import socket
 from urllib.error import URLError
+from urllib.request import ProxyHandler
 from unittest.mock import Mock
 
 import pytest
@@ -9,13 +11,23 @@ import pytest
 from supersocks_url_scraper import reader
 from supersocks_url_scraper.browser_fetcher import BrowserFetchError, fetch_with_cloak
 from supersocks_url_scraper.reader import FetchError, fetch_url, fetch_with_browser, read_url
+from supersocks_url_scraper.social.domains import is_private_or_local_host
+from supersocks_url_scraper.social.youtube import _fetch_text
 from supersocks_url_scraper.ssrf import (
     BLOCKED_URL_WARNING,
     RevalidateRedirectHandler,
     host_is_blocked,
     ip_is_blocked,
+    safe_opener_handlers,
     url_is_blocked,
 )
+
+
+def _teredo(server: str, client: str) -> ipaddress.IPv6Address:
+    server_ip = int(ipaddress.IPv4Address(server))
+    client_ip = int(ipaddress.IPv4Address(client))
+    value = (0x20010000 << 96) | (server_ip << 64) | ((~client_ip) & 0xFFFFFFFF)
+    return ipaddress.IPv6Address(value)
 
 
 def test_ip_literals_blocked() -> None:
@@ -30,8 +42,29 @@ def test_ip_literals_blocked() -> None:
         "::ffff:127.0.0.1",
         "::ffff:169.254.169.254",
         "0.0.0.0",
+        "100.64.0.1",
+        "100.127.255.255",
+        "224.0.0.1",
+        "::ffff:10.0.0.1",
+        "::ffff:100.64.0.1",
+        "fd00::1",
+        "fc00::1",
+        "fe80::1",
+        "64:ff9b::a00:1",
+        "::10.0.0.1",
+        "2002:0a00:0001::",
+        str(_teredo("8.8.8.8", "10.0.0.1")),
     )
-    allowed = ("8.8.8.8", "1.1.1.1", "2001:4860:4860::8888")
+    allowed = (
+        "8.8.8.8",
+        "1.1.1.1",
+        "2001:4860:4860::8888",
+        "::ffff:8.8.8.8",
+        "64:ff9b::808:808",
+        "::8.8.8.8",
+        "2002:0808:0808::",
+        str(_teredo("8.8.8.8", "1.1.1.1")),
+    )
     for raw in blocked:
         assert ip_is_blocked(ipaddress.ip_address(raw)), raw
     for raw in allowed:
@@ -124,6 +157,169 @@ def test_fetch_with_browser_rejects_private_url(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr("supersocks_url_scraper.browser_fetcher.fetch_with_cloak", boom)
     with pytest.raises(FetchError, match=BLOCKED_URL_WARNING):
         fetch_with_browser("http://127.0.0.1/")
+
+
+def test_redirect_refuses_cgnat_ula_and_mapped_targets() -> None:
+    handler = RevalidateRedirectHandler()
+    for newurl in ("http://100.64.0.1/latest", "http://[fd00::1]/", "http://[::ffff:10.0.0.1]/"):
+        with pytest.raises(URLError, match=BLOCKED_URL_WARNING):
+            handler.redirect_request(
+                req=Mock(),
+                fp=None,
+                code=302,
+                msg="Found",
+                headers={},
+                newurl=newurl,
+            )
+
+
+def test_redirect_to_name_resolving_private_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "supersocks_url_scraper.ssrf.socket.getaddrinfo",
+        lambda *_args, **_kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.9", 0))],
+    )
+    handler = RevalidateRedirectHandler()
+    with pytest.raises(URLError, match=BLOCKED_URL_WARNING):
+        handler.redirect_request(
+            req=Mock(),
+            fp=None,
+            code=302,
+            msg="Found",
+            headers={},
+            newurl="https://cdn.example/next",
+        )
+
+
+def test_domains_use_shared_block_rule() -> None:
+    assert is_private_or_local_host("100.64.0.1")
+    assert is_private_or_local_host("::ffff:10.0.0.1")
+    assert is_private_or_local_host("fd00::1")
+    assert not is_private_or_local_host("8.8.8.8")
+
+
+def test_safe_opener_disables_proxies_and_revalidates_redirects() -> None:
+    handlers = safe_opener_handlers()
+    proxy = next(handler for handler in handlers if isinstance(handler, ProxyHandler))
+    assert proxy.proxies == {}
+    assert any(isinstance(handler, RevalidateRedirectHandler) for handler in handlers)
+
+
+def test_fetch_url_pins_dns_and_refuses_rebinding(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        if port is None:
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.1.1.1", 0))]
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.9", port))]
+
+    connected: list[object] = []
+
+    class GuardSocket:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def settimeout(self, *args):
+            pass
+
+        def bind(self, *args):
+            pass
+
+        def connect(self, address):
+            connected.append(address)
+            raise AssertionError("blocked host must not connect")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("supersocks_url_scraper.ssrf.socket.getaddrinfo", fake_getaddrinfo)
+    monkeypatch.setattr("supersocks_url_scraper.ssrf.socket.socket", GuardSocket)
+    with pytest.raises(FetchError, match=BLOCKED_URL_WARNING):
+        fetch_url("https://files.example/report.pdf")
+    assert connected == []
+
+
+def test_fetch_url_connects_to_validated_public_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.1.1.1", port or 0))]
+
+    connected: list[object] = []
+
+    class StopSocket:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def settimeout(self, *args):
+            pass
+
+        def bind(self, *args):
+            pass
+
+        def connect(self, address):
+            connected.append(address)
+            raise TimeoutError("stop after pin")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("supersocks_url_scraper.ssrf.socket.getaddrinfo", fake_getaddrinfo)
+    monkeypatch.setattr("supersocks_url_scraper.ssrf.socket.socket", StopSocket)
+    with pytest.raises(FetchError, match="fetch failed"):
+        fetch_url("https://news.example/story")
+    assert connected == [("1.1.1.1", 443)]
+
+
+def test_youtube_subtitle_private_resolution_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    connected: list[object] = []
+
+    class GuardSocket:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def settimeout(self, *args):
+            pass
+
+        def connect(self, address):
+            connected.append(address)
+            raise AssertionError("subtitle fetch must not connect")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        "supersocks_url_scraper.ssrf.socket.getaddrinfo",
+        lambda host, port, *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.2.3.4", port or 0))],
+    )
+    monkeypatch.setattr("supersocks_url_scraper.ssrf.socket.socket", GuardSocket)
+    with pytest.raises(ValueError, match="blocked"):
+        _fetch_text("https://cdn.example/captions.vtt", timeout=5)
+    assert connected == []
+
+
+def test_service_mode_skips_cached_cloak(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    calls: list[str] = []
+
+    def boom(*_args, **_kwargs):
+        calls.append("browser")
+        raise AssertionError("browser must not launch")
+
+    monkeypatch.setattr("supersocks_url_scraper.browser_fetcher.fetch_with_cloak", boom)
+
+    def fail_fetch(*_args, **_kwargs):
+        raise FetchError("http failed")
+
+    monkeypatch.setattr(reader, "fetch_url", fail_fetch)
+    cache = tmp_path / "strategies.json"
+    cache.write_text('{"news.example": {"fetch_method": "cloak"}}', encoding="utf-8")
+    result = read_url(
+        "https://news.example/story",
+        allow_browser=False,
+        browser_fallback=True,
+        seo_fallback=False,
+        archive_fallback=False,
+        strategy_cache_path=str(cache),
+        skip_social_routing=True,
+    )
+    assert calls == []
+    assert "browser fallback disabled in service mode" in result["warnings"]
+    assert result["status"] == "error"
 
 
 def test_fetch_with_cloak_rejects_private_url_without_launch(monkeypatch: pytest.MonkeyPatch) -> None:

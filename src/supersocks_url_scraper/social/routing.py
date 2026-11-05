@@ -181,6 +181,7 @@ def try_social_read(
     opencli_fallback: bool | None = None,
     rdt_cli_fallback: bool | None = None,
     rdt_runner: Any | None = None,
+    allow_browser: bool = True,
 ) -> dict[str, Any] | None:
     """Attempt a social-specific read.
 
@@ -215,6 +216,20 @@ def try_social_read(
         )
 
     if platform in CLOAK_FIRST_PLATFORMS:
+        if not allow_browser:
+            from ..reader import BROWSER_DISABLED_IN_SERVICE_WARNING
+
+            return {
+                "url": url,
+                "content_type": "article",
+                "title": None,
+                "summary": "",
+                "length": max(50, min(int(length or 900), 10_000)),
+                "fetch_method": "cloak",
+                "status": "partial",
+                "warnings": [BROWSER_DISABLED_IN_SERVICE_WARNING],
+                "platform": platform,
+            }
         return _cloak_first_social(
             url,
             platform=platform,
