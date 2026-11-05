@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
 
 import pytest
 
-from supersocks_url_scraper import reader
+from supersocks_url_scraper import reader, ssrf
 from supersocks_url_scraper.reader import (
     FetchedResource,
     article_boilerplate_reason,
@@ -86,8 +87,10 @@ class FixtureHandler(BaseHTTPRequestHandler):
 
 @pytest.fixture()
 def fixture_base_url(monkeypatch: pytest.MonkeyPatch) -> str:
-    # Local HTTP fixtures stay on loopback; the live guard would refuse 127.0.0.1.
+    # Local HTTP fixtures stay on loopback. Both the pre-check and the
+    # connect-time pin would refuse 127.0.0.1; this fixture opts out of both.
     monkeypatch.setattr(reader, "url_is_blocked", lambda _url: False)
+    monkeypatch.setattr(ssrf, "_safe_create_connection", socket.create_connection)
     server = ThreadingHTTPServer(("127.0.0.1", 0), FixtureHandler)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()

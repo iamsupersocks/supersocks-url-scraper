@@ -492,24 +492,27 @@ Supported service environment variables:
 
 - `API_BEARER_TOKEN`: optional bearer token for `POST /summarize`, `/read`, and `/markdown`.
 - `DEFAULT_SUMMARY_LENGTH`: default `length` when the request omits it.
-- `BROWSER_FALLBACK`: set to `cloak`/`1`/`true` to enable browser fallback by default.
-- `BROWSER_PROFILE_DIR`: persistent Cloak/Chromium profile directory, useful for sites requiring a warmed/sessioned browser profile.
+- `BROWSER_FALLBACK`: set to `cloak`/`1`/`true` to request browser fallback. In `--serve` mode this does not launch Chromium unless `SERVICE_BROWSER_ENABLED=1`.
+- `SERVICE_BROWSER_ENABLED`: service-mode browser opt-in. Default off. The opt-in keeps only the pre-navigation URL check and is not covered by connection pinning.
+- `BROWSER_PROFILE_DIR`: persistent Cloak/Chromium profile directory, useful for sites requiring a warmed/sessioned browser profile. Service mode reads this from the environment only.
 - `SOCIAL_BROWSER_PROFILE_DIR`: optional social-only Cloak profile (falls back to `BROWSER_PROFILE_DIR`).
 - `CLOAK_HEADLESS` / `BROWSER_HEADLESS` / `SOCIAL_CLOAK_HEADLESS`: default headless; set `0`/`headed` to reuse an existing `DISPLAY`/`WAYLAND_DISPLAY` (Xvfb must already be running — never auto-started).
 - `SOCIAL_OPENCLI_FALLBACK`: opt-in OpenCLI desktop fallback after Cloak-first Instagram/Facebook (`0` by default).
 - `RDT_CLI_FALLBACK`: opt-in rdt-cli fallback after Cloak-first Reddit (`0` by default; never auto-install/auto-cookie).
-- `BROWSER_POST_LOAD_WAIT_MS`: extra wait after DOMContentLoaded for consent/antibot scripts.
-- `BROWSER_MAX_CONCURRENCY`: maximum concurrent CloakBrowser renders in this process. Keep this low; browser rendering is CPU/RAM-heavy.
+- `BROWSER_POST_LOAD_WAIT_MS`: extra wait after DOMContentLoaded for consent/antibot scripts. In service mode a request value is clamped to `0..BROWSER_POST_LOAD_WAIT_MS_MAX` (default max 15000).
+- `BROWSER_POST_LOAD_WAIT_MS_MAX`: operator cap for `browser_post_load_wait_ms`.
+- `BROWSER_MAX_CONCURRENCY`: maximum concurrent CloakBrowser renders in this process. Keep this low; browser rendering is CPU/RAM-heavy. Service mode reads this from the environment only.
 - `ARCHIVE_FALLBACK`: set to `latest`/`1`/`true` to allow public archive/cache fallback by default.
 - `SEO_FALLBACK`: enable/disable SEO-style HTTP variants by default.
 - `JINA_FALLBACK`: opt-in Jina Reader fallback after specialized LinkedIn (or generic last-resort) `error`/`partial` results. Disabled by default. Never used for credentialed, local, or private URLs; never forwards cookies/tokens.
-- `FETCH_STRATEGY_CACHE_PATH`: metadata-only domain strategy cache.
-- `SUMMARY_PROVIDER`: optional summary provider, default `local`. Supports `local`/`extractive`/`none` and generic `http`.
+- `FETCH_STRATEGY_CACHE_PATH`: metadata-only domain strategy cache. Service mode reads this from the environment only.
+- `DOCUMENT_MAX_PAGES`: operator cap for local PDF extraction. Service requests are clamped to `1..DOCUMENT_MAX_PAGES`. The CLI flag `--document-max-pages` is unchanged.
+- `SUMMARY_PROVIDER`: optional summary provider, default `local`. Supports `local`/`extractive`/`none` and generic `http`. Service mode reads the provider settings from the environment only.
 - `SUMMARY_PROVIDER_URL`: endpoint for `SUMMARY_PROVIDER=http`; unset by default.
 - `SUMMARY_PROVIDER_TOKEN`: optional bearer token for the caller's own `http` provider; unset by default. Never logged.
 - `SUMMARY_PROVIDER_TIMEOUT`: timeout in seconds for the optional provider.
 
-Per-request JSON fields still override the environment defaults.
+In `--serve` mode, only the allowlisted per-request fields override defaults: `url`, `length`, `include_content`, `seo_fallback`, `browser_fallback`, `archive_fallback`, `jina_fallback`, `browser_post_load_wait_ms`, and `document_max_pages`. Operator settings come from the environment. See [Service security](#service-security). The one-shot CLI still takes its own flags.
 
 External summary providers are intentionally opt-in. The package ships no API keys and no vendor SDK dependency. The generic HTTP adapter posts `{url,title,content_type,length,content}` to your configured endpoint and accepts JSON `{summary: "..."}` or a plain-text response. If the provider fails, the reader falls back to the local extractive summarizer and includes a warning.
 
@@ -531,7 +534,27 @@ docker compose up -d --build
 curl http://127.0.0.1:8768/health
 ```
 
-The included `docker-compose.yml` binds the service to localhost, mounts `./data` and `./browser-profiles`, enables browser/archive fallback by default, disables core dumps for the service (`ulimits.core` soft/hard = 0), and runs a `/health` healthcheck. For the full public deployment recipe, see [`docs/PUBLIC_DEPLOYMENT.md`](docs/PUBLIC_DEPLOYMENT.md).
+The included `docker-compose.yml` binds the service to localhost, mounts `./data` and `./browser-profiles`, leaves archive/SEO fallback on, leaves the service browser off unless `SERVICE_BROWSER_ENABLED=1`, disables core dumps for the service (`ulimits.core` soft/hard = 0), and runs a `/health` healthcheck. For the full public deployment recipe, including rollback, see [`docs/PUBLIC_DEPLOYMENT.md`](docs/PUBLIC_DEPLOYMENT.md).
+
+## Service security
+
+In `--serve` mode the JSON body is an allowlist: `url`, `length`, `include_content`, `seo_fallback`, `browser_fallback`, `archive_fallback`, `jina_fallback`, `browser_post_load_wait_ms`, and `document_max_pages`. Anything else is ignored. The response `warnings` contain `ignored request key: <name>` (the name is truncated to 64 characters and the value is never echoed). The request still returns its normal status. Paths, browser profiles, concurrency, and summary-provider settings are environment-only, so a caller cannot choose a file path or an outbound relay.
+
+Direct reads refuse non-global destinations: loopback, unspecified, link-local, multicast, RFC1918, CGNAT `100.64.0.0/10`, metadata `169.254.169.254`, IPv6 ULA `fc00::/7`, IPv6 link-local `fe80::/10`, and mapped or tunneled forms (`::ffff:`, IPv4-compatible, NAT64 `64:ff9b::/96`, 6to4, Teredo) when the embedded address is blocked. The check runs again at connect time. If any resolved address is blocked, the socket is not opened. Redirects are checked the same way. These reads ignore `HTTP_PROXY` / `HTTPS_PROXY`. The operator summary-provider URL is exempt.
+
+The browser is off in service mode because Chromium follows redirects and loads subresources on its own resolver; request interception cannot pin that. `SERVICE_BROWSER_ENABLED=1` restores the previous first-URL check only. Cached cloak strategies and Cloak-first social reads then stay skipped, with the warning `browser fallback disabled in service mode`. Archive and HTTP/SEO still run. Some JS-heavy pages come back `partial`. yt-dlp, twitter-cli, opencli, rdt-cli, and Jina remain fixed-host or operator opt-in paths.
+
+### Deploy and roll back
+
+On the host that runs the container:
+
+1. Archive the deployed directory.
+2. `docker tag supersocks-url-scraper:latest supersocks-url-scraper:pre-2219`
+3. Copy this tree in place, keeping `.env`, `data/`, and `browser-profiles/`.
+4. `docker compose build && docker compose up -d`
+5. Check `/health`, a public article, a private literal URL (refused), and a body containing `strategy_cache_path` (ignored, with a warning).
+
+Rollback without a rebuild: `docker tag supersocks-url-scraper:pre-2219 supersocks-url-scraper:latest` then `docker compose up -d`. Restore the archived directory if the copied source must go back too.
 
 Summarize a URL:
 
@@ -541,7 +564,7 @@ curl -s http://127.0.0.1:8768/summarize \
   -d '{"url":"https://example.com/article","length":900}' | jq
 ```
 
-Browser fallback can also be enabled per request:
+`browser_fallback` is accepted per request. Service mode does not launch Chromium unless `SERVICE_BROWSER_ENABLED=1`:
 
 ```bash
 curl -s http://127.0.0.1:8768/summarize \

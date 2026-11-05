@@ -26,11 +26,12 @@ from .documents import (
     provenance_fields,
 )
 from .documents.detect import is_html_magic, is_image_magic
-from .ssrf import BLOCKED_URL_WARNING, RevalidateRedirectHandler, url_is_blocked
+from .ssrf import BLOCKED_URL_WARNING, safe_opener_handlers, url_is_blocked
 
 DEFAULT_TIMEOUT = 20
 MAX_BYTES = 25 * 1024 * 1024
 DEFAULT_USER_AGENT = "supersocks-url-scraper/0.2"
+BROWSER_DISABLED_IN_SERVICE_WARNING = "browser fallback disabled in service mode"
 
 GOOGLEBOT_UA = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
 BINGBOT_UA = "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)"
@@ -301,7 +302,7 @@ def fetch_url(
         raise FetchError(BLOCKED_URL_WARNING)
     request_headers = {"User-Agent": user_agent, "Accept": "*/*", **(headers or {})}
     request = Request(url, headers=request_headers)
-    opener = build_opener(RevalidateRedirectHandler)
+    opener = build_opener(*safe_opener_handlers())
     try:
         with opener.open(request, timeout=timeout) as response:
             raw = response.read(max_bytes + 1)
@@ -773,6 +774,11 @@ def _record_final_strategy(strategy_cache_path: str | None, original_url: str, r
     StrategyCache(strategy_cache_path).record_success(original_url, _fetch_method(resource), detail=detail)
 
 
+def _warn_browser_disabled(warnings: list[str]) -> None:
+    if BROWSER_DISABLED_IN_SERVICE_WARNING not in warnings:
+        warnings.append(BROWSER_DISABLED_IN_SERVICE_WARNING)
+
+
 def _try_browser_resource(
     url: str,
     *,
@@ -783,7 +789,12 @@ def _try_browser_resource(
     browser_post_load_wait_ms: int,
     browser_max_concurrency: int,
     warnings: list[str],
+    allow_browser: bool = True,
 ) -> FetchedResource | None:
+    if not allow_browser:
+        if browser_fallback:
+            _warn_browser_disabled(warnings)
+        return None
     if not browser_fallback:
         return None
     try:
@@ -841,26 +852,31 @@ def _fetch_with_pipeline(
     browser_max_concurrency: int,
     archive_fallback: bool,
     warnings: list[str],
+    allow_browser: bool = True,
 ) -> FetchedResource:
     cache = StrategyCache(strategy_cache_path)
     cached = cache.get(url)
     if cached and cached.fetch_method in {"cloak", "cloak-profile"}:
-        profile = browser_profile_dir if cached.fetch_method == "cloak-profile" else ""
-        warnings.append(f"strategy cache preferred: {cached.fetch_method}")
-        resource = _try_browser_resource(
-            url,
-            timeout=timeout,
-            max_bytes=max_bytes,
-            browser_fallback=True,
-            browser_profile_dir=profile,
-            browser_post_load_wait_ms=browser_post_load_wait_ms,
-            browser_max_concurrency=browser_max_concurrency,
-            warnings=warnings,
-        )
-        if resource is not None:
-            cache.record_success(url, resource.headers.get("x-fetch-method", cached.fetch_method))
-            return resource
-        warnings.append("strategy cache preferred method failed; falling back to full pipeline")
+        if not allow_browser:
+            _warn_browser_disabled(warnings)
+        else:
+            profile = browser_profile_dir if cached.fetch_method == "cloak-profile" else ""
+            warnings.append(f"strategy cache preferred: {cached.fetch_method}")
+            resource = _try_browser_resource(
+                url,
+                timeout=timeout,
+                max_bytes=max_bytes,
+                browser_fallback=True,
+                browser_profile_dir=profile,
+                browser_post_load_wait_ms=browser_post_load_wait_ms,
+                browser_max_concurrency=browser_max_concurrency,
+                warnings=warnings,
+                allow_browser=True,
+            )
+            if resource is not None:
+                cache.record_success(url, resource.headers.get("x-fetch-method", cached.fetch_method))
+                return resource
+            warnings.append("strategy cache preferred method failed; falling back to full pipeline")
     if cached and cached.fetch_method == "seo":
         warnings.append(f"strategy cache preferred: seo/{cached.detail}")
         try:
@@ -902,6 +918,7 @@ def _fetch_with_pipeline(
             browser_post_load_wait_ms=browser_post_load_wait_ms,
             browser_max_concurrency=browser_max_concurrency,
             warnings=warnings,
+            allow_browser=allow_browser,
         )
         if resource is not None:
             cache.record_success(url, resource.headers.get("x-fetch-method", "cloak"))
@@ -935,6 +952,7 @@ def read_url(
     jina_fallback: bool = False,
     skip_social_routing: bool = False,
     document_max_pages: int | None = None,
+    allow_browser: bool = True,
 ) -> dict[str, Any]:
     warnings: list[str] = []
     max_chars = max(50, min(int(length or 900), 10_000))
@@ -967,6 +985,7 @@ def read_url(
                     browser_max_concurrency=max(1, int(browser_max_concurrency or 1)),
                     archive_fallback=archive_fallback,
                     warnings=fetch_warnings,
+                    allow_browser=allow_browser,
                 )
                 return {
                     "final_url": resource.final_url,
@@ -1000,11 +1019,13 @@ def read_url(
                     "summary_provider_token": summary_provider_token,
                     "summary_provider_timeout": summary_provider_timeout,
                     "jina_fallback": False,
+                    "allow_browser": allow_browser,
                 },
                 html_fetcher=_linkedin_html_fetcher if social_platform == "linkedin" else None,
                 browser_profile_dir=browser_profile_dir or "",
                 browser_post_load_wait_ms=browser_post_load_wait_ms,
                 browser_max_concurrency=max(1, int(browser_max_concurrency or 1)),
+                allow_browser=allow_browser,
             )
             if social_result is not None:
                 return social_result
@@ -1023,6 +1044,7 @@ def read_url(
             browser_max_concurrency=max(1, int(browser_max_concurrency or 1)),
             archive_fallback=archive_fallback,
             warnings=warnings,
+            allow_browser=allow_browser,
         )
     except FetchError as exc:
         warning = str(exc) if str(exc) == BLOCKED_URL_WARNING else f"fetch failed: {exc}"

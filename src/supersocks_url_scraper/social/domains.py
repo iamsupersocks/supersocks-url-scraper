@@ -12,6 +12,8 @@ import ipaddress
 import re
 from urllib.parse import urlparse
 
+from ..ssrf import ip_is_blocked
+
 _PLATFORM_ROOTS: dict[str, frozenset[str]] = {
     "youtube": frozenset({"youtube.com", "youtu.be"}),
     "linkedin": frozenset({"linkedin.com"}),
@@ -63,14 +65,7 @@ def is_private_or_local_host(hostname: str | None) -> bool:
         if re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", candidate):
             return True
         return False
-    return bool(
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_multicast
-        or ip.is_reserved
-        or ip.is_unspecified
-    )
+    return ip_is_blocked(ip)
 
 
 def detect_platform(url: str) -> str | None:

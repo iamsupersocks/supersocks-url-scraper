@@ -475,6 +475,36 @@ def test_health_and_openapi_include_reddit(monkeypatch: pytest.MonkeyPatch) -> N
     assert "cloak" in methods
 
 
+def test_service_mode_skips_reddit_cloak_even_with_cached_strategy(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr("supersocks_url_scraper.social.cloak_social.cloakbrowser_available", lambda: True)
+    monkeypatch.delenv("BROWSER_PROFILE_DIR", raising=False)
+    monkeypatch.delenv("SOCIAL_BROWSER_PROFILE_DIR", raising=False)
+
+    def fake_fetch(url, **kwargs):
+        calls.append(url)
+        return FakePage(url, 200, REDDIT_HTML, title="Public Reddit announcement", method="cloak")
+
+    monkeypatch.setattr("supersocks_url_scraper.browser_fetcher.fetch_with_cloak", fake_fetch)
+    cache = tmp_path / "strategies.json"
+    cache.write_text('{"reddit.com": {"fetch_method": "cloak", "success_count": 1}}', encoding="utf-8")
+
+    blocked = read_url(
+        "https://www.reddit.com/r/announcements/",
+        allow_browser=False,
+        browser_fallback=True,
+        strategy_cache_path=str(cache),
+    )
+    assert calls == []
+    assert blocked["status"] == "partial"
+    assert "browser fallback disabled in service mode" in blocked["warnings"]
+
+    allowed = read_url("https://www.reddit.com/r/announcements/", strategy_cache_path=str(cache))
+    assert calls == ["https://www.reddit.com/r/announcements/"]
+    assert allowed["status"] == "ok"
+    assert allowed["fetch_method"] == "cloak"
+
+
 def test_read_url_routes_reddit_cloak(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "supersocks_url_scraper.social.routing.extract_cloak_social",
