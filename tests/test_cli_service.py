@@ -298,3 +298,19 @@ def test_invalid_allowlisted_type_is_rejected(service):
     with pytest.raises(HTTPError) as exc:
         post_json(base, {"url": "https://example.com/article", "length": "nope"})
     assert exc.value.code == 400
+
+
+def test_service_refuses_negative_or_oversized_content_length() -> None:
+    import io
+    from supersocks_url_scraper import cli
+
+    for value in ("-1", str(cli.MAX_REQUEST_BYTES + 1)):
+        handler = cli.Handler.__new__(cli.Handler)
+        handler.headers = {"content-length": value}
+        handler.rfile = io.BytesIO(b"{}")
+        try:
+            handler._read_payload()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"content-length {value} was accepted")

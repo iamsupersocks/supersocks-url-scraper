@@ -329,3 +329,62 @@ def test_fetch_with_cloak_rejects_private_url_without_launch(monkeypatch: pytest
     monkeypatch.setattr("supersocks_url_scraper.browser_fetcher._browser_semaphore", boom)
     with pytest.raises(BrowserFetchError, match=BLOCKED_URL_WARNING):
         fetch_with_cloak("http://169.254.169.254/")
+
+
+def test_https_handler_passes_only_context_to_do_open(monkeypatch) -> None:
+    """Python 3.12 has no HTTPSHandler._check_hostname nor check_hostname kwarg."""
+    from supersocks_url_scraper import ssrf
+
+    seen = {}
+
+    def fake_do_open(self, conn_class, req, **kwargs):
+        seen["conn"] = conn_class
+        seen["kwargs"] = kwargs
+        return "ok"
+
+    monkeypatch.setattr(ssrf.SafeHTTPSHandler, "do_open", fake_do_open)
+    handler = ssrf.SafeHTTPSHandler()
+    if hasattr(handler, "_check_hostname"):
+        monkeypatch.delattr(handler, "_check_hostname", raising=False)
+    assert handler.https_open(object()) == "ok"
+    assert seen["conn"] is ssrf._SafeHTTPSConnection
+    assert set(seen["kwargs"]) == {"context"}
+
+
+def test_pinned_connection_falls_back_to_next_checked_address(monkeypatch) -> None:
+    import socket as socket_mod
+    from supersocks_url_scraper import ssrf
+
+    infos = [
+        (socket_mod.AF_INET6, socket_mod.SOCK_STREAM, 6, "", ("2606:4700::1111", 80, 0, 0)),
+        (socket_mod.AF_INET, socket_mod.SOCK_STREAM, 6, "", ("93.184.216.34", 80)),
+    ]
+    monkeypatch.setattr(ssrf.socket, "getaddrinfo", lambda *a, **k: infos)
+    attempts = []
+
+    class FakeSocket:
+        def __init__(self, family, socktype, proto):
+            self.family = family
+
+        def settimeout(self, value):
+            pass
+
+        def bind(self, addr):
+            pass
+
+        def connect(self, sockaddr):
+            attempts.append(sockaddr[0])
+            if self.family == socket_mod.AF_INET6:
+                raise OSError("network unreachable")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(ssrf.socket, "socket", FakeSocket)
+    sock = ssrf._safe_create_connection(("example.com", 80), timeout=5)
+    assert isinstance(sock, FakeSocket)
+    assert attempts == ["2606:4700::1111", "93.184.216.34"]
+
+
+def test_ipv6_site_local_is_blocked() -> None:
+    assert ip_is_blocked(ipaddress.ip_address("fec0::1"))

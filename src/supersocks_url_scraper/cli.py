@@ -233,8 +233,13 @@ def openapi_payload() -> dict:
     }
 
 
+MAX_REQUEST_BYTES = 65536
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "supersocks-url-scraper/0.2"
+    # A client that stops sending cannot hold a handler thread forever.
+    timeout = 30
 
     def _json(self, code: int, payload: dict) -> None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -263,7 +268,9 @@ class Handler(BaseHTTPRequestHandler):
         self._json(404, {"ok": False, "error": "not found"})
 
     def _read_payload(self) -> dict:
-        size = min(int(self.headers.get("content-length", "0") or 0), 65536)
+        size = int(self.headers.get("content-length", "0") or 0)
+        if size < 0 or size > MAX_REQUEST_BYTES:
+            raise ValueError("request body size out of range")
         return json.loads(self.rfile.read(size).decode("utf-8"))
 
     def _authorized(self) -> bool:

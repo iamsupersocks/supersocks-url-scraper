@@ -60,6 +60,7 @@ def _literal_is_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bo
         or ip.is_link_local
         or ip.is_private
         or ip.is_reserved
+        or (isinstance(ip, ipaddress.IPv6Address) and ip.is_site_local)
     )
 
 
@@ -139,18 +140,25 @@ def _safe_create_connection(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, sou
             raise URLError(BLOCKED_URL_WARNING) from exc
         if ip_is_blocked(ip):
             raise URLError(BLOCKED_URL_WARNING)
-    family, socktype, proto, _canon, sockaddr = infos[0]
-    sock = socket.socket(family, socktype, proto)
-    try:
-        if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
-            sock.settimeout(timeout)
-        if source_address:
-            sock.bind(source_address)
-        sock.connect(sockaddr)
-    except Exception:
-        sock.close()
-        raise
-    return sock
+    # Every address was checked above; try them in order like create_connection.
+    last_error: OSError | None = None
+    for family, socktype, proto, _canon, sockaddr in infos:
+        sock = socket.socket(family, socktype, proto)
+        try:
+            if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
+                sock.settimeout(timeout)
+            if source_address:
+                sock.bind(source_address)
+            sock.connect(sockaddr)
+        except OSError as exc:
+            sock.close()
+            last_error = exc
+            continue
+        except Exception:
+            sock.close()
+            raise
+        return sock
+    raise last_error if last_error is not None else URLError(BLOCKED_URL_WARNING)
 
 
 class _SafeHTTPConnection(http.client.HTTPConnection):
@@ -172,12 +180,9 @@ class SafeHTTPHandler(HTTPHandler):
 
 class SafeHTTPSHandler(HTTPSHandler):
     def https_open(self, req):
-        return self.do_open(
-            _SafeHTTPSConnection,
-            req,
-            context=self._context,
-            check_hostname=self._check_hostname,
-        )
+        # Python 3.12 dropped HTTPSHandler._check_hostname and the
+        # check_hostname argument; hostname checking lives on the context.
+        return self.do_open(_SafeHTTPSConnection, req, context=self._context)
 
 
 def safe_opener_handlers():
