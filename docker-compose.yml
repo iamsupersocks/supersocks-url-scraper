@@ -4,7 +4,11 @@ services:
       context: .
       args:
         INSTALL_EXTRAS: full,browser
-        PREWARM_BROWSER: "1"
+        # cloakbrowser 0.7+ needs a license key to download Chromium at build
+        # time. The service keeps the browser off (SERVICE_BROWSER_ENABLED=0),
+        # so the default build skips the download. Set PREWARM_BROWSER=1 with a
+        # license configured to bake Chromium in.
+        PREWARM_BROWSER: "${PREWARM_BROWSER:-0}"
     image: supersocks-url-scraper:latest
     restart: unless-stopped
     # Disable core dumps for the scraper service (soft=0 hard=0).
